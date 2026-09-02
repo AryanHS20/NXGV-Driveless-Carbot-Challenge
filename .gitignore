@@ -1,0 +1,31 @@
+build/
+install/
+log/
+.vscode/
+**/*.pyc
+__pycache__/
+*.egg-info/
+dist/
+.eggs/
+*.DS_Store
+FYP2_README.md
+/src/ros2_astra_camera/COLCON_IGNORE
+/src/ydlidar_ros2_driver/COLCON_IGNORE
+tools/deploy_to_robots.py
+
+# Large AI Model & Calibration Files
+tools/bpu_model/best.onnx
+tools/bpu_model/calibration_data/
+tools/bpu_model/model_output/main_graph_subgraph_0.html
+
+# Administrative guides
+Workshop/git_push_guide.md
+Workshop/notebookllm_slide_prep.md
+Workshop/workshop_plan.md
+
+# Developer utility and diagnostic tools
+tools/rewrite_dash.py
+tools/extract_html.py
+tools/test_motors.py
+tools/pid_logger.py
+
