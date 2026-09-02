@@ -77,14 +77,13 @@ def vfh_smooth(sector_density: list) -> list:
 
 # ──────────────────────────────────────────────────────────────────────────────
 # 4. 3rd-Order Bezier Spline Generation
-# ──────────────────────────────────────────────────────────────────────────────
-
 def eval_bezier(t: float, lat_m: float, len_m: float):
     t = max(0.0, min(1.0, t))
     omt = 1.0 - t
+    scale_lat = (4.0 / 3.0) * lat_m
     p0 = (0.0, 0.0)
-    p1 = (lat_m, 0.33 * len_m)
-    p2 = (lat_m, 0.66 * len_m)
+    p1 = (scale_lat, 0.33 * len_m)
+    p2 = (scale_lat, 0.66 * len_m)
     p3 = (0.0, len_m)
 
     x = (omt**3)*p0[0] + 3*(omt**2)*t*p1[0] + 3*omt*(t**2)*p2[0] + (t**3)*p3[0]
@@ -166,8 +165,9 @@ class TestPathPlanning(unittest.TestCase):
         self.assertAlmostEqual(x1, 0.0, delta=1e-3)
         self.assertAlmostEqual(y1, 0.80, delta=1e-3)
 
-        x_mid, y_mid, tangent = eval_bezier(0.55, lat_offset, spline_len)
-        self.assertGreaterEqual(x_mid, 0.10)
+        x_mid, y_mid, tangent = eval_bezier(0.50, lat_offset, spline_len)
+        self.assertAlmostEqual(x_mid, 0.18, delta=1e-3)  # apex displacement exactly equals lateral_offset_m (18cm)
+        self.assertGreaterEqual(x_mid, 0.15)              # strictly >= 15cm lateral clearance spec
         self.assertTrue(0.20 <= y_mid <= 0.60)
         self.assertIsInstance(tangent, float)
 

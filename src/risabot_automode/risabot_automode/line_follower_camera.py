@@ -597,11 +597,20 @@ class LineFollowerCamera(Node):
                     # Normalize to [-1.0, 1.0] across max steering (~35 deg / 0.61 rad)
                     raw_error = float(np.clip((steer_rad / 0.61) * float(self._param_cache['pp_steering_gain']), -1.0, 1.0))
 
-                    # Publish road curvature for adaptive speed regulation
+                    # Publish exact road curvature across lookahead horizon for anticipatory speed regulation
                     a_coeff = poly_fitted[0]
                     b_coeff = poly_fitted[1]
-                    kappa_poly = float(abs(2.0 * a_coeff) / ((1.0 + b_coeff**2)**1.5))
-                    self.curvature_pub.publish(Float32(data=kappa_poly))
+                    # Exact curvature formula: kappa(y) = |2a| / (1 + (2ay + b)^2)^1.5
+                    def exact_curv(y_pos: float) -> float:
+                        slope = 2.0 * a_coeff * y_pos + b_coeff
+                        return float(abs(2.0 * a_coeff) / ((1.0 + slope**2)**1.5))
+
+                    # Sample at robot base (y=0), mid-horizon, and lookahead point (y=y_L)
+                    kappa_base = exact_curv(0.0)
+                    kappa_mid = exact_curv(0.5 * y_L)
+                    kappa_lookahead = exact_curv(y_L)
+                    kappa_max = max(kappa_base, kappa_mid, kappa_lookahead)
+                    self.curvature_pub.publish(Float32(data=kappa_max))
                 else:
                     # Fallback weighted average
                     total_weight = sum(scan_weights)

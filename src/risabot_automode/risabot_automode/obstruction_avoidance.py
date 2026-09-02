@@ -185,16 +185,18 @@ class ObstructionAvoidance(Node):
         """
         Evaluate 3rd-order Bezier curve B(t) = (x(t), y(t)) and tangent angle psi(t).
         P0 = (0, 0)
-        P1 = (lat_m, 0.33 * len_m)
-        P2 = (lat_m, 0.66 * len_m)
+        P1 = (4/3 * lat_m, 0.33 * len_m)
+        P2 = (4/3 * lat_m, 0.66 * len_m)
         P3 = (0, len_m)
+        This ensures apex displacement at t=0.5 is exactly equal to lat_m (e.g. 0.18m >= 15cm).
         """
         t = max(0.0, min(1.0, t))
         omt = 1.0 - t
+        scale_lat = (4.0 / 3.0) * lat_m
 
         p0 = (0.0, 0.0)
-        p1 = (lat_m, 0.33 * len_m)
-        p2 = (lat_m, 0.66 * len_m)
+        p1 = (scale_lat, 0.33 * len_m)
+        p2 = (scale_lat, 0.66 * len_m)
         p3 = (0.0, len_m)
 
         # Position (x lateral, y forward)

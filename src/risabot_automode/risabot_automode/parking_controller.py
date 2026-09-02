@@ -48,22 +48,36 @@ class ParkingPhase(Enum):
     DONE = 10
 
 
-class ParkingController(Node):
-    """Odometry-based parking controller with signboard detection."""
+    """
+    Closed-Loop Parking Controller with LiDAR Proximity and Odometry Sequencing.
+
+    Track Spec Dimensions:
+      - Parallel Parking Slot:      0.75m length x 0.40m width
+      - Perpendicular Parking Slot:  0.40m width x 0.40m depth
+
+    Controller Distances:
+      - parallel_forward_dist:  0.30m (drive past slot entrance to align for reverse)
+      - parallel_reverse_dist:  0.35m (maneuver travel distance reversing into the 0.75m slot)
+      - perp_forward_dist:      0.25m (maneuver travel distance driving into the 0.40m slot)
+      - lidar_stop_dist:        0.15m (closed-loop safety proximity stop: terminates movement
+                                       immediately if LiDAR detects bumper is <=15cm from slot wall)
+    """
 
     def __init__(self):
         super().__init__('parking_controller')
 
         # --- Parameters ---
-        self.declare_parameter('parallel_forward_dist', 0.30)   # m to drive past slot
-        self.declare_parameter('parallel_reverse_dist', 0.35)   # m to reverse into slot
+        # 1. Maneuver travel distances (relative to slot dimensions: 0.75m parallel / 0.40m perp)
+        self.declare_parameter('parallel_forward_dist', 0.30)   # m forward past slot
+        self.declare_parameter('parallel_reverse_dist', 0.35)   # m reverse travel into 0.75m slot
         self.declare_parameter('parallel_steer_angle', 0.6)     # rad/s angular during reverse
         self.declare_parameter('perp_turn_angle', 1.57)         # ~90° turn
-        self.declare_parameter('perp_forward_dist', 0.25)       # m into slot
+        self.declare_parameter('perp_forward_dist', 0.25)       # m forward travel into 0.40m slot
         self.declare_parameter('park_wait_time', 3.0)           # seconds to wait in slot
         self.declare_parameter('drive_speed', 0.15)             # m/s linear speed
         self.declare_parameter('reverse_speed', -0.12)          # m/s reverse speed
-        self.declare_parameter('lidar_stop_dist', 0.15)         # m from back wall to stop
+        # 2. Closed-loop wall proximity trigger (independent of maneuver distance)
+        self.declare_parameter('lidar_stop_dist', 0.15)         # m from physical bounding wall to trigger stop
         self.declare_parameter('lidar_angle_offset', 3.1416)    # 180° mount correction
         self._param_cache: Dict[str, object] = {}
         self._update_param_cache()
