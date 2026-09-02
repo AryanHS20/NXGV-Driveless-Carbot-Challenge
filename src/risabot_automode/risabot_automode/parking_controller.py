@@ -48,6 +48,7 @@ class ParkingPhase(Enum):
     DONE = 10
 
 
+class ParkingController(Node):
     """
     Closed-Loop Parking Controller with LiDAR Proximity and Odometry Sequencing.
 

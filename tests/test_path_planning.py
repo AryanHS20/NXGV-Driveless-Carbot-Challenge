@@ -171,6 +171,37 @@ class TestPathPlanning(unittest.TestCase):
         self.assertTrue(0.20 <= y_mid <= 0.60)
         self.assertIsInstance(tangent, float)
 
+    def test_curvature_inflection_point_detection(self):
+        """Verify analytical y* = -b/(2a) finds exact peak curvature within [0, y_L]."""
+        # Parabola: x = 1.2*y^2 - 0.6*y + 0.1
+        # Inflection point y* = -(-0.6) / (2*1.2) = 0.25 (within typical lookahead 0.0-0.7)
+        a, b = 1.2, -0.6
+        y_L = 0.7
+
+        def exact_curv(y_pos):
+            slope = 2.0 * a * y_pos + b
+            return abs(2.0 * a) / ((1.0 + slope**2)**1.5)
+
+        # At y* = 0.25, slope = 2*1.2*0.25 + (-0.6) = 0.0, so kappa = |2a| = 2.4
+        y_star = -b / (2.0 * a)
+        self.assertAlmostEqual(y_star, 0.25, delta=1e-6)
+        self.assertTrue(0.0 <= y_star <= y_L)
+
+        kappa_peak = exact_curv(y_star)
+        self.assertAlmostEqual(kappa_peak, abs(2.0 * a), delta=1e-6)  # = 2.4
+
+        # Confirm endpoints have strictly lower curvature than the inflection point
+        kappa_0 = exact_curv(0.0)
+        kappa_yL = exact_curv(y_L)
+        self.assertGreater(kappa_peak, kappa_0)
+        self.assertGreater(kappa_peak, kappa_yL)
+
+        # Confirm the 3-point fixed sampling (0, 0.5*y_L, y_L) would miss the true peak
+        kappa_mid_sample = exact_curv(0.5 * y_L)
+        kappa_3pt_max = max(kappa_0, kappa_mid_sample, kappa_yL)
+        self.assertGreater(kappa_peak, kappa_3pt_max,
+                           "Analytical y* must find a higher curvature than 3-point fixed sampling")
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -597,19 +597,22 @@ class LineFollowerCamera(Node):
                     # Normalize to [-1.0, 1.0] across max steering (~35 deg / 0.61 rad)
                     raw_error = float(np.clip((steer_rad / 0.61) * float(self._param_cache['pp_steering_gain']), -1.0, 1.0))
 
-                    # Publish exact road curvature across lookahead horizon for anticipatory speed regulation
+                    # Publish exact peak road curvature across lookahead horizon [0, y_L]
                     a_coeff = poly_fitted[0]
                     b_coeff = poly_fitted[1]
                     # Exact curvature formula: kappa(y) = |2a| / (1 + (2ay + b)^2)^1.5
+                    # Peak curvature occurs at y* = -b/(2a) where slope = 0, giving kappa = |2a|
                     def exact_curv(y_pos: float) -> float:
                         slope = 2.0 * a_coeff * y_pos + b_coeff
                         return float(abs(2.0 * a_coeff) / ((1.0 + slope**2)**1.5))
 
-                    # Sample at robot base (y=0), mid-horizon, and lookahead point (y=y_L)
-                    kappa_base = exact_curv(0.0)
-                    kappa_mid = exact_curv(0.5 * y_L)
-                    kappa_lookahead = exact_curv(y_L)
-                    kappa_max = max(kappa_base, kappa_mid, kappa_lookahead)
+                    kappa_candidates = [exact_curv(0.0), exact_curv(y_L)]
+                    # Analytically find inflection point y* where curvature is maximized
+                    if abs(a_coeff) > 1e-6:
+                        y_star = -b_coeff / (2.0 * a_coeff)
+                        if 0.0 <= y_star <= y_L:
+                            kappa_candidates.append(exact_curv(y_star))  # = |2a|, the absolute peak
+                    kappa_max = max(kappa_candidates)
                     self.curvature_pub.publish(Float32(data=kappa_max))
                 else:
                     # Fallback weighted average
