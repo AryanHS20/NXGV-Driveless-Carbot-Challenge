@@ -38,8 +38,8 @@ class BoomGateDetector(Node):
         # at roughly the same distance, it's a gate
         self.declare_parameter('min_gate_points', 5)       # min points forming gate
         self.declare_parameter('distance_variance_max', 0.05)  # points must be at similar dist
-        # Lidar mount offset (same 90° correction as obstacle_avoidance)
-        self.declare_parameter('lidar_angle_offset', 1.5708)  # pi/2
+        # Lidar mount offset (same 180° correction as obstruction_avoidance)
+        self.declare_parameter('lidar_angle_offset', 3.1416)  # pi (180° backward mount correction)
         self.declare_parameter('hysteresis', 3)
         self.declare_parameter('heartbeat_sec', 0.5)
         self._param_cache: Dict[str, object] = {}
