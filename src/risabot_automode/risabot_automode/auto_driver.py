@@ -127,7 +127,6 @@ class AutoDriver(Node):
         self._prev_angular_z = 0.0  # steering slew rate state
 
         # Tunable parameters
-        self.declare_parameter('steering_gain', 1.0)   # legacy — kept for compatibility
         self.declare_parameter('forward_speed', 0.12)  # m/s maximum forward speed (straight)
         self.declare_parameter('stale_timeout', 3.0)   # seconds before treating module data as stale
         self.declare_parameter('max_odom_speed', 1.0)  # ignore odom speed spikes beyond this
@@ -172,10 +171,9 @@ class AutoDriver(Node):
         # When primed by the hill sign, the effective pitch threshold is reduced by this amount
         self.declare_parameter('hill_sign_prime_threshold_reduction', 3.0)
 
-        # Challenge sequencing — time-based gating
-        self.declare_parameter('t_post_obstacle_sec', 1.5)  # delay after obstacle clears before entering roundabout
-        self.declare_parameter('t_roundabout_sec', 8.0)      # time to traverse roundabout arc
-        self.distance_past_light = 0.0
+        # Challenge sequencing — distance-based gating
+        self.declare_parameter('dist_post_obstacle_clear', 0.3)
+        self.declare_parameter('dist_roundabout', 1.5)
         self._param_cache: Dict[str, object] = {}
         self._update_param_cache()
         self.add_on_set_parameters_callback(self._on_params)
@@ -203,9 +201,10 @@ class AutoDriver(Node):
 
         # Transition tracking
         self.state_entry_time = time.monotonic()
+        self.state_entry_dist = 0.0
 
         # Challenge sequencing state
-        self._obs_cleared_time: float = 0.0    # monotonic timestamp when obstruction cleared
+        self._obs_cleared_dist = None           # odometry distance when obstruction cleared
         self._obs_was_active: bool = False      # edge detector for obstruction_active
         self._boom_gate_armed: bool = False     # True after roundabout exit
         self._tl_armed: bool = False            # True after tunnel exit
@@ -314,7 +313,6 @@ class AutoDriver(Node):
     def _update_param_cache(self) -> None:
         """Cache frequently used parameters to avoid per-loop lookups."""
         self._param_cache = {
-            'steering_gain': float(self.get_parameter('steering_gain').value),
             'forward_speed': float(self.get_parameter('forward_speed').value),
             'stale_timeout': float(self.get_parameter('stale_timeout').value),
             'dist_lap_complete': float(self.get_parameter('dist_lap_complete').value),
@@ -334,8 +332,8 @@ class AutoDriver(Node):
             'min_turn_speed':    float(self.get_parameter('min_turn_speed').value),
             'lane_steer_slew':   float(self.get_parameter('lane_steer_slew').value),
             # Challenge sequencing
-            't_post_obstacle_sec': float(self.get_parameter('t_post_obstacle_sec').value),
-            't_roundabout_sec':    float(self.get_parameter('t_roundabout_sec').value),
+            'dist_post_obstacle_clear': float(self.get_parameter('dist_post_obstacle_clear').value),
+            'dist_roundabout':          float(self.get_parameter('dist_roundabout').value),
             # Hill Climb
             'hill_pitch_threshold':           float(self.get_parameter('hill_pitch_threshold').value),
             'hill_pitch_hysteresis':          float(self.get_parameter('hill_pitch_hysteresis').value),
@@ -519,11 +517,11 @@ class AutoDriver(Node):
         self._parking_done = False
         self._boom_gate_armed = False
         self._tl_armed = False
-        self._obs_cleared_time = 0.0
+        self._obs_cleared_dist = None
         self._obs_was_active = False
         self.distance = 0.0
-        self.distance_past_light = 0.0
         self.state_entry_time = time.monotonic()
+        self.state_entry_dist = 0.0
         self.stop_reason = ''
 
     def set_lap_1(self) -> None:
@@ -544,11 +542,11 @@ class AutoDriver(Node):
         self._parking_done = False
         self._boom_gate_armed = False
         self._tl_armed = False
-        self._obs_cleared_time = 0.0
+        self._obs_cleared_dist = None
         self._obs_was_active = False
         self.distance = 0.0
-        self.distance_past_light = 0.0
         self.state_entry_time = time.monotonic()
+        self.state_entry_dist = 0.0
         self.stop_reason = ''
 
 
@@ -634,6 +632,7 @@ class AutoDriver(Node):
         if not self.in_auto_mode:
             if self.state != ChallengeState.MANUAL:
                 self.state_entry_time = time.monotonic()
+                self.state_entry_dist = self.distance
             self.state = ChallengeState.MANUAL
             self.stop_reason = 'MANUAL MODE'
             self._publish_dash_state()
@@ -650,7 +649,7 @@ class AutoDriver(Node):
             self.boom_gate_open = True
 
         # Lap Sequence Tracking (trigger Lap 2 immediately on green light from AI signage detector)
-        if self.current_lap == 1:
+        if self.current_lap == 1 and self._tl_armed and self.distance > 5.0:
             if self.traffic_light_state == 'green':
                 self.get_logger().info('Green light detected -> starting Lap 2')
                 self.current_lap = 2
@@ -665,7 +664,7 @@ class AutoDriver(Node):
                 # Reset sequencing flags for Lap 2
                 self._boom_gate_armed = False
                 self._tl_armed = False
-                self._obs_cleared_time = 0.0
+                self._obs_cleared_dist = None
                 self._obs_was_active = False
 
 
@@ -674,7 +673,7 @@ class AutoDriver(Node):
             self._obs_was_active = True
         elif self._obs_was_active:
             # Falling edge: obstacle just cleared
-            self._obs_cleared_time = time.monotonic()
+            self._obs_cleared_dist = self.distance
             self._obs_was_active = False
             self.get_logger().info('Obstruction cleared → roundabout countdown started')
 
@@ -702,14 +701,8 @@ class AutoDriver(Node):
 
         # --- Priority Evaluation Engine (Sequenced) ---
 
-        # Priority 1: Terminal (Finished) — REMOVED
-        # The robot resumes LANE_FOLLOW after parking playback completes.
-        # Use reset_competition() or set_lap_2() to reset the session.
-        if False:  # placeholder — keeps elif chain valid
-            pass
-
         # Priority 2: Hard Safety (E-Stop)
-        elif self.cmd_safety_estop:
+        if self.cmd_safety_estop:
             target_state = ChallengeState.EMERGENCY_STOP
             self.stop_reason = 'E-STOP ACTIVE'
 
@@ -725,20 +718,20 @@ class AutoDriver(Node):
             cmd.linear.x = -self._param_cache['forward_speed'] * 0.8
             cmd.angular.z = 0.0
 
-        # Priority 4: Roundabout — Challenge 2 (time-gated)
-        elif (self._obs_cleared_time > 0
+        # Priority 4: Roundabout — Challenge 2 (distance-gated)
+        elif (self._obs_cleared_dist is not None
               and not self._boom_gate_armed
-              and (time.monotonic() - self._obs_cleared_time) >= self._param_cache['t_post_obstacle_sec']):
+              and (self.distance - self._obs_cleared_dist) >= self._param_cache['dist_post_obstacle_clear']):
             target_state = ChallengeState.ROUNDABOUT
             cmd = self._lane_follow_cmd()  # Roundabout has painted lane lines
-            # Check exit: dwell time expired
+            # Check exit: dwell distance expired
             if self.state == ChallengeState.ROUNDABOUT:
-                time_in_roundabout = time.monotonic() - self.state_entry_time
-                if time_in_roundabout >= self._param_cache['t_roundabout_sec']:
+                dist_in_roundabout = self.distance - self.state_entry_dist
+                if dist_in_roundabout >= self._param_cache['dist_roundabout']:
                     target_state = ChallengeState.LANE_FOLLOW
                     cmd = self._lane_follow_cmd()
                     self._boom_gate_armed = True
-                    self._obs_cleared_time = 0.0  # prevent re-entry
+                    self._obs_cleared_dist = None  # prevent re-entry
                     self.get_logger().info('Roundabout complete → boom gate armed')
 
         # Priority 5: Parking — Lap 2 only, triggered by parking sign detection
@@ -854,8 +847,11 @@ class AutoDriver(Node):
             )
             if allow_switch:
                 self.get_logger().info(f'Behavior switch: {self.state.name} -> {target_state.name}')
+                if target_state == ChallengeState.LANE_FOLLOW:
+                    self._pid_integral = 0.0
                 self.state = target_state
                 self.state_entry_time = now
+                self.state_entry_dist = self.distance
             else:
                 target_state = self.state
                 cmd = self.last_cmd
@@ -896,8 +892,6 @@ class AutoDriver(Node):
             return
         d = v * dt
         self.distance += d
-        if self.lap_1_complete:
-            self.distance_past_light += max(0.0, d)
 
     # Serial reader removed (moved to servo_controller)
 

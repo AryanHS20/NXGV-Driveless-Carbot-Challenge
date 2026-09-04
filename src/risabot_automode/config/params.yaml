@@ -21,7 +21,6 @@ auto_driver:
     max_odom_speed: 1.0
     min_state_dwell_sec: 0.25
     publish_loop_stats: true
-    steering_gain: 1.0           # legacy, kept for compatibility
     # PID gains (conservative — increase kp once tracking is reliable)
     pid_kp: 0.8
     pid_ki: 0.01
@@ -31,9 +30,9 @@ auto_driver:
     speed_error_scale: 1.5
     min_turn_speed: 0.4
     lane_steer_slew: 3.0         # max angular.z change per second (Cytron acceleration limit)
-    # Challenge 1→2 sequencing (time-based gating)
-    t_post_obstacle_sec: 1.5     # re-center delay after obstacle clears (before roundabout)
-    t_roundabout_sec: 8.0        # time inside roundabout before exiting
+    # Challenge 1→2 sequencing (distance-based gating)
+    dist_post_obstacle_clear: 0.3     # re-center dist after obstacle clears (before roundabout)
+    dist_roundabout: 1.5              # dist inside roundabout before exiting
     # ── Hill Climbing Mode (Challenge 5) ──────────────────────────────────
     # TUNING GUIDE:
     #   hill_pitch_threshold   : IMU pitch (deg) to enter HILL state. Start at 8-10°.

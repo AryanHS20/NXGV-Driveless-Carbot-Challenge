@@ -1,0 +1,5 @@
+/**:
+  ros__parameters:
+    # Overrides for Gazebo simulation
+    # e.g. forward_speed: 0.1
+    use_sim_time: true

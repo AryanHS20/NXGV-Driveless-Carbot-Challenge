@@ -576,7 +576,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
     color: #81c784;
   }
   .flow-node.done::after {
-    content: 'âœ“';
+    content: '✓';
     position: absolute;
     top: -4px; right: -4px;
     width: 14px; height: 14px;
@@ -1171,7 +1171,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 
   </div>
 
-  <!-- ===== CENTER COLUMN â€” CAMERA ===== -->
+  <!-- ===== CENTER COLUMN — CAMERA ===== -->
   <div class="col">
     <div class="card cam-card">
       <h3>Camera Feed</h3>
@@ -1657,7 +1657,7 @@ function update() {
       }
 
       const gD=document.getElementById('dotGate'),gV=document.getElementById('valGate');
-      if(d.boom_gate===null){gD.className='dot dot-gray';gV.textContent='â€”';}
+      if(d.boom_gate===null){gD.className='dot dot-gray';gV.textContent='—';}
       else{gD.className=d.boom_gate?'dot dot-green':'dot dot-red';gV.textContent=d.boom_gate?'OPEN':'CLOSED';}
 
       // Lane
@@ -1684,7 +1684,7 @@ function update() {
       });
       document.getElementById('ctrlState').textContent = d.ctrl_state_name;
 
-      // Controller buttons â€” Updated to match user's specific mapping:
+      // Controller buttons — Updated to match user's specific mapping:
       // A=0, B=1, X=3, Y=4, LB=6, RB=7, Start=11
       const bm={0:'btnA',1:'btnB',3:'btnX',4:'btnY',6:'btnLB',7:'btnRB',8:'btnLT',9:'btnRT',11:'btnStart'};
       Object.values(bm).forEach(id=>document.getElementById(id).classList.remove('active'));
@@ -1814,7 +1814,7 @@ const PARAM_TIPS = {
   error_decay_rate:'Per-frame decay for held error (0.92 = halves in ~9 frames)',
   debug_print_rate:'Seconds between console debug prints',
   // Auto driver
-  steering_gain:'Lane steering gain (legacy)', forward_speed:'Max forward speed (m/s) — on a straight',
+  forward_speed:'Max forward speed (m/s) — on a straight',
   stale_timeout:'Seconds before module data is stale', dist_lap_complete:'Distance after green to mark lap',
   enable_subsumption_obstacle:'Enable fused obstacle reverse adjust', max_odom_speed:'Ignore odom speed spikes above this',
   min_state_dwell_sec:'Minimum hold time for non-emergency behavior switches',
@@ -1881,8 +1881,8 @@ const PARAM_TIPS = {
   ticks_per_meter:'Encoder ticks per meter', odom_distance_scale:'Extra distance calibration multiplier',
   drive_motor_index:'Which motor encoder channel to use (0=FL 1=FR 2=RL 3=RR)',
   // Challenge sequencing
-  t_post_obstacle_sec:'Lane-follow delay after obstacle clears before entering roundabout (sec)',
-  t_roundabout_sec:'Time to traverse the roundabout arc before exiting (sec)',
+  dist_post_obstacle_clear:'Lane-follow distance after obstacle clears before entering roundabout (m)',
+  dist_roundabout:'Distance to traverse the roundabout arc before exiting (m)',
   odom_yaw_scale:'Extra yaw calibration multiplier', encoder_jump_threshold:'Reject tick jumps above this',
   max_linear_velocity:'Clamp linear odom speed', max_angular_velocity:'Clamp angular odom speed',
   odom_reverse_polarity:'Invert encoder odom sign if needed', odom_velocity_deadband:'Zero odom near standstill',
@@ -1935,7 +1935,7 @@ const PARAM_GROUPS = [
     'min_state_dwell_sec','publish_loop_stats',
     'pid_kp','pid_ki','pid_kd','pid_integral_max',
     'speed_error_scale','min_turn_speed','lane_steer_slew',
-    't_post_obstacle_sec','t_roundabout_sec'
+    'dist_post_obstacle_clear','dist_roundabout'
   ]},
   { node: 'cmd_safety_controller', label: 'Cmd Safety', params: [
     'publish_hz','cmd_timeout','max_linear_speed','max_angular_speed',
@@ -2051,7 +2051,7 @@ async function getParam(node, param, isInitialLoad=false) {
           }
         }
       }
-      if (status && !isInitialLoad) { status.className = 'param-status ok'; status.textContent = 'âœ“'; }
+      if (status && !isInitialLoad) { status.className = 'param-status ok'; status.textContent = '✓'; }
     } else {
       if (status && !isInitialLoad) { status.className = 'param-status err'; status.textContent = d.error || 'Not found'; }
     }
@@ -2076,7 +2076,7 @@ async function setParam(node, param) {
     });
     const d = await r.json();
     if (d.ok) {
-      if (status) { status.className = 'param-status ok'; status.textContent = 'âœ“ Set'; }
+      if (status) { status.className = 'param-status ok'; status.textContent = '✓ Set'; }
     } else {
       if (status) { status.className = 'param-status err'; status.textContent = d.error || 'Failed'; }
     }
@@ -2100,24 +2100,24 @@ async function saveDefaults() {
     const d = await r.json();
     if (d.ok) {
       btn.className = 'param-save-defaults-btn success';
-      btn.textContent = 'âœ“ Saved!';
+      btn.textContent = '✓ Saved!';
       status.style.color = 'var(--success)';
       status.textContent = d.msg || `${d.updated} params updated`;
     } else {
       btn.className = 'param-save-defaults-btn error';
-      btn.textContent = 'âœ— Failed';
+      btn.textContent = '✗ Failed';
       status.style.color = 'var(--danger)';
       status.textContent = d.error || 'Unknown error';
     }
   } catch(e) {
     btn.className = 'param-save-defaults-btn error';
-    btn.textContent = 'âœ— Error';
+    btn.textContent = '✗ Error';
     status.style.color = 'var(--danger)';
     status.textContent = 'Network error';
   }
   setTimeout(() => {
     btn.className = 'param-save-defaults-btn';
-    btn.textContent = 'ðŸ’¾ Save Current as Default';
+    btn.textContent = '💾 Save Current as Default';
     status.textContent = '';
   }, 5000);
 }
@@ -2129,7 +2129,7 @@ buildParamUI();
 setInterval(update, 200);
 update();
 
-// â”€â”€ LiDAR 2D Visualization â”€â”€
+// ── LiDAR 2D Visualization ──
 (function(){
   const canvas = document.getElementById('lidarCanvas');
   if(!canvas) return;

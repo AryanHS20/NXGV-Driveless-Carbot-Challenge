@@ -85,16 +85,11 @@ class HealthMonitor(Node):
             'obstacle_front': perception,
             'obstacle_camera': perception,
             'traffic_light': perception,
-            'boom_gate': perception,
             'tunnel_detected': perception,
             'obstruction_active': perception,
-            'parking_complete': perception,
             'dashboard_state': state,
-            'cmd_vel_auto': control,
             'cmd_safety_status': control,
             'odom': odom,
-            'joy': joy,
-            'auto_mode': state,
         }
 
     def _touch(self, key: str) -> None:
@@ -118,9 +113,13 @@ class HealthMonitor(Node):
             age = None if last == 0.0 else round(now - last, 3)
             ages_sec[key] = age
 
-            required = True
+            # In manual mode, only base telemetry (odom) is strictly required
             if not self.auto_mode:
-                required = key in ('auto_mode', 'joy', 'odom')
+                required = key in ('odom', 'dashboard_state')
+            else:
+                # In auto mode, active perception and control safety are required
+                required = key in ('lane_error', 'odom', 'dashboard_state', 'cmd_safety_status')
+
             if age is None and required:
                 stale.append(key)
             elif age is not None and required and age > timeout:

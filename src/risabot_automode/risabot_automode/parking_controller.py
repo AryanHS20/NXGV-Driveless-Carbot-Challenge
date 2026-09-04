@@ -20,6 +20,8 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
+from rclpy.qos import QoSPresetProfiles
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, String
 
 from .topics import (

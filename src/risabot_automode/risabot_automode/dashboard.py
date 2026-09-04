@@ -611,14 +611,16 @@ class DashboardNode(Node):
         stale_sec = float(self.get_parameter('freshness_stale_sec').value)
         freshness = {}
         stale_streams = []
+        event_driven_topics = {'boom_gate', 'parking_complete', 'auto_mode', 'set_challenge', 'record_playback_state', 'joy'}
         for key, last_t in updates.items():
             if last_t <= 0.0:
                 freshness[key] = None
-                stale_streams.append(key)
+                if key not in event_driven_topics:
+                    stale_streams.append(key)
                 continue
             age = round(now_mono - last_t, 3)
             freshness[key] = age
-            if age > stale_sec:
+            if age > stale_sec and key not in event_driven_topics:
                 stale_streams.append(key)
         d['freshness_sec'] = freshness
         d['stale_streams'] = stale_streams
