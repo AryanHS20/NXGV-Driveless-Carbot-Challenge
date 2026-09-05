@@ -279,7 +279,7 @@ health_monitor:
 servo_controller:
   ros__parameters:
     servo_steer_id: 4
-    servo_center: 90
+    servo_center: 100           # calibrated true mechanical center (was 90 — wheels sat turned left at 90)
     servo_range_left: 50            # servo units from center to max LEFT steer
     servo_range_right: 70           # servo units from center to max RIGHT steer
     speed_levels: [15, 25, 40, 60, 100]
