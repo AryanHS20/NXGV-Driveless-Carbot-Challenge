@@ -566,26 +566,8 @@ const PARAM_TIPS = {
   conf_threshold:'Global YOLO confidence fallback (0.0–1.0)',
   iou_threshold:'NMS IoU threshold (0.0–1.0)',
   min_parking_sign_width:'Min pixel width for parking sign trigger (0 = disabled)',
-  // Per-class confidence thresholds
-  thresh_bumper:'Confidence threshold for Bumper_signboard (class 0)',
-  thresh_hill:'Confidence threshold for Hill_signboard (class 1)',
-  thresh_obstacle:'Confidence threshold for Obstacle_signboard (class 2)',
-  thresh_parallelp:'Confidence threshold for ParallelP_signboard (class 3)',
-  thresh_perpendp:'Confidence threshold for PerpendP_signboard (class 4)',
-  thresh_roundabout:'Confidence threshold for Roundabout_signboard (class 5)',
-  thresh_tl_green:'Confidence threshold for Traffic_Green (class 6)',
-  thresh_tl_red:'Confidence threshold for Traffic_Red (class 7)',
-  thresh_tl_generic:'Confidence threshold for Trafficlight_signboard generic (class 8)',
-  // Per-class bounding box colors (format: "B,G,R" integers 0–255)
-  color_bumper:'Bounding box color for Bumper_signboard — format "B,G,R" e.g. 0,140,255',
-  color_hill:'Bounding box color for Hill_signboard — format "B,G,R" e.g. 180,0,255',
-  color_obstacle:'Bounding box color for Obstacle_signboard — format "B,G,R" e.g. 0,255,255',
-  color_parallelp:'Bounding box color for ParallelP_signboard — format "B,G,R" e.g. 255,0,0',
-  color_perpendp:'Bounding box color for PerpendP_signboard — format "B,G,R" e.g. 0,100,0',
-  color_roundabout:'Bounding box color for Roundabout_signboard — format "B,G,R" e.g. 255,255,255',
-  color_tl_green:'Bounding box color for Traffic_Green — format "B,G,R" e.g. 0,255,0',
-  color_tl_red:'Bounding box color for Traffic_Red — format "B,G,R" e.g. 0,0,255',
-  color_tl_generic:'Bounding box color for Trafficlight_signboard generic — format "B,G,R" e.g. 255,255,0'
+  // Per-class configuration
+  class_config:'JSON map of class ID (0-8) to {thresh, color}'
 };
 const PARAM_GROUPS = [
   { node: 'line_follower_camera', label: 'Line Follower', params: [
@@ -656,12 +638,7 @@ const PARAM_GROUPS = [
   { node: 'signage_detector', label: 'Signage Detector (BPU)', params: [
     'model_path','conf_threshold','iou_threshold',
     'min_parking_sign_width','heartbeat_sec','show_debug',
-    'thresh_bumper','thresh_hill','thresh_obstacle',
-    'thresh_parallelp','thresh_perpendp','thresh_roundabout',
-    'thresh_tl_green','thresh_tl_red','thresh_tl_generic',
-    'color_bumper','color_hill','color_obstacle',
-    'color_parallelp','color_perpendp','color_roundabout',
-    'color_tl_green','color_tl_red','color_tl_generic'
+    'class_config'
   ]},
 ];
 

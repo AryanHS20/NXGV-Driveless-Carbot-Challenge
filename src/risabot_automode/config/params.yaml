@@ -327,9 +327,10 @@ servo_controller:
 #   9: null                  ← always ignored
 #
 # TUNING GUIDE:
-#   thresh_*   : per-class minimum confidence (objectness × class_prob)
-#                Set 0.99 to effectively disable a class.
-#                Lower = more sensitive but more false positives.
+#   class_config : JSON mapping of class IDs to their thresh and color.
+#                  thresh: minimum confidence (objectness × class_prob).
+#                          Set 0.99 to effectively disable a class.
+#                          Lower = more sensitive but more false positives.
 #   iou_threshold : NMS overlap threshold (0.45 is standard YOLOv5 default)
 #   min_parking_sign_width : pixel width gate — ignore tiny parking detections
 signage_detector:
@@ -341,27 +342,4 @@ signage_detector:
     heartbeat_sec: 0.5
     min_parking_sign_width: 0     # set >0 to require minimum bounding-box width for parking
 
-    # ── Per-class confidence thresholds ────────────────────────────────────
-    # CRUCIAL classes — tuned for reliable detection without false positives
-    thresh_hill:       0.06       # Hill_signboard  — tested working value
-    thresh_parallelp:  0.05       # ParallelP_signboard — tested working value
-    thresh_perpendp:   0.05       # PerpendP_signboard  — tested working value
-    thresh_tl_green:   0.25       # Traffic_Green
-    thresh_tl_red:     0.25       # Traffic_Red
-    thresh_tl_generic: 0.20       # Trafficlight_signboard (CV re-classifies to green/red)
-
-    # DISABLED classes — threshold set to 0.99 so they never fire
-    thresh_bumper:     0.99       # Bumper_signboard    ← not used
-    thresh_obstacle:   0.99       # Obstacle_signboard  ← not used
-    thresh_roundabout: 0.50       # Roundabout_signboard← fires high spuriously, 0.5 suppresses false triggers
-
-    # ── Per-class bounding-box colors (BGR) for debug overlay ─────────────
-    color_hill:       '180,0,255'   # Pink/Purple
-    color_parallelp:  '255,0,0'     # Blue
-    color_perpendp:   '0,100,0'     # Forest Green
-    color_tl_green:   '0,255,0'     # Pure Green
-    color_tl_red:     '0,0,255'     # Pure Red
-    color_tl_generic: '255,255,0'   # Cyan
-    color_bumper:     '0,140,255'   # Orange  (unused — class disabled)
-    color_obstacle:   '0,255,255'   # Yellow  (unused — class disabled)
-    color_roundabout: '255,255,255' # White   (unused — class disabled)
+    class_config: '{"0": {"thresh": 0.99, "color": "0,140,255"}, "1": {"thresh": 0.06, "color": "180,0,255"}, "2": {"thresh": 0.99, "color": "0,255,255"}, "3": {"thresh": 0.05, "color": "255,0,0"}, "4": {"thresh": 0.05, "color": "0,100,0"}, "5": {"thresh": 0.50, "color": "255,255,255"}, "6": {"thresh": 0.25, "color": "0,255,0"}, "7": {"thresh": 0.25, "color": "0,0,255"}, "8": {"thresh": 0.20, "color": "255,255,0"}}'

@@ -55,27 +55,8 @@ class SignageDetector(Node):
         self.declare_parameter('heartbeat_sec',          0.5)
         self.declare_parameter('min_parking_sign_width', 0)
 
-        # ── Per-class confidence thresholds (ROS2 params — tunable from dashboard) ─
-        self.declare_parameter('thresh_bumper',      0.15)   # Class 0 Bumper_signboard
-        self.declare_parameter('thresh_hill',        0.15)   # Class 1 Hill_signboard
-        self.declare_parameter('thresh_obstacle',    0.15)   # Class 2 Obstacle_signboard
-        self.declare_parameter('thresh_parallelp',   0.10)   # Class 3 ParallelP_signboard
-        self.declare_parameter('thresh_perpendp',    0.10)   # Class 4 PerpendP_signboard
-        self.declare_parameter('thresh_roundabout',  0.10)   # Class 5 Roundabout_signboard
-        self.declare_parameter('thresh_tl_green',    0.15)   # Class 6 Traffic_Green
-        self.declare_parameter('thresh_tl_red',      0.15)   # Class 7 Traffic_Red
-        self.declare_parameter('thresh_tl_generic',  0.15)   # Class 8 Trafficlight_signboard
-
-        # ── Per-class bounding box colors as BGR strings "B,G,R" ──────────────
-        self.declare_parameter('color_bumper',     '0,140,255')    # Orange
-        self.declare_parameter('color_hill',       '180,0,255')    # Pink/Purple
-        self.declare_parameter('color_obstacle',   '0,255,255')    # Yellow
-        self.declare_parameter('color_parallelp',  '255,0,0')      # Blue
-        self.declare_parameter('color_perpendp',   '0,100,0')      # Forest Green
-        self.declare_parameter('color_roundabout', '255,255,255')  # White
-        self.declare_parameter('color_tl_green',   '0,255,0')      # Pure Green
-        self.declare_parameter('color_tl_red',     '0,0,255')      # Pure Red
-        self.declare_parameter('color_tl_generic', '255,255,0')    # Cyan
+        # ── Per-class configuration via JSON ──────────────────────────────────────────
+        self.declare_parameter('class_config', '{}')
 
         self._param_cache: Dict[str, object] = {}
         self._update_param_cache()
@@ -86,7 +67,7 @@ class SignageDetector(Node):
         self._last_log_time = 0.0  # rate-limit log (avoids hasattr in hot path)
 
         # Per-class thresholds and colors are now read dynamically from ROS2
-        # parameters via _get_class_thresholds() and _get_class_colors().
+        # parameters via class_config JSON.
 
         # ── Detection & Gating state ────────────────────────────────────────
         self.hill_sign_active = False
@@ -153,26 +134,7 @@ class SignageDetector(Node):
             'show_debug':             bool(self.get_parameter('show_debug').value),
             'heartbeat_sec':          float(self.get_parameter('heartbeat_sec').value),
             'min_parking_sign_width': int(self.get_parameter('min_parking_sign_width').value),
-            # Per-class thresholds
-            'thresh_bumper':     float(self.get_parameter('thresh_bumper').value),
-            'thresh_hill':       float(self.get_parameter('thresh_hill').value),
-            'thresh_obstacle':   float(self.get_parameter('thresh_obstacle').value),
-            'thresh_parallelp':  float(self.get_parameter('thresh_parallelp').value),
-            'thresh_perpendp':   float(self.get_parameter('thresh_perpendp').value),
-            'thresh_roundabout': float(self.get_parameter('thresh_roundabout').value),
-            'thresh_tl_green':   float(self.get_parameter('thresh_tl_green').value),
-            'thresh_tl_red':     float(self.get_parameter('thresh_tl_red').value),
-            'thresh_tl_generic': float(self.get_parameter('thresh_tl_generic').value),
-            # Per-class colors
-            'color_bumper':     str(self.get_parameter('color_bumper').value),
-            'color_hill':       str(self.get_parameter('color_hill').value),
-            'color_obstacle':   str(self.get_parameter('color_obstacle').value),
-            'color_parallelp':  str(self.get_parameter('color_parallelp').value),
-            'color_perpendp':   str(self.get_parameter('color_perpendp').value),
-            'color_roundabout': str(self.get_parameter('color_roundabout').value),
-            'color_tl_green':   str(self.get_parameter('color_tl_green').value),
-            'color_tl_red':     str(self.get_parameter('color_tl_red').value),
-            'color_tl_generic': str(self.get_parameter('color_tl_generic').value),
+            'class_config':           str(self.get_parameter('class_config').value),
         }
         self._build_class_caches()
 
@@ -189,48 +151,38 @@ class SignageDetector(Node):
         Called once at init and on every parameter change so the hot
         inference path never constructs these structures per-frame.
         """
+        import json
         c = self._param_cache
         conf = c['conf_threshold']
-        # Shape (10,) — indexed directly by class_id for vectorised filtering
-        self._class_thresh_array = np.array([
-            c.get('thresh_bumper',     conf),   # 0 Bumper_signboard
-            c.get('thresh_hill',       conf),   # 1 Hill_signboard
-            c.get('thresh_obstacle',   conf),   # 2 Obstacle_signboard
-            c.get('thresh_parallelp',  conf),   # 3 ParallelP_signboard
-            c.get('thresh_perpendp',   conf),   # 4 PerpendP_signboard
-            c.get('thresh_roundabout', conf),   # 5 Roundabout_signboard
-            c.get('thresh_tl_green',   conf),   # 6 Traffic_Green
-            c.get('thresh_tl_red',     conf),   # 7 Traffic_Red
-            c.get('thresh_tl_generic', conf),   # 8 Trafficlight_signboard
-            1.0,                                # 9 null — always filtered out
-        ], dtype=np.float32)
-        self._class_colors_cache = [
-            self._parse_color(c['color_bumper']),
-            self._parse_color(c['color_hill']),
-            self._parse_color(c['color_obstacle']),
-            self._parse_color(c['color_parallelp']),
-            self._parse_color(c['color_perpendp']),
-            self._parse_color(c['color_roundabout']),
-            self._parse_color(c['color_tl_green']),
-            self._parse_color(c['color_tl_red']),
-            self._parse_color(c['color_tl_generic']),
-            (128, 128, 128),  # null (unused)
-        ]
+        
+        class_config = {}
+        try:
+            class_config = json.loads(c.get('class_config', '{}'))
+        except Exception as e:
+            self.get_logger().error(f"Failed to parse class_config JSON: {e}")
 
-    def _get_class_thresholds(self) -> dict:
-        """Build per-class threshold dict from current param cache."""
-        c = self._param_cache
-        return {
-            0: c['thresh_bumper'],
-            1: c['thresh_hill'],
-            2: c['thresh_obstacle'],
-            3: c['thresh_parallelp'],
-            4: c['thresh_perpendp'],
-            5: c['thresh_roundabout'],
-            6: c['thresh_tl_green'],
-            7: c['thresh_tl_red'],
-            8: c['thresh_tl_generic'],
-        }
+        # Shape (10,) — indexed directly by class_id for vectorised filtering
+        thresh_list = []
+        colors_list = []
+        
+        for i in range(9):
+            idx_str = str(i)
+            config_item = class_config.get(idx_str, {})
+            
+            # Use specific class thresh or fallback to conf_threshold
+            thresh = config_item.get('thresh', conf)
+            thresh_list.append(thresh)
+            
+            # Use specific color or fallback to parse_color default
+            color_str = config_item.get('color', '')
+            colors_list.append(self._parse_color(color_str))
+            
+        # Class 9 (null - always ignored)
+        thresh_list.append(1.0)
+        colors_list.append((128, 128, 128))
+
+        self._class_thresh_array = np.array(thresh_list, dtype=np.float32)
+        self._class_colors_cache = colors_list
 
     @staticmethod
     def _parse_color(color_str: str) -> tuple:
@@ -242,22 +194,6 @@ class SignageDetector(Node):
         except Exception:
             pass
         return (255, 255, 255)  # fallback white
-
-    def _get_class_colors(self) -> list:
-        """Build per-class color list from current param cache."""
-        c = self._param_cache
-        return [
-            self._parse_color(c['color_bumper']),
-            self._parse_color(c['color_hill']),
-            self._parse_color(c['color_obstacle']),
-            self._parse_color(c['color_parallelp']),
-            self._parse_color(c['color_perpendp']),
-            self._parse_color(c['color_roundabout']),
-            self._parse_color(c['color_tl_green']),
-            self._parse_color(c['color_tl_red']),
-            self._parse_color(c['color_tl_generic']),
-            (128, 128, 128),  # null (unused, always filtered)
-        ]
 
     # ──────────────────────────────────────────────────────────────────────────
     # State publishing helper
