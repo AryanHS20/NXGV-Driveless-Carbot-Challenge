@@ -29,3 +29,9 @@ tools/extract_html.py
 tools/test_motors.py
 tools/pid_logger.py
 
+# Local build/run logs (machine-specific, not for version control)
+colcon_build.log
+gazebo.log
+test_cmd_vel.log
+*.log
+
