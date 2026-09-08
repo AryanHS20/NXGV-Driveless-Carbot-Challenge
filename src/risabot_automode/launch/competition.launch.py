@@ -143,6 +143,15 @@ def generate_launch_description():
             parameters=[params_file]
         ),
 
+        # I3. Heading Fusion (Odometry/IMU)
+        Node(
+            package='risabot_automode',
+            executable='heading_fusion',
+            name='heading_fusion',
+            output='screen',
+            parameters=[params_file]
+        ),
+
         # J. Obstruction avoidance (NEW)
         Node(
             package='risabot_automode',

@@ -1,6 +1,6 @@
 /**************************************************************************/
 /*                                                                        */
-/* Copyright (c) 2013-2022 Orbbec 3D Technology, Inc                      */
+/* Copyright (c) 2013-2023 Orbbec 3D Technology, Inc                      */
 /*                                                                        */
 /* PROPRIETARY RIGHTS of Orbbec 3D Technology are involved in the         */
 /* subject matter of this material. All manufacturing, reproduction, use, */
@@ -12,10 +12,6 @@
 
 #pragma once
 #include <functional>
-#include <vector>
-#include <string>
-#include <ostream>
-#include <cstdint>
 
 #include <rclcpp/rclcpp.hpp>
 #include <Eigen/Dense>
@@ -32,13 +28,13 @@
 #include "astra_camera_msgs/msg/extrinsics.hpp"
 #include "dynamic_params.h"
 
-namespace openni {
-bool operator==(const openni::VideoMode& lhs, const openni::VideoMode& rhs);
-bool operator!=(const openni::VideoMode& lhs, const openni::VideoMode& rhs);
-std::ostream& operator<<(std::ostream& os, const openni::VideoMode& video_mode);
-}
-
 namespace astra_camera {
+
+bool operator==(const openni::VideoMode& lhs, const openni::VideoMode& rhs);
+
+bool operator!=(const openni::VideoMode& lhs, const openni::VideoMode& rhs);
+
+std::ostream& operator<<(std::ostream& os, const openni::VideoMode& video_mode);
 
 tf2::Quaternion rotationMatrixToQuaternion(const float rotation[9]);
 
@@ -46,7 +42,7 @@ astra_camera_msgs::msg::Extrinsics obExtrinsicsToMsg(const float rotation[9],
                                                      const float transition[3],
                                                      const std::string& frame_id);
 
-sensor_msgs::msg::CameraInfo::UniquePtr getDefaultCameraInfo(int width, int height, double f);
+sensor_msgs::msg::CameraInfo getDefaultCameraInfo(int width, int height, double f);
 
 bool isValidCameraParams(const OBCameraParams& params);
 
@@ -68,4 +64,9 @@ inline void setAndGetNodeParameter(
                         "Failed to set parameter: " << param_name << ". " << ex.what());
   }
 }
+
+rmw_qos_profile_t getRMWQosProfileFromString(const std::string& str_qos);
+
+openni::PixelFormat getPixelFormat(const std::string& str_format);
+
 }  // namespace astra_camera
