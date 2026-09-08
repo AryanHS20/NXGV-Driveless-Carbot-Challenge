@@ -17,7 +17,7 @@ auto_driver:
     forward_speed: 0.15          # m/s maximum speed on a straight (conservative start)
     stale_timeout: 3.0
     dist_lap_complete: 1.0
-    enable_subsumption_obstacle: false
+    enable_subsumption_obstacle: true
     max_odom_speed: 1.0
     min_state_dwell_sec: 0.25
     publish_loop_stats: true

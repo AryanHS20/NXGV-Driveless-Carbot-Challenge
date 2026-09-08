@@ -8,7 +8,7 @@ import os
 
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, TimerAction, SetEnvironmentVariable
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.launch_description_sources import PythonLaunchDescriptionSource, AnyLaunchDescriptionSource
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
 
@@ -33,8 +33,8 @@ def generate_launch_description():
 
         # A. Astra Mini Camera
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(astra_pkg, 'launch', 'astra_mini.launch.py')
+            AnyLaunchDescriptionSource(
+                os.path.join(astra_pkg, 'launch', 'astra_pro.launch.xml')
             )
         ),
 

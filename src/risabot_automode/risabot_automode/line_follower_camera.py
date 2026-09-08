@@ -490,8 +490,13 @@ class LineFollowerCamera(Node):
             if dt <= 0.0 or dt > 0.5:
                 dt = 0.033  # assume ~30 fps
 
-            # ── 1. Resize — ALWAYS force to exactly 320x240 ──────────────
+            # ── 1. Resize — Maintain aspect ratio by center-cropping to 4:3 first
             bgr = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            h_raw, w_raw = bgr.shape[:2]
+            target_w = int(h_raw * 4 / 3)
+            if w_raw > target_w:
+                margin = (w_raw - target_w) // 2
+                bgr = bgr[:, margin:margin+target_w]
             bgr = cv2.resize(bgr, (320, 240))
             h, w = 240, 320
 
