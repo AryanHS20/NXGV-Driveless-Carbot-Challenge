@@ -127,29 +127,33 @@ class AutoDriver(Node):
         self._prev_angular_z = 0.0  # steering slew rate state
 
         # Tunable parameters
-        self.declare_parameter('forward_speed', 0.12)  # m/s maximum forward speed (straight)
+        self.declare_parameter('forward_speed', 0.15)  # m/s maximum forward speed (straight)
         self.declare_parameter('stale_timeout', 3.0)   # seconds before treating module data as stale
         self.declare_parameter('max_odom_speed', 1.0)  # ignore odom speed spikes beyond this
         self.declare_parameter('min_state_dwell_sec', 0.25)
         self.declare_parameter('publish_loop_stats', True)
         self.declare_parameter('parking_idle_duration', 2.0)
         self.declare_parameter('current_lap', 1)
+        self.declare_parameter('enable_subsumption_obstacle', True)  # fuse LiDAR + camera for obstacle
 
         # PID gains for steering angular.z
-        self.declare_parameter('pid_kp', 1.2)   # Proportional — how hard to steer for a given error
+        self.declare_parameter('pid_kp', 0.8)   # Proportional — how hard to steer for a given error
         self.declare_parameter('pid_ki', 0.01)  # Integral — correct steady-state drift/bias
-        self.declare_parameter('pid_kd', 0.15)  # Derivative — dampen oscillations / prevent overshoot
+        self.declare_parameter('pid_kd', 0.20)  # Derivative — dampen oscillations / prevent overshoot
         self.declare_parameter('pid_integral_max', 0.3)  # Anti-windup clamp for integral term
 
         # Adaptive speed control
         # forward speed = forward_speed * max(min_turn_speed, 1 - speed_error_scale * |error|)
         self.declare_parameter('speed_error_scale', 1.5)  # how aggressively speed drops with error
-        self.declare_parameter('min_turn_speed', 0.5)     # minimum speed multiplier in sharp turns (0.5 = half)
+        self.declare_parameter('min_turn_speed', 0.4)     # minimum speed multiplier in sharp turns (0.4 = 40%)
         self.declare_parameter('lane_steer_slew', 3.0)    # max angular.z change per second (Cytron acceleration limit)
+
+        # Heading fusion feedforward — corrects drift on straights
+        self.declare_parameter('heading_gain', 0.5)        # feedforward gain for /fused_heading
+        self.declare_parameter('straight_curvature_threshold', 0.1)  # curvature below this = straight for heading correction
 
         # Distance threshold (only for determining if a lap is complete after passing traffic light)
         self.declare_parameter('dist_lap_complete', 1.0)
-        self.declare_parameter('enable_subsumption_obstacle', False)
 
         # --- Hill Climb Parameters ---
         # Entry: pitch must exceed this (degrees) to enter HILL state
@@ -331,6 +335,9 @@ class AutoDriver(Node):
             'speed_error_scale': float(self.get_parameter('speed_error_scale').value),
             'min_turn_speed':    float(self.get_parameter('min_turn_speed').value),
             'lane_steer_slew':   float(self.get_parameter('lane_steer_slew').value),
+            # Heading fusion
+            'heading_gain':            float(self.get_parameter('heading_gain').value),
+            'straight_curvature_threshold': float(self.get_parameter('straight_curvature_threshold').value),
             # Challenge sequencing
             'dist_post_obstacle_clear': float(self.get_parameter('dist_post_obstacle_clear').value),
             'dist_roundabout':          float(self.get_parameter('dist_roundabout').value),
@@ -598,6 +605,9 @@ class AutoDriver(Node):
         ki = self._param_cache['pid_ki']
         kd = self._param_cache['pid_kd']
         angular_z = kp * error + ki * self._pid_integral + kd * derivative
+        # Heading feedforward from fused_heading (corrects drift on straights)
+        if abs(self.lane_curvature) < self._param_cache['straight_curvature_threshold']:
+            angular_z += self._param_cache['heading_gain'] * self.fused_heading_rad
         # Hard clamp so we never command an impossible turn rate
         angular_z = max(-2.0, min(2.0, angular_z))
 
