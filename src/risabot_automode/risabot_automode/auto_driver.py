@@ -781,17 +781,17 @@ class AutoDriver(Node):
             target_state = ChallengeState.TUNNEL
             cmd = self.tunnel_cmd
 
-        # # Priority 7: Boom Gate — Challenge 4 (GATED: only after roundabout)
-        # # TODO: Enable when boom gate is on the test field
-        # elif not self.boom_gate_open and self._boom_gate_armed:
-        #     target_state = ChallengeState.BOOM_GATE
-        #     self.stop_reason = 'BOOM GATE CLOSED'
+        # Priority 7: Boom Gate — Challenge 4 (GATED: only after roundabout)
+        # TODO: Enable when boom gate is on the test field
+        elif not self.boom_gate_open and self._boom_gate_armed:
+            target_state = ChallengeState.BOOM_GATE
+            self.stop_reason = 'BOOM GATE CLOSED'
 
-        # # Priority 8: Traffic Light — Challenge 5 (GATED: only after tunnel)
-        # # TODO: Enable when traffic light is on the test field
-        # elif self.traffic_light_state in ('red', 'yellow') and self._tl_armed:
-        #     target_state = ChallengeState.TRAFFIC_LIGHT
-        #     self.stop_reason = f'TRAFFIC LIGHT {self.traffic_light_state.upper()}'
+        # Priority 8: Traffic Light — Challenge 5 (GATED: only after tunnel)
+        # TODO: Enable when traffic light is on the test field
+        elif self.traffic_light_state in ('red', 'yellow') and self._tl_armed:
+            target_state = ChallengeState.TRAFFIC_LIGHT
+            self.stop_reason = f'TRAFFIC LIGHT {self.traffic_light_state.upper()}'
 
         # Priority 8.2: Hill Climb — adaptive speed proportional to pitch
         elif is_on_hill:
