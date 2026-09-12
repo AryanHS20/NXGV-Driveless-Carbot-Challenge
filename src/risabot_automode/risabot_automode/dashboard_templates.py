@@ -1531,6 +1531,17 @@ function update() {
       document.getElementById('connDot').style.background = '#4caf50';
       document.getElementById('connText').textContent = 'Connected';
 
+      // MJPEG stall watchdog: server reports ms since last encoded frame.
+      // Reloads the stream if it died (flaky link); cooldown avoids reload loops.
+      const camAge = d.cam_age_ms;
+      const camOn = document.getElementById('camBtn').classList.contains('active');
+      if (camOn && camAge !== null && camAge !== undefined && camAge > 3000 && !window._camReloading) {
+        window._camReloading = true;
+        const cimg = document.getElementById('camImg');
+        if (cimg) { cimg.src = '/camera_feed?' + Date.now(); }
+        setTimeout(() => { window._camReloading = false; }, 2000);
+      }
+
       // State
       const sb = document.getElementById('stateBadge');
       const currentState = d.state;
@@ -1868,6 +1879,7 @@ const PARAM_TIPS = {
   hysteresis_on:'Frames to confirm obstacle', hysteresis_off:'Frames to confirm clear',
   // Dashboard
   use_hw_odom:'Use hardware encoder odometry', freshness_stale_sec:'Dashboard stale threshold in seconds',
+  cam_encode_max_hz:'Max MJPEG encode rate in Hz (lower = less robot CPU)',
   sim_odom_scale:'Scale for simulated odometry distance', hw_odom_scale:'Scale for hardware odometry distance',
   hw_odom_yaw_scale:'Scale for hardware odometry yaw',
   // Servo controller
@@ -1964,7 +1976,8 @@ const PARAM_GROUPS = [
     'odom_reverse_polarity','publish_loop_stats'
   ]},
   { node: 'dashboard', label: 'Dashboard', params: [
-    'use_hw_odom','freshness_stale_sec','sim_odom_scale','hw_odom_scale','hw_odom_yaw_scale'
+    'use_hw_odom','freshness_stale_sec','sim_odom_scale','hw_odom_scale','hw_odom_yaw_scale',
+    'cam_encode_max_hz'
   ]},
   { node: 'health_monitor', label: 'Health Monitor', params: [
     'publish_period','timeout_perception','timeout_state',
@@ -3281,6 +3294,15 @@ function update() {
       const mb = document.getElementById('modeBadge');
       mb.textContent = d.auto_mode ? 'AUTO' : 'MANUAL';
       mb.className = 'mode-pill ' + (d.auto_mode ? 'auto' : 'manual');
+
+      // MJPEG stall watchdog (rec page): reload stream if server stopped encoding.
+      const camAge2 = d.cam_age_ms;
+      if (camAge2 !== null && camAge2 !== undefined && camAge2 > 3000 && !window._recCamReloading) {
+        window._recCamReloading = true;
+        const rimg = document.getElementById('camStream');
+        if (rimg) { rimg.src = '/camera_feed?' + Date.now(); }
+        setTimeout(() => { window._recCamReloading = false; }, 2000);
+      }
 
       // Odom
       document.getElementById('odomDist').textContent = (d.distance || 0).toFixed(2);

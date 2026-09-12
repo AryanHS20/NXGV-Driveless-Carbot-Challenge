@@ -123,12 +123,15 @@ class DashboardNode(Node):
         self.declare_parameter('sim_odom_scale', 1.55)
         self.declare_parameter('hw_odom_scale', 1.0)
         self.declare_parameter('hw_odom_yaw_scale', 1.0)
+        self.declare_parameter('cam_encode_max_hz', 10.0)  # MJPEG encode cap (CPU saver)
 
         # CV Bridge for camera
         self.bridge = CvBridge() if CvBridge else None
         self.latest_jpeg = None
         self.jpeg_condition = threading.Condition()
         self.frame_id = 0
+        self._encode_min_interval = 1.0 / max(1.0, float(self.get_parameter('cam_encode_max_hz').value))
+        self._last_encode_mono = 0.0
         self.active_camera_view = 'raw'
         self.initial_joy_axes = None
 
@@ -586,6 +589,11 @@ class DashboardNode(Node):
         with self.camera_clients_lock:
             if self.num_camera_clients == 0:
                 return  # Skip processing entirely if nobody is watching
+
+        now_mono = time.monotonic()
+        if now_mono - self._last_encode_mono < self._encode_min_interval:
+            return  # throttle MJPEG encode (dashboard only needs ~10Hz)
+        self._last_encode_mono = now_mono
                 
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
@@ -608,6 +616,8 @@ class DashboardNode(Node):
             updates = dict(self.topic_last_update)
         d['state_time'] = int(time.time() - self._state_entry_time)
         now_mono = time.monotonic()
+        last_enc = self._last_encode_mono
+        d['cam_age_ms'] = int((now_mono - last_enc) * 1000) if last_enc > 0.0 else None
         stale_sec = float(self.get_parameter('freshness_stale_sec').value)
         freshness = {}
         stale_streams = []

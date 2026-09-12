@@ -107,7 +107,7 @@ cmd_safety_controller:
 #   error_decay_rate : 0.92 → held error halves every ~9 frames
 line_follower_camera:
   ros__parameters:
-    tracker_mode: 'scanline'
+    tracker_mode: 'sliding'
     s_thresh: 100
     l_thresh: 200
     sobel_thresh: 30
@@ -281,6 +281,7 @@ dashboard:
     sim_odom_scale: 1.55
     hw_odom_scale: 1.0
     hw_odom_yaw_scale: 1.0
+    cam_encode_max_hz: 10.0   # MJPEG encode cap — lower if dashboard video stutters
 
 # --- Health Monitor ---
 health_monitor:
