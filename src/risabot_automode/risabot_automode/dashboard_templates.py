@@ -1446,8 +1446,8 @@ function startCamStream() {
   const st = { stopped: false, controller: null, failures: 0 };
   window._camPlayer = st;
   const BND = [45, 45, 102, 114, 97, 109, 101]; // '--frame'
-  const DH = [13, 10, 13, 10];                   // '\r\n\r\n'
-  const LF = [10];                               // '\n'
+  const DH = [13, 10, 13, 10];                   // CR LF CR LF
+  const LF = [10];                               // LF
   function findSeq(hay, needle, from) {
     for (let i = from; i <= hay.length - needle.length; i++) {
       let ok = true;
@@ -1502,9 +1502,14 @@ function startCamStream() {
               if (he < 0) break;
               let hstr = '';
               try { hstr = new TextDecoder().decode(buf.slice(0, he)); } catch (e) { hstr = ''; }
-              const m = /Content-Length:\s*(\d+)/i.exec(hstr);
-              if (!m) { buf = buf.slice(he + 4); needBoundary = true; continue; }
-              const n = parseInt(m[1], 10);
+              let n = -1;
+              const clKey = 'Content-Length:';
+              const ci = hstr.indexOf(clKey);
+              if (ci >= 0) {
+                const dm = /^[0-9]+/.exec(hstr.slice(ci + clKey.length).trim());
+                if (dm) n = parseInt(dm[0], 10);
+              }
+              if (n < 0) { buf = buf.slice(he + 4); needBoundary = true; continue; }
               const fs = he + 4;
               if (buf.length < fs + n) break;
               const jpg = buf.slice(fs, fs + n);
