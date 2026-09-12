@@ -1410,6 +1410,7 @@ function toggleCam() {
     d.classList.remove('active');
     t.style.display = 'none';
     off.style.display = 'flex';
+    stopCamStream();
     img.style.display = 'none';
     img.src = '';
   } else {
@@ -1419,20 +1420,126 @@ function toggleCam() {
     t.style.display = 'flex';
     off.style.display = 'none';
     img.style.display = 'block';
-    img.src = '/camera_feed?' + new Date().getTime();
     // Trigger auto_toggle_debug on initial enable (default view is 'raw')
     fetch('/api/set_cam_view?view=raw');
+    startCamStream();
   }
+}
+
+// Robust MJPEG player: pulls /camera_feed with fetch and reassembles frames
+// manually, so a dead connection on a flaky link is detected (no-bytes
+// timeout) and the stream reconnects itself with backoff. Replaces naive
+// <img src> streaming, which freezes forever on the last frame.
+window._camPlayer = null;
+function stopCamStream() {
+  const st = window._camPlayer;
+  window._camPlayer = null;
+  if (st) {
+    st.stopped = true;
+    try { st.controller.abort(); } catch (e) {}
+  }
+}
+function startCamStream() {
+  const img = document.getElementById('camImg');
+  if (!img) return;
+  stopCamStream();
+  const st = { stopped: false, controller: null, failures: 0 };
+  window._camPlayer = st;
+  const BND = [45, 45, 102, 114, 97, 109, 101]; // '--frame'
+  const DH = [13, 10, 13, 10];                   // '\r\n\r\n'
+  const LF = [10];                               // '\n'
+  function findSeq(hay, needle, from) {
+    for (let i = from; i <= hay.length - needle.length; i++) {
+      let ok = true;
+      for (let j = 0; j < needle.length; j++) {
+        if (hay[i + j] !== needle[j]) { ok = false; break; }
+      }
+      if (ok) return i;
+    }
+    return -1;
+  }
+  function concat(a, b) {
+    const c = new Uint8Array(a.length + b.length);
+    c.set(a, 0); c.set(b, a.length);
+    return c;
+  }
+  (async () => {
+    while (!st.stopped) {
+      const ctrl = new AbortController();
+      st.controller = ctrl;
+      try {
+        const resp = await fetch('/camera_feed?' + Date.now(), { signal: ctrl.signal, cache: 'no-store' });
+        if (!resp.ok || !resp.body) throw new Error('stream unavailable');
+        const reader = resp.body.getReader();
+        let buf = new Uint8Array(0);
+        let needBoundary = true;
+        let lastFrame = Date.now();
+        st.failures = 0;
+        const stallTimer = setInterval(() => {
+          if (st.stopped) { clearInterval(stallTimer); return; }
+          if (Date.now() - lastFrame > 2500) {
+            clearInterval(stallTimer);
+            try { ctrl.abort(); } catch (e) {}
+          }
+        }, 500);
+        try {
+          for (;;) {
+            if (st.stopped) break;
+            const rd = await reader.read();
+            if (rd.done) break;
+            buf = concat(buf, rd.value);
+            if (buf.length > 1048576) { buf = buf.slice(buf.length - 1048576); needBoundary = true; }
+            for (;;) {
+              if (needBoundary) {
+                const bi = findSeq(buf, BND, 0);
+                if (bi < 0) { if (buf.length > 32) buf = buf.slice(buf.length - 32); break; }
+                const le = findSeq(buf, LF, bi);
+                if (le < 0) break;
+                buf = buf.slice(le + 1);
+                needBoundary = false;
+              }
+              const he = findSeq(buf, DH, 0);
+              if (he < 0) break;
+              let hstr = '';
+              try { hstr = new TextDecoder().decode(buf.slice(0, he)); } catch (e) { hstr = ''; }
+              const m = /Content-Length:\s*(\d+)/i.exec(hstr);
+              if (!m) { buf = buf.slice(he + 4); needBoundary = true; continue; }
+              const n = parseInt(m[1], 10);
+              const fs = he + 4;
+              if (buf.length < fs + n) break;
+              const jpg = buf.slice(fs, fs + n);
+              buf = buf.slice(fs + n);
+              needBoundary = true;
+              const url = URL.createObjectURL(new Blob([jpg], { type: 'image/jpeg' }));
+              const old = img.dataset ? img.dataset.blobUrl : null;
+              img.src = url;
+              if (img.dataset) img.dataset.blobUrl = url;
+              if (old) { try { URL.revokeObjectURL(old); } catch (e) {} }
+              lastFrame = Date.now();
+            }
+          }
+        } finally {
+          clearInterval(stallTimer);
+          try { reader.cancel(); } catch (e) {}
+        }
+      } catch (e) {
+        // dropped connection or abort: reconnect below unless stopped
+      }
+      if (st.stopped) break;
+      st.failures += 1;
+      await new Promise((r) => setTimeout(r, Math.min(1000 + st.failures * 500, 4000)));
+    }
+  })();
 }
 
 function setCamView(view, btn) {
   document.querySelectorAll('.cam-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   fetch('/api/set_cam_view?view=' + encodeURIComponent(view)).then(() => {
-    // Reload MJPEG stream to pick up the new view immediately
+    // Restart the robust stream reader to pick up the new view immediately
     const img = document.getElementById('camImg');
     if (img && img.style.display !== 'none') {
-      img.src = '/camera_feed?' + Date.now();
+      startCamStream();
     }
   });
 }
@@ -1531,16 +1638,8 @@ function update() {
       document.getElementById('connDot').style.background = '#4caf50';
       document.getElementById('connText').textContent = 'Connected';
 
-      // MJPEG stall watchdog: server reports ms since last encoded frame.
-      // Reloads the stream if it died (flaky link); cooldown avoids reload loops.
-      const camAge = d.cam_age_ms;
-      const camOn = document.getElementById('camBtn').classList.contains('active');
-      if (camOn && camAge !== null && camAge !== undefined && camAge > 3000 && !window._camReloading) {
-        window._camReloading = true;
-        const cimg = document.getElementById('camImg');
-        if (cimg) { cimg.src = '/camera_feed?' + Date.now(); }
-        setTimeout(() => { window._camReloading = false; }, 2000);
-      }
+      // Stream robustness is handled client-side by startCamStream()
+      // (fetch-based MJPEG player with stall detection + reconnect).
 
       // State
       const sb = document.getElementById('stateBadge');
