@@ -15,6 +15,12 @@ may not work due to poor lighting/visibility.
    - Heading error = angle of the centerline path relative to forward
 
 Publishes Twist on /tunnel_cmd_vel for auto_driver to use when in TUNNEL state.
+
+This node is the SOLE publisher of /tunnel_detected (TUNNEL_DETECTED_TOPIC) —
+it is the ground-truth signal auto_driver uses to enter/exit the TUNNEL state.
+signage_detector.py's camera-based sign detection publishes a separate
+advisory /tunnel_confidence topic instead; it does not write here, so there
+is no last-publisher-wins race between the two nodes.
 """
 
 import math

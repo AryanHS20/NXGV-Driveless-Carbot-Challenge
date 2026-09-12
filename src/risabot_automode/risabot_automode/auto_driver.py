@@ -849,6 +849,7 @@ class AutoDriver(Node):
                 ChallengeState.HILL,
                 ChallengeState.PARKING_IDLE,
                 ChallengeState.PARKING_PLAYBACK,
+                ChallengeState.OBSTRUCTION,
             }
             allow_switch = (
                 target_state in immediate_states

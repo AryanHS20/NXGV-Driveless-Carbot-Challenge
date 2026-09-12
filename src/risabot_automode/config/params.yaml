@@ -333,7 +333,7 @@ servo_controller:
 
 # --- BPU Signage Detector (YOLO11n NXGV, 10-class) ---
 # CLASS MAP:
-#   0: end_of_tunnel_sign   <- clears /tunnel_detected (gated, edge-published)
+#   0: end_of_tunnel_sign   <- clears /tunnel_confidence (advisory only, gated, edge-published)
 #   1: hill_sign            <- CRUCIAL  (Challenge 5 — hill climb trigger)
 #   2: obstacle_sign        <- /obstacle_detected_camera (now ON)
 #   3: parallel_parking     <- CRUCIAL  (parking trigger)
@@ -342,12 +342,19 @@ servo_controller:
 #   6: speed_bump_sign      <- debug only (no topic yet)
 #   7: traffic_light lamp   <- CRUCIAL  (/traffic_light_state via HSV vote)
 #   8: traffic_warn_sign    <- debug only
-#   9: tunnel_sign          <- sets /tunnel_detected (gated, edge-published)
+#   9: tunnel_sign          <- sets /tunnel_confidence (advisory only, gated, edge-published)
+#
+# NOTE: signage_detector no longer publishes /tunnel_detected. That topic is
+# now owned solely by tunnel_wall_follower (LiDAR ground truth) — see that
+# node's docstring. signage_detector's tunnel/end-of-tunnel classes publish
+# to the separate /tunnel_confidence topic instead, so the two nodes can no
+# longer race for the same topic.
 #
 # TUNING GUIDE:
 #   Per-class thresh: laptop-measured operating points. Lower = more sensitive.
-#   tunnel_publish_enabled: false = signage never publishes /tunnel_detected
-#     (use if it ever fights tunnel_wall_follower; wall follower owns the topic)
+#   tunnel_publish_enabled: false = signage never publishes /tunnel_confidence
+#     (this is purely an advisory signal now; disabling it cannot affect
+#     tunnel state transitions, which come only from tunnel_wall_follower)
 #   iou_threshold : NMS overlap threshold (0.45 is standard YOLOv5 default)
 #   min_parking_sign_width : pixel width gate — ignore tiny parking detections
 signage_detector:
@@ -358,7 +365,7 @@ signage_detector:
     show_debug: false             # OFF by default — dashboard auto-enables when signage view active
     heartbeat_sec: 0.5
     min_parking_sign_width: 0     # set >0 to require minimum bounding-box width for parking
-    tunnel_publish_enabled: true  # edge-triggered /tunnel_detected; false disables it entirely
+    tunnel_publish_enabled: true  # edge-triggered /tunnel_confidence (advisory); false disables it entirely
 
     # Per-class thresholds (laptop-measured operating points):
     thresh_end_tunnel: 0.40       # class 0

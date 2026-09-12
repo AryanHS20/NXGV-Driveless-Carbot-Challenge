@@ -3,7 +3,7 @@
 
 REVIEW DRAFT for NXGV YOLO11n 10-class model. Drop into
 src/risabot_automode/risabot_automode/ as signage_detector.py (replacing the
-YOLOv5 version) after review. Topics0643785 unchanged; only parsing + class map change.
+YOLOv5 version) after review. Topics unchanged except tunnel handling — see below.
 
 BPU output protocol (D-Robotics ultralytics_yolo, YOLO11xDetect):
   6 outputs: [cls8, box8, cls16, box16, cls32, box32], NHWC float32
@@ -12,7 +12,7 @@ BPU output protocol (D-Robotics ultralytics_yolo, YOLO11xDetect):
   NMS  = class-wise on CPU (reused vectorised implementation)
 
 NXGV class map (nxgv.yaml, alphabetical):
-   0 end_of_tunnel_sign  -> TUNNEL_DETECTED False (gated)
+   0 end_of_tunnel_sign  -> TUNNEL_CONF_TOPIC False (advisory only, gated)
    1 hill_sign           -> HILL_SIGN_TOPIC
    2 obstacle_sign       -> OBSTACLE_CAMERA_TOPIC
    3 parallel_parking    -> PARKING_SIGN_TOPIC (width gate kept)
@@ -21,7 +21,13 @@ NXGV class map (nxgv.yaml, alphabetical):
    6 speed_bump_sign     -> debug only (no topic yet; wire to speed logic)
    7 traffic_light lamp  -> TRAFFIC_LIGHT_TOPIC via HSV (red/green/unknown)
    8 traffic_warn_sign   -> debug only
-   9 tunnel_sign         -> TUNNEL_DETECTED True (gated)
+   9 tunnel_sign         -> TUNNEL_CONF_TOPIC True (advisory only, gated)
+
+NOTE: /tunnel_detected (TUNNEL_DETECTED_TOPIC) is NOT published by this node.
+tunnel_wall_follower.py is the sole owner of that topic (LiDAR wall-pair
+ground truth). This node only publishes the advisory /tunnel_confidence
+signal above — do not repoint it back at /tunnel_detected, or the two nodes
+will race for the same topic again (last-publisher-wins, non-deterministic).
 """
 
 import time
@@ -45,7 +51,7 @@ from .topics import (
     PARKING_SIGN_TOPIC,
     SIGNAGE_DEBUG_TOPIC,
     TRAFFIC_LIGHT_TOPIC,
-    TUNNEL_DETECTED_TOPIC,
+    TUNNEL_CONF_TOPIC,
 )
 
 try:
@@ -93,7 +99,7 @@ class SignageDetector(Node):
         self.declare_parameter('show_debug', False)
         self.declare_parameter('heartbeat_sec', 0.5)
         self.declare_parameter('min_parking_sign_width', 0)
-        self.declare_parameter('tunnel_publish_enabled', True)  # False = never publish /tunnel_detected (wall follower owns it)
+        self.declare_parameter('tunnel_publish_enabled', True)  # False = never publish /tunnel_confidence (vision sign hint, advisory only)
 
         # Per-class thresholds. Strict where FPs were measured on laptop:
         # parking 0.50 (phone UI hit 0.72), obstacle 0.50 (blue clutter),
@@ -131,14 +137,14 @@ class SignageDetector(Node):
         self._cnt_endtunnel = 0
         self._cnt_red = 0
         self._cnt_green = 0
-        self._last_tunnel_pub = None  # edge-triggered /tunnel_detected (shared with wall follower)
+        self._last_tunnel_pub = None  # edge-triggered /tunnel_confidence (advisory vision sign hint)
 
         # ── ROS interfaces (topics UNCHANGED from YOLOv5 node + tunnel) ──
         self.parking_pub = self.create_publisher(Bool, PARKING_SIGN_TOPIC, 10)
         self.traffic_light_pub = self.create_publisher(String, TRAFFIC_LIGHT_TOPIC, 10)
         self.hill_pub = self.create_publisher(Bool, HILL_SIGN_TOPIC, 10)
         self.obstacle_pub = self.create_publisher(Bool, OBSTACLE_CAMERA_TOPIC, 10)
-        self.tunnel_pub = self.create_publisher(Bool, TUNNEL_DETECTED_TOPIC, 10)
+        self.tunnel_pub = self.create_publisher(Bool, TUNNEL_CONF_TOPIC, 10)
         self.debug_pub = self.create_publisher(Image, SIGNAGE_DEBUG_TOPIC, 10)
 
         self._heartbeat_timer = self.create_timer(
@@ -199,8 +205,11 @@ class SignageDetector(Node):
         self.traffic_light_pub.publish(String(data=self.traffic_light_active))
         self.hill_pub.publish(Bool(data=self.hill_sign_active))
         self.obstacle_pub.publish(Bool(data=self.obstacle_sign_active))
-        # Edge-triggered /tunnel_detected: tunnel_wall_follower co-publishes
-        # this topic, so a periodic False heartbeat here would stomp its True.
+        # Edge-triggered /tunnel_confidence: an advisory vision-based hint only.
+        # tunnel_wall_follower is the sole publisher of /tunnel_detected (the
+        # actual state-machine signal) — this topic no longer writes to it,
+        # so there's nothing left to stomp. Kept edge-triggered to reduce
+        # topic chatter, not to avoid a conflict.
         if self._param_cache['tunnel_publish_enabled']:
             if self._last_tunnel_pub is None or self.tunnel_active != self._last_tunnel_pub:
                 self.tunnel_pub.publish(Bool(data=self.tunnel_active))
