@@ -928,13 +928,8 @@ class LineFollowerCamera(Node):
                     vel = self._kalman.velocity
                     put_text(debug, f'v={vel:.3f}', (10, 78), 0.4, (200, 200, 0))
 
-                # Compose into full-frame debug image for dashboard
-                debug_full = bgr.copy()
-                debug_full[h - crop_h:, :] = debug
-                # Draw crop boundary (fixed position)
-                cv2.line(debug_full, (0, h - crop_h), (w, h - crop_h), (255, 0, 255), 1)
-
-                self.debug_pub.publish(self.bridge.cv2_to_imgmsg(debug_full, encoding='bgr8'))
+                # Publish the detection crop only (no full-frame composite)
+                self.debug_pub.publish(self.bridge.cv2_to_imgmsg(debug, encoding='bgr8'))
 
             if self._param_cache['print_debug']:
                 now_mono = time.monotonic()

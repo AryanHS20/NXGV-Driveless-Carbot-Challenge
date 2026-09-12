@@ -38,3 +38,9 @@ test_cmd_vel.log
 s
 
 scratch/
+
+# Teammate model-drop folders (large binaries + duplicates, stay local)
+nxgv_deploy/
+nxgv_yolo11n_deploy.zip
+nxgv_yolo11n_deploy_v2/
+nxgv_yolo11n_deploy_v2.zip
