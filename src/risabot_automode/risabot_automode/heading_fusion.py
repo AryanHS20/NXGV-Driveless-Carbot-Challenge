@@ -176,13 +176,17 @@ class HeadingFusion(Node):
 
                 # --- Complementary correction (this is what `alpha` is for) ---
                 # odom_yaw_deg is read from the wheel-odometry quaternion
-                # published by servo_controller (encoder-integrated, so it
-                # shares slip/backlash error modes rather than the gyro's
-                # constant-rate bias). Blending still bounds gyro drift in
-                # the case that matters most: near-zero commanded steering
-                # on a straight, where odom_yaw stays flat while gyro bias
-                # would otherwise accumulate unchecked — exactly when
-                # auto_driver's heading feedforward is active.
+                # published by servo_controller. Note its split personality:
+                # distance comes from the rear-motor encoder (measured), but
+                # heading is bicycle-model dead-reckoning from the COMMANDED
+                # servo position — no steering-angle sensor exists, so servo
+                # lag, backlash and slip enter yaw unobserved, worst exactly
+                # in turns. Its error mode is still geometric rather than
+                # the gyro's constant-rate bias, so blending bounds gyro
+                # drift in the case that matters most: near-zero commanded
+                # steering on a straight, where odom_yaw stays flat while
+                # gyro bias would otherwise accumulate unchecked — exactly
+                # when auto_driver's heading feedforward is active.
                 # alpha=1.0 -> pure gyro integration (old behavior).
                 # Gain is scaled by dt so the correction rate (~3/s at the
                 # nominal 20 Hz odom rate) is sample-rate independent.
