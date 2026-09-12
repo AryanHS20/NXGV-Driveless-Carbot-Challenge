@@ -146,7 +146,9 @@ class HeadingFusion(Node):
         self.fused_yaw_deg = self._normalize_angle_deg(self.fused_yaw_deg + delta_imu)
 
     def odom_callback(self, msg: Odometry) -> None:
-        """Process wheel odometry position and speed."""
+        """Process wheel odometry position/speed and apply a complementary
+        correction that pulls the gyro-integrated heading back toward the
+        odometry heading, bounding long-term gyro bias drift."""
         stamp_sec = msg.header.stamp.sec + (msg.header.stamp.nanosec / 1e9)
         if stamp_sec == 0.0:
             stamp_sec = self.get_clock().now().nanoseconds / 1e9
@@ -171,6 +173,25 @@ class HeadingFusion(Node):
                 fused_rad = math.radians(self.fused_yaw_deg)
                 self.fused_x += dist * math.cos(fused_rad)
                 self.fused_y += dist * math.sin(fused_rad)
+
+                # --- Complementary correction (this is what `alpha` is for) ---
+                # odom_yaw_deg is read from the wheel-odometry quaternion
+                # published by servo_controller (encoder-integrated, so it
+                # shares slip/backlash error modes rather than the gyro's
+                # constant-rate bias). Blending still bounds gyro drift in
+                # the case that matters most: near-zero commanded steering
+                # on a straight, where odom_yaw stays flat while gyro bias
+                # would otherwise accumulate unchecked — exactly when
+                # auto_driver's heading feedforward is active.
+                # alpha=1.0 -> pure gyro integration (old behavior).
+                # Gain is scaled by dt so the correction rate (~3/s at the
+                # nominal 20 Hz odom rate) is sample-rate independent.
+                if self.imu_initialized:
+                    alpha = float(self._param_cache['alpha'])
+                    correction = self._angle_diff_deg(odom_yaw_deg, self.fused_yaw_deg)
+                    gain = min(1.0, (1.0 - alpha) * (dt / 0.05))
+                    self.fused_yaw_deg = self._normalize_angle_deg(
+                        self.fused_yaw_deg + gain * correction)
 
         self.last_odom_stamp = stamp_sec
         self.last_odom_yaw_deg = odom_yaw_deg
