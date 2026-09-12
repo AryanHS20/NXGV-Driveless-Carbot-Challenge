@@ -1477,11 +1477,11 @@ function startCamStream() {
         st.failures = 0;
         const stallTimer = setInterval(() => {
           if (st.stopped) { clearInterval(stallTimer); return; }
-          if (Date.now() - lastFrame > 2500) {
+          if (Date.now() - lastFrame > 5000) {
             clearInterval(stallTimer);
             try { ctrl.abort(); } catch (e) {}
           }
-        }, 500);
+        }, 1000);
         try {
           for (;;) {
             if (st.stopped) break;
@@ -1489,6 +1489,7 @@ function startCamStream() {
             if (rd.done) break;
             buf = concat(buf, rd.value);
             if (buf.length > 1048576) { buf = buf.slice(buf.length - 1048576); needBoundary = true; }
+            let batchJpg = null;
             for (;;) {
               if (needBoundary) {
                 const bi = findSeq(buf, BND, 0);
@@ -1515,24 +1516,27 @@ function startCamStream() {
               const jpg = buf.slice(fs, fs + n);
               buf = buf.slice(fs + n);
               needBoundary = true;
-              const url = URL.createObjectURL(new Blob([jpg], { type: 'image/jpeg' }));
+              batchJpg = jpg; // render only the newest below: drops stale backlog
+              lastFrame = Date.now();
+            }
+            if (batchJpg) {
+              const url = URL.createObjectURL(new Blob([batchJpg], { type: 'image/jpeg' }));
               const old = img.dataset ? img.dataset.blobUrl : null;
               img.src = url;
               if (img.dataset) img.dataset.blobUrl = url;
               if (old) { try { URL.revokeObjectURL(old); } catch (e) {} }
-              lastFrame = Date.now();
             }
           }
         } finally {
           clearInterval(stallTimer);
-          try { reader.cancel(); } catch (e) {}
+          try { await reader.cancel(); } catch (e) {}
         }
       } catch (e) {
         // dropped connection or abort: reconnect below unless stopped
       }
       if (st.stopped) break;
       st.failures += 1;
-      await new Promise((r) => setTimeout(r, Math.min(1000 + st.failures * 500, 4000)));
+      await new Promise((r) => setTimeout(r, Math.min(800 + st.failures * 400, 4000)));
     }
   })();
 }
