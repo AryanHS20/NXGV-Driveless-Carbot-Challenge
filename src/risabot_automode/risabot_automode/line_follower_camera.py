@@ -116,6 +116,13 @@ class LineFollowerCamera(Node):
         self.last_valid_error = 0.0  # last error from a confident scan
 
         # ── Tunable parameters ─────────────────────────────────────────────
+        self.declare_parameter('tracker_mode', 'scanline')
+        self.declare_parameter('s_thresh', 100)
+        self.declare_parameter('l_thresh', 200)
+        self.declare_parameter('sobel_thresh', 30)
+        self.declare_parameter('sliding_windows', 9)
+        self.declare_parameter('sliding_margin', 40)
+        self.declare_parameter('sliding_minpix', 30)
         # Scanline detection
         self.declare_parameter('n_scanlines', 8)
         self.declare_parameter('min_valid_scanlines', 2)
@@ -212,6 +219,13 @@ class LineFollowerCamera(Node):
     def _update_param_cache(self) -> None:
         """Cache frequently used parameters to avoid per-frame lookups."""
         self._param_cache = {
+            'tracker_mode':            str(self.get_parameter('tracker_mode').value),
+            's_thresh':                int(self.get_parameter('s_thresh').value),
+            'l_thresh':                int(self.get_parameter('l_thresh').value),
+            'sobel_thresh':            int(self.get_parameter('sobel_thresh').value),
+            'sliding_windows':         int(self.get_parameter('sliding_windows').value),
+            'sliding_margin':          int(self.get_parameter('sliding_margin').value),
+            'sliding_minpix':          int(self.get_parameter('sliding_minpix').value),
             'n_scanlines':             int(self.get_parameter('n_scanlines').value),
             'min_valid_scanlines':     int(self.get_parameter('min_valid_scanlines').value),
             'min_line_width_px':       int(self.get_parameter('min_line_width_px').value),
@@ -340,6 +354,150 @@ class LineFollowerCamera(Node):
             if min_w <= width <= max_w:
                 regions.append(((white_start + len(row)) // 2, white_start, len(row)))
         return regions
+
+    def _detect_sliding_windows(
+        self, img: np.ndarray, crop_h: int, w: int
+    ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]], List[Tuple[int, int]], List[float], int]:
+        """Run robust sliding window detection on HLS+Sobel thresholded image."""
+        # 1. HLS + Sobel Thresholding (Vectorized)
+        hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
+        l_channel = hls[:, :, 1]
+        s_channel = hls[:, :, 2]
+
+        # Sobel X on L channel
+        sobelx = cv2.Sobel(l_channel, cv2.CV_64F, 1, 0, ksize=3)
+        abs_sobelx = np.absolute(sobelx)
+        max_sobel = np.max(abs_sobelx)
+        if max_sobel == 0: max_sobel = 1
+        scaled_sobel = np.uint8(255 * abs_sobelx / max_sobel)
+        
+        s_thresh = self._param_cache['s_thresh']
+        l_thresh = self._param_cache['l_thresh']
+        sx_thresh = self._param_cache['sobel_thresh']
+        
+        binary = np.zeros_like(s_channel)
+        binary[((s_channel >= s_thresh) | (l_channel >= l_thresh) | (scaled_sobel >= sx_thresh))] = 255
+
+        # Morphological cleanup
+        open_sz = self._param_cache['morph_open_size']
+        close_sz = self._param_cache['morph_close_size']
+        if open_sz > 0:
+            kernel_open = cv2.getStructuringElement(cv2.MORPH_RECT, (open_sz, open_sz))
+            binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_open)
+        if close_sz > 0:
+            kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (close_sz, close_sz))
+            binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
+
+        # 2. Histogram or Prior Search
+        nwindows = self._param_cache['sliding_windows']
+        margin = self._param_cache['sliding_margin']
+        minpix = self._param_cache['sliding_minpix']
+        window_height = int(crop_h / nwindows)
+        
+        nonzero = binary.nonzero()
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+        
+        leftx_current = None
+        rightx_current = None
+        
+        if self._expected_left is not None and self._expected_right is not None:
+            leftx_current = self._expected_left
+            rightx_current = self._expected_right
+        else:
+            # Full histogram on bottom half
+            histogram = np.sum(binary[crop_h//2:, :], axis=0)
+            midpoint = w // 2
+            left_base = np.argmax(histogram[:midpoint])
+            right_base = np.argmax(histogram[midpoint:]) + midpoint
+            if histogram[left_base] > 10: leftx_current = left_base
+            if histogram[right_base] > 10: rightx_current = right_base
+
+        # Fallback to single line if one is missing
+        if leftx_current is None and rightx_current is not None:
+            leftx_current = max(0, rightx_current - (w // 2))
+        elif rightx_current is None and leftx_current is not None:
+            rightx_current = min(w - 1, leftx_current + (w // 2))
+        elif leftx_current is None and rightx_current is None:
+            return [], [], [], [], 0
+            
+        left_points = []
+        right_points = []
+        center_points = []
+        scanline_weights = []
+        valid_count = 0
+
+        # 3. Sliding Window Loop
+        for window in range(nwindows):
+            win_y_low = crop_h - (window + 1) * window_height
+            win_y_high = crop_h - window * window_height
+            win_xleft_low = leftx_current - margin
+            win_xleft_high = leftx_current + margin
+            win_xright_low = rightx_current - margin
+            win_xright_high = rightx_current + margin
+
+            # Identify nonzero pixels in x and y within the window
+            good_left_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & 
+                              (nonzerox >= win_xleft_low) & (nonzerox < win_xleft_high)).nonzero()[0]
+            good_right_inds = ((nonzeroy >= win_y_low) & (nonzeroy < win_y_high) & 
+                               (nonzerox >= win_xright_low) & (nonzerox < win_xright_high)).nonzero()[0]
+
+            leftx = None
+            rightx = None
+
+            if len(good_left_inds) > minpix:
+                leftx = int(np.mean(nonzerox[good_left_inds]))
+                leftx_current = leftx
+            if len(good_right_inds) > minpix:
+                rightx = int(np.mean(nonzerox[good_right_inds]))
+                rightx_current = rightx
+                
+            if leftx is not None or rightx is not None:
+                valid_count += 1
+                y_center = (win_y_low + win_y_high) // 2
+                if leftx is not None and rightx is not None:
+                    center_x = (leftx + rightx) // 2
+                    left_points.append((leftx, y_center))
+                    right_points.append((rightx, y_center))
+                elif leftx is not None:
+                    target_w = self.last_lane_widths.get(window, w // 2)
+                    center_x = leftx + target_w // 2
+                    left_points.append((leftx, y_center))
+                    right_points.append((leftx + target_w, y_center))
+                else:
+                    target_w = self.last_lane_widths.get(window, w // 2)
+                    center_x = rightx - target_w // 2
+                    left_points.append((rightx - target_w, y_center))
+                    right_points.append((rightx, y_center))
+                    
+                center_points.append((center_x, y_center))
+                
+                # Update expected width
+                if leftx is not None and rightx is not None:
+                    self.last_lane_widths[window] = rightx - leftx
+
+                # Weight for polyfit (bottom higher)
+                y_frac = (window + 0.5) / nwindows
+                scanline_weights.append(1.0 - y_frac + 0.5)
+                
+                # Save bottom-most valid center for prior
+                if valid_count == 1:
+                    smooth = 0.15
+                    if self._expected_left is not None:
+                        # EMA to prevent jitter
+                        nl = int(smooth * leftx_current + (1 - smooth) * self._expected_left)
+                        nr = int(smooth * rightx_current + (1 - smooth) * self._expected_right)
+                        self._expected_left = np.clip(nl, self._expected_left - 15, self._expected_left + 15)
+                        self._expected_right = np.clip(nr, self._expected_right - 15, self._expected_right + 15)
+                    else:
+                        self._expected_left = leftx_current
+                        self._expected_right = rightx_current
+
+        if valid_count == 0:
+            self._expected_left = None
+            self._expected_right = None
+
+        return left_points, right_points, center_points, scanline_weights, valid_count
 
     def _detect_scanlines(
         self, binary: np.ndarray, crop_h: int, w: int
@@ -508,51 +666,57 @@ class LineFollowerCamera(Node):
             road = bgr[h - crop_h:, :]
 
             # ── 3. IPM warp: perspective → Bird's Eye View ──────────────────
-            if self._param_cache['ipm_enabled']:
+            tracker_mode = self._param_cache['tracker_mode']
+            if self._param_cache['ipm_enabled'] or tracker_mode == 'sliding':
                 road = self._apply_ipm(road)
 
-            # ── 4. CLAHE + threshold (fixed or Otsu) + morphology ───────────
-            gray = cv2.cvtColor(road, cv2.COLOR_BGR2GRAY)
-
-            if self._param_cache['clahe_enabled']:
-                gray = self._clahe.apply(gray)
-
-            blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-
-            if self._param_cache['use_otsu']:
-                _, binary = cv2.threshold(
-                    blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-                )
+            # ── 4 & 5. Detection Pipeline Branching ─────────────────────────
+            if tracker_mode == 'sliding':
+                left_pts, right_pts, center_pts, scan_weights, valid_count = \
+                    self._detect_sliding_windows(road, crop_h, w)
             else:
-                thresh_val = self._param_cache['white_threshold']
-                if self._param_cache.get('invert_binary', False):
-                    # INVERT: pixels BELOW threshold (dark lane) → white
+                # ── 4. CLAHE + threshold (fixed or Otsu) + morphology ───────────
+                gray = cv2.cvtColor(road, cv2.COLOR_BGR2GRAY)
+
+                if self._param_cache['clahe_enabled']:
+                    gray = self._clahe.apply(gray)
+
+                blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+                if self._param_cache['use_otsu']:
                     _, binary = cv2.threshold(
-                        blurred, thresh_val, 255, cv2.THRESH_BINARY_INV
+                        blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
                     )
                 else:
-                    # NORMAL: pixels ABOVE threshold (white borders) → white
-                    _, binary = cv2.threshold(
-                        blurred, thresh_val, 255, cv2.THRESH_BINARY
+                    thresh_val = self._param_cache['white_threshold']
+                    if self._param_cache.get('invert_binary', False):
+                        # INVERT: pixels BELOW threshold (dark lane) → white
+                        _, binary = cv2.threshold(
+                            blurred, thresh_val, 255, cv2.THRESH_BINARY_INV
+                        )
+                    else:
+                        # NORMAL: pixels ABOVE threshold (white borders) → white
+                        _, binary = cv2.threshold(
+                            blurred, thresh_val, 255, cv2.THRESH_BINARY
+                        )
+
+                # Morphological cleanup: remove noise then fill small gaps
+                open_sz = self._param_cache['morph_open_size']
+                close_sz = self._param_cache['morph_close_size']
+                if open_sz > 0:
+                    kernel_open = cv2.getStructuringElement(
+                        cv2.MORPH_RECT, (open_sz, open_sz)
                     )
+                    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_open)
+                if close_sz > 0:
+                    kernel_close = cv2.getStructuringElement(
+                        cv2.MORPH_RECT, (close_sz, close_sz)
+                    )
+                    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
 
-            # Morphological cleanup: remove noise then fill small gaps
-            open_sz = self._param_cache['morph_open_size']
-            close_sz = self._param_cache['morph_close_size']
-            if open_sz > 0:
-                kernel_open = cv2.getStructuringElement(
-                    cv2.MORPH_RECT, (open_sz, open_sz)
-                )
-                binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel_open)
-            if close_sz > 0:
-                kernel_close = cv2.getStructuringElement(
-                    cv2.MORPH_RECT, (close_sz, close_sz)
-                )
-                binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
-
-            # ── 5. Multi-scanline detection ─────────────────────────────────
-            left_pts, right_pts, center_pts, scan_weights, valid_count = \
-                self._detect_scanlines(binary, crop_h, w)
+                # ── 5. Multi-scanline detection ─────────────────────────────────
+                left_pts, right_pts, center_pts, scan_weights, valid_count = \
+                    self._detect_scanlines(binary, crop_h, w)
 
             # ── 6. Compute raw error (Polynomial Pure Pursuit or Weighted Average) ──
             conf_min = self._param_cache['min_valid_scanlines']

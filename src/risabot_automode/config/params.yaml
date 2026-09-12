@@ -84,6 +84,13 @@ cmd_safety_controller:
 #   morph_close_size : dilation→erosion kernel to fill gaps (0=disable, 5=default)
 #   clahe_enabled    : disable if camera already has good auto-exposure
 #   clahe_clip_limit : higher = more contrast boost (good for dim tracks)
+# TRACKER MODE:
+#   tracker_mode     : 'scanline' (old) or 'sliding' (new CV)
+#   s_thresh         : HLS Saturation threshold for sliding window (100 is default)
+#   sobel_thresh     : Sobel X gradient threshold (30 is default)
+#   sliding_windows  : number of vertical windows (9 default)
+#   sliding_margin   : half-width of sliding window (40 default)
+#   sliding_minpix   : minimum pixels to recenter window (30 default)
 # IPM (Bird's Eye View):
 #   ipm_enabled      : DISABLED by default — requires calibration for camera mount
 #   ipm_top_width_ratio : controls the narrow end of the trapezoid (further road)
@@ -100,6 +107,13 @@ cmd_safety_controller:
 #   error_decay_rate : 0.92 → held error halves every ~9 frames
 line_follower_camera:
   ros__parameters:
+    tracker_mode: 'scanline'
+    s_thresh: 100
+    l_thresh: 200
+    sobel_thresh: 30
+    sliding_windows: 9
+    sliding_margin: 40
+    sliding_minpix: 30
     n_scanlines: 8
     min_valid_scanlines: 2
     min_line_width_px: 5
