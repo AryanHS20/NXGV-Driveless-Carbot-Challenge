@@ -1896,8 +1896,13 @@ const PARAM_TIPS = {
   conf_threshold:'Global YOLO confidence fallback (0.0–1.0)',
   iou_threshold:'NMS IoU threshold (0.0–1.0)',
   min_parking_sign_width:'Min pixel width for parking sign trigger (0 = disabled)',
-  // Per-class configuration
-  class_config:'JSON map of class ID (0-8) to {thresh, color}'
+  // Per-class thresholds (YOLO11n NXGV)
+  thresh_end_tunnel:'Class 0 end-of-tunnel threshold', thresh_hill:'Class 1 hill sign threshold',
+  thresh_obstacle:'Class 2 obstacle sign threshold', thresh_parallelp:'Class 3 parallel parking threshold',
+  thresh_perpendp:'Class 4 perpendicular parking threshold', thresh_roundabout:'Class 5 roundabout threshold',
+  thresh_speedbump:'Class 6 speed bump threshold', thresh_tl_lamp:'Class 7 traffic lamp threshold',
+  thresh_tl_warn:'Class 8 warning sign threshold', thresh_tunnel:'Class 9 tunnel sign threshold',
+  tunnel_publish_enabled:'Allow signage node to publish /tunnel_detected (edge-triggered)'
 };
 const PARAM_GROUPS = [
   { node: 'line_follower_camera', label: 'Line Follower', params: [
@@ -1968,7 +1973,10 @@ const PARAM_GROUPS = [
   { node: 'signage_detector', label: 'Signage Detector (BPU)', params: [
     'model_path','conf_threshold','iou_threshold',
     'min_parking_sign_width','heartbeat_sec','show_debug',
-    'class_config'
+    'tunnel_publish_enabled',
+    'thresh_end_tunnel','thresh_hill','thresh_obstacle',
+    'thresh_parallelp','thresh_perpendp','thresh_roundabout',
+    'thresh_speedbump','thresh_tl_lamp','thresh_tl_warn','thresh_tunnel'
   ]},
 ];
 

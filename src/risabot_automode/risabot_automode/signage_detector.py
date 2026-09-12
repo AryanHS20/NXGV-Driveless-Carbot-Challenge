@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
-"""
-Signage Detector Node — YOLOv5 BPU Model Inference via hobot_dnn
+"""Signage Detector Node — YOLO11n BPU Model Inference via hobot_dnn.
 
-Loads the compiled .bin model, subscribes to camera raw images,
-runs hardware-accelerated BPU inference, and publishes processed state updates.
-Features a platform-check so it runs gracefully on RDK X5 and idles on non-RDK systems.
+REVIEW DRAFT for NXGV YOLO11n 10-class model. Drop into
+src/risabot_automode/risabot_automode/ as signage_detector.py (replacing the
+YOLOv5 version) after review. Topics0643785 unchanged; only parsing + class map change.
+
+BPU output protocol (D-Robotics ultralytics_yolo, YOLO11xDetect):
+  6 outputs: [cls8, box8, cls16, box16, cls32, box32], NHWC float32
+  cls  = raw logits  -> sigmoid on CPU, per-class threshold
+  box  = DFL regs    -> softmax expected value + stride decode on CPU
+  NMS  = class-wise on CPU (reused vectorised implementation)
+
+NXGV class map (nxgv.yaml, alphabetical):
+   0 end_of_tunnel_sign  -> TUNNEL_DETECTED False (gated)
+   1 hill_sign           -> HILL_SIGN_TOPIC
+   2 obstacle_sign       -> OBSTACLE_CAMERA_TOPIC
+   3 parallel_parking    -> PARKING_SIGN_TOPIC (width gate kept)
+   4 perpendicular_park  -> PARKING_SIGN_TOPIC (width gate kept)
+   5 roundabout_sign     -> debug only (auto_driver is time-based; wire here)
+   6 speed_bump_sign     -> debug only (no topic yet; wire to speed logic)
+   7 traffic_light lamp  -> TRAFFIC_LIGHT_TOPIC via HSV (red/green/unknown)
+   8 traffic_warn_sign   -> debug only
+   9 tunnel_sign         -> TUNNEL_DETECTED True (gated)
 """
 
 import time
-from typing import Dict
+from typing import Dict, List, Tuple
 
 import cv2
 import numpy as np
@@ -20,7 +37,7 @@ from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, String
 
-# Import topics from our shared module
+# Import topics from our shared module (same as YOLOv5 node)
 from .topics import (
     CAMERA_IMAGE_TOPIC,
     HILL_SIGN_TOPIC,
@@ -28,9 +45,9 @@ from .topics import (
     PARKING_SIGN_TOPIC,
     SIGNAGE_DEBUG_TOPIC,
     TRAFFIC_LIGHT_TOPIC,
+    TUNNEL_DETECTED_TOPIC,
 )
 
-# Graceful import of BPU runtime library
 try:
     try:
         from hobot_dnn import pyeasy_dnn as dnn
@@ -40,23 +57,57 @@ try:
 except ImportError:
     BPU_AVAILABLE = False
 
+# NXGV class names (must match nxgv.yaml order)
+CLASS_NAMES = [
+    'end_of_tunnel_sign',      # 0
+    'hill_sign',               # 1
+    'obstacle_sign',           # 2
+    'parallel_parking_sign',   # 3
+    'perpendicular_park_sign', # 4
+    'roundabout_sign',         # 5
+    'speed_bump_sign',         # 6
+    'traffic_light',           # 7 lamp (HSV -> red/green)
+    'traffic_warn_sign',       # 8 signals-ahead warning
+    'tunnel_sign',             # 9
+]
+
+STRIDES = (8, 16, 32)
+REG = 16  # DFL bins per box edge
+_REGW = np.arange(REG, dtype=np.float32)
+
+
+def _sigmoid(x: np.ndarray) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-x.astype(np.float32)))
+
 
 class SignageDetector(Node):
-    """BPU-accelerated signage detector node for competition signs & traffic lights."""
+    """BPU-accelerated NXGV signage detector (YOLO11n, 10-class)."""
 
     def __init__(self):
         super().__init__('signage_detector')
 
-        # ── Tunable parameters ─────────────────────────────────────────────
-        self.declare_parameter('model_path',             '/home/sunrise/risabot_signs_640x640_nv12.bin')
-        self.declare_parameter('conf_threshold',         0.05)
-        self.declare_parameter('iou_threshold',          0.45)
-        self.declare_parameter('show_debug',             False)
-        self.declare_parameter('heartbeat_sec',          0.5)
+        # ── Tunable parameters ─────────────────────────────────────────
+        self.declare_parameter('model_path', '/home/sunrise/nxgv_yolo11n_640x640_nv12.bin')
+        self.declare_parameter('conf_threshold', 0.25)   # global fallback
+        self.declare_parameter('iou_threshold', 0.45)
+        self.declare_parameter('show_debug', False)
+        self.declare_parameter('heartbeat_sec', 0.5)
         self.declare_parameter('min_parking_sign_width', 0)
+        self.declare_parameter('tunnel_publish_enabled', True)  # False = never publish /tunnel_detected (wall follower owns it)
 
-        # ── Per-class configuration via JSON ──────────────────────────────────────────
-        self.declare_parameter('class_config', '{}')
+        # Per-class thresholds. Strict where FPs were measured on laptop:
+        # parking 0.50 (phone UI hit 0.72), obstacle 0.50 (blue clutter),
+        # speed_bump 0.50 + traffic lamp 0.30 (HSV decides colour anyway).
+        self.declare_parameter('thresh_end_tunnel',  0.40)  # 0
+        self.declare_parameter('thresh_hill',        0.25)  # 1
+        self.declare_parameter('thresh_obstacle',    0.50)  # 2
+        self.declare_parameter('thresh_parallelp',   0.50)  # 3
+        self.declare_parameter('thresh_perpendp',    0.50)  # 4
+        self.declare_parameter('thresh_roundabout',  0.35)  # 5
+        self.declare_parameter('thresh_speedbump',   0.50)  # 6
+        self.declare_parameter('thresh_tl_lamp',     0.30)  # 7
+        self.declare_parameter('thresh_tl_warn',     0.40)  # 8
+        self.declare_parameter('thresh_tunnel',      0.40)  # 9
 
         self._param_cache: Dict[str, object] = {}
         self._update_param_cache()
@@ -64,38 +115,35 @@ class SignageDetector(Node):
 
         self.bridge = CvBridge()
         self.bpu_available = BPU_AVAILABLE
-        self._last_log_time = 0.0  # rate-limit log (avoids hasattr in hot path)
+        self._last_log_time = 0.0
 
-        # Per-class thresholds and colors are now read dynamically from ROS2
-        # parameters via class_config JSON.
-
-        # ── Detection & Gating state ────────────────────────────────────────
+        # ── Gated states ─────────────────────────────────────────────
         self.hill_sign_active = False
         self.parking_sign_active = False
         self.obstacle_sign_active = False
+        self.tunnel_active = False
         self.traffic_light_active = 'unknown'
 
-        self.detected_hill_consecutive = 0
-        self.detected_parking_consecutive = 0
-        self.detected_obstacle_consecutive = 0
-        self.detected_tl_red_consecutive = 0
-        self.detected_tl_green_consecutive = 0
-        self.detected_tl_yellow_consecutive = 0
+        self._cnt_hill = 0
+        self._cnt_parking = 0
+        self._cnt_obstacle = 0
+        self._cnt_tunnel = 0
+        self._cnt_endtunnel = 0
+        self._cnt_red = 0
+        self._cnt_green = 0
+        self._last_tunnel_pub = None  # edge-triggered /tunnel_detected (shared with wall follower)
 
-        # ── ROS publishers & subscribers ────────────────────────────────────
+        # ── ROS interfaces (topics UNCHANGED from YOLOv5 node + tunnel) ──
         self.parking_pub = self.create_publisher(Bool, PARKING_SIGN_TOPIC, 10)
         self.traffic_light_pub = self.create_publisher(String, TRAFFIC_LIGHT_TOPIC, 10)
         self.hill_pub = self.create_publisher(Bool, HILL_SIGN_TOPIC, 10)
         self.obstacle_pub = self.create_publisher(Bool, OBSTACLE_CAMERA_TOPIC, 10)
+        self.tunnel_pub = self.create_publisher(Bool, TUNNEL_DETECTED_TOPIC, 10)
         self.debug_pub = self.create_publisher(Image, SIGNAGE_DEBUG_TOPIC, 10)
 
-        # Heartbeat timer — continuously publishes last states to keep topics fresh
         self._heartbeat_timer = self.create_timer(
-            float(self._param_cache['heartbeat_sec']),
-            self.publish_states
-        )
+            float(self._param_cache['heartbeat_sec']), self.publish_states)
 
-        # ── Initialize BPU Runtime ──────────────────────────────────────────
         if self.bpu_available:
             try:
                 model_path = str(self._param_cache['model_path'])
@@ -109,492 +157,285 @@ class SignageDetector(Node):
 
         if not self.bpu_available:
             self.get_logger().warn(
-                'hobot_dnn runtime not available or failed to load. '
-                'Node will operate in dummy/idle mode (no BPU inference).'
-            )
+                'hobot_dnn runtime not available. Node idles (no BPU inference).')
 
-        # Camera raw subscriber
         self.color_sub = self.create_subscription(
-            Image,
-            CAMERA_IMAGE_TOPIC,
-            self.image_callback,
-            QoSPresetProfiles.SENSOR_DATA.value
-        )
-        self.get_logger().info('Signage Detector node initialized.')
+            Image, CAMERA_IMAGE_TOPIC, self.image_callback,
+            QoSPresetProfiles.SENSOR_DATA.value)
+        self.get_logger().info('Signage Detector (YOLO11n NXGV) initialized.')
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Parameter management
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Parameters ───────────────────────────────────────────────────
+    _THRESH_KEYS = ('thresh_end_tunnel', 'thresh_hill', 'thresh_obstacle',
+                    'thresh_parallelp', 'thresh_perpendp', 'thresh_roundabout',
+                    'thresh_speedbump', 'thresh_tl_lamp', 'thresh_tl_warn',
+                    'thresh_tunnel')
 
     def _update_param_cache(self) -> None:
         self._param_cache = {
-            'model_path':             str(self.get_parameter('model_path').value),
-            'conf_threshold':         float(self.get_parameter('conf_threshold').value),
-            'iou_threshold':          float(self.get_parameter('iou_threshold').value),
-            'show_debug':             bool(self.get_parameter('show_debug').value),
-            'heartbeat_sec':          float(self.get_parameter('heartbeat_sec').value),
+            'model_path': str(self.get_parameter('model_path').value),
+            'conf_threshold': float(self.get_parameter('conf_threshold').value),
+            'iou_threshold': float(self.get_parameter('iou_threshold').value),
+            'show_debug': bool(self.get_parameter('show_debug').value),
+            'heartbeat_sec': float(self.get_parameter('heartbeat_sec').value),
             'min_parking_sign_width': int(self.get_parameter('min_parking_sign_width').value),
-            'class_config':           str(self.get_parameter('class_config').value),
+            'tunnel_publish_enabled': bool(self.get_parameter('tunnel_publish_enabled').value),
         }
-        self._build_class_caches()
+        for k in self._THRESH_KEYS:
+            self._param_cache[k] = float(self.get_parameter(k).value)
+        conf = self._param_cache['conf_threshold']
+        self._class_thresh_array = np.array(
+            [self._param_cache.get(k, conf) for k in self._THRESH_KEYS],
+            dtype=np.float32)
 
     def _on_params(self, params) -> SetParametersResult:
         for p in params:
             if p.name in self._param_cache:
                 self._param_cache[p.name] = p.value
-        self._build_class_caches()  # rebuild cached arrays whenever any param changes
+        self._update_param_cache()
         return SetParametersResult(successful=True)
 
-    def _build_class_caches(self) -> None:
-        """Pre-build NumPy threshold array and color list from param cache.
-
-        Called once at init and on every parameter change so the hot
-        inference path never constructs these structures per-frame.
-        """
-        import json
-        c = self._param_cache
-        conf = c['conf_threshold']
-        
-        class_config = {}
-        try:
-            class_config = json.loads(c.get('class_config', '{}'))
-        except Exception as e:
-            self.get_logger().error(f"Failed to parse class_config JSON: {e}")
-
-        # Shape (10,) — indexed directly by class_id for vectorised filtering
-        thresh_list = []
-        colors_list = []
-        
-        for i in range(9):
-            idx_str = str(i)
-            config_item = class_config.get(idx_str, {})
-            
-            # Use specific class thresh or fallback to conf_threshold
-            thresh = config_item.get('thresh', conf)
-            thresh_list.append(thresh)
-            
-            # Use specific color or fallback to parse_color default
-            color_str = config_item.get('color', '')
-            colors_list.append(self._parse_color(color_str))
-            
-        # Class 9 (null - always ignored)
-        thresh_list.append(1.0)
-        colors_list.append((128, 128, 128))
-
-        self._class_thresh_array = np.array(thresh_list, dtype=np.float32)
-        self._class_colors_cache = colors_list
-
-    @staticmethod
-    def _parse_color(color_str: str) -> tuple:
-        """Parse 'B,G,R' string to a (B, G, R) int tuple for OpenCV."""
-        try:
-            parts = [int(x.strip()) for x in color_str.split(',')]
-            if len(parts) == 3:
-                return tuple(parts)
-        except Exception:
-            pass
-        return (255, 255, 255)  # fallback white
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # State publishing helper
-    # ──────────────────────────────────────────────────────────────────────────
-
     def publish_states(self) -> None:
-        """Publish the current latch states of the sign/light flags."""
         self.parking_pub.publish(Bool(data=self.parking_sign_active))
         self.traffic_light_pub.publish(String(data=self.traffic_light_active))
         self.hill_pub.publish(Bool(data=self.hill_sign_active))
         self.obstacle_pub.publish(Bool(data=self.obstacle_sign_active))
+        # Edge-triggered /tunnel_detected: tunnel_wall_follower co-publishes
+        # this topic, so a periodic False heartbeat here would stomp its True.
+        if self._param_cache['tunnel_publish_enabled']:
+            if self._last_tunnel_pub is None or self.tunnel_active != self._last_tunnel_pub:
+                self.tunnel_pub.publish(Bool(data=self.tunnel_active))
+                self._last_tunnel_pub = self.tunnel_active
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Image preprocessing (BGR to NV12)
-    # ──────────────────────────────────────────────────────────────────────────
-
+    # ── NV12 preprocessing (unchanged: 640 BGR -> NV12) ──────────────
     def bgr_to_nv12(self, bgr640: np.ndarray) -> np.ndarray:
-        """Convert a pre-resized 640x640 BGR image to NV12 layout for BPU.
-
-        Caller is responsible for passing an already-resized 640x640 frame so
-        this method performs zero redundant resize work.
-        """
-        # 1. Convert to YUV I420 (input already 640x640)
         yuv = cv2.cvtColor(bgr640, cv2.COLOR_BGR2YUV_I420)
-        # yuv has shape (960, 640)
-
-        # 2. Extract planar components
         y = yuv[0:640, :]
         u = yuv[640:800, :]
         v = yuv[800:960, :]
-
-        # 3. Interleave U and V for NV12 using column-stack (faster than strided assignment)
         uv_planar = np.stack([u.ravel(), v.ravel()], axis=1).ravel().reshape(320, 640)
+        return np.vstack((y, uv_planar))
 
-        # 4. Stack Y and interleaved UV planes
-        nv12 = np.vstack((y, uv_planar))
-        return nv12
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Vectorized Non-Maximum Suppression
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── YOLO11 BPU decode: sigmoid cls + DFL boxes, per level ────────
+    def _decode_level(self, cls_out: np.ndarray, box_out: np.ndarray,
+                      stride: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Decode one stride level. Returns (boxes xyxy@640, scores, class_ids)."""
+        cls = np.squeeze(np.asarray(cls_out, dtype=np.float32))
+        box = np.squeeze(np.asarray(box_out, dtype=np.float32))
+        if cls.ndim == 3 and cls.shape[-1] == len(CLASS_NAMES):  # NHWC -> HW
+            pass
+        elif cls.ndim == 3 and cls.shape[0] == len(CLASS_NAMES):  # NCHW -> transpose
+            cls = np.transpose(cls, (1, 2, 0))
+            box = np.transpose(box, (1, 2, 0))
+        h, w = cls.shape[:2]
+        scores_all = _sigmoid(cls)
+        class_ids = np.argmax(scores_all, axis=-1)
+        max_scores = scores_all[np.arange(h)[:, None], np.arange(w), class_ids]
+        keep = (max_scores >= self._class_thresh_array[class_ids])
+        ys, xs = np.where(keep)
+        if ys.size == 0:
+            return (np.empty((0, 4), np.float32), np.empty((0,), np.float32),
+                    np.empty((0,), np.int32))
+        # DFL expected value over REG bins, 4 edges
+        ltrb = box[ys, xs].reshape(-1, 4, REG)
+        ltrb = ltrb - ltrb.max(axis=-1, keepdims=True)
+        exp = np.exp(ltrb)
+        off = (exp / exp.sum(axis=-1, keepdims=True) * _REGW).sum(axis=-1)  # (N,4)
+        l, t, r, b = off[:, 0], off[:, 1], off[:, 2], off[:, 3]
+        gx = xs.astype(np.float32) + 0.5
+        gy = ys.astype(np.float32) + 0.5
+        boxes = np.stack([(gx - l) * stride, (gy - t) * stride,
+                          (gx + r) * stride, (gy + b) * stride], axis=1)
+        return boxes.astype(np.float32), max_scores[ys, xs].astype(np.float32), class_ids[ys, xs].astype(np.int32)
 
     def nms(self, boxes: np.ndarray, scores: np.ndarray, iou_threshold: float) -> list:
-        """Standard vectorized NMS in Numpy."""
         if len(boxes) == 0:
             return []
-        x1 = boxes[:, 0]
-        y1 = boxes[:, 1]
-        x2 = boxes[:, 2]
-        y2 = boxes[:, 3]
+        x1, y1, x2, y2 = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
         areas = (x2 - x1) * (y2 - y1)
-        
         order = scores.argsort()[::-1]
         keep = []
-        
         while order.size > 0:
             i = order[0]
             keep.append(i)
-            
             xx1 = np.maximum(x1[i], x1[order[1:]])
             yy1 = np.maximum(y1[i], y1[order[1:]])
             xx2 = np.minimum(x2[i], x2[order[1:]])
             yy2 = np.minimum(y2[i], y2[order[1:]])
-            
-            w = np.maximum(0.0, xx2 - xx1)
-            h = np.maximum(0.0, yy2 - yy1)
-            
-            inter = w * h
+            inter = np.maximum(0.0, xx2 - xx1) * np.maximum(0.0, yy2 - yy1)
             ovr = inter / (areas[i] + areas[order[1:]] - inter)
-            
-            inds = np.where(ovr <= iou_threshold)[0]
-            order = order[inds + 1]
-            
+            order = order[np.where(ovr <= iou_threshold)[0] + 1]
         return keep
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Main camera callback
-    # ──────────────────────────────────────────────────────────────────────────
-
+    # ── Main callback ────────────────────────────────────────────────
     def image_callback(self, msg: Image) -> None:
-        """Receive image, perform BPU inference, parse predictions, filter and publish."""
         if not self.bpu_available:
             return
-
         try:
-            # Convert ROS Image to OpenCV BGR
             bgr = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
-
-            # Resize ONCE here — reused for BPU NV12 input, CV post-processing,
-            # and debug rendering. Avoids multiple redundant resize calls.
             bgr640 = cv2.resize(bgr, (640, 640), interpolation=cv2.INTER_LINEAR)
-
-            # Preprocess to NV12 format (accepts pre-resized 640x640 image)
             nv12 = self.bgr_to_nv12(bgr640)
-            
-            # Forward pass on BPU
-            # hobot_dnn forward takes list of inputs
+
             outputs = self.model.forward([nv12])
-            pred = outputs[0].buffer
-            
-            # Reshape/squeeze predictions to 2D
-            if len(pred.shape) > 2:
-                pred = np.squeeze(pred)
-                
-            conf_threshold = float(self._param_cache['conf_threshold'])
-            iou_threshold = float(self._param_cache['iou_threshold'])
-            
-            # YOLOv5 outputs: box coordinates [0:4], objectness score [4], class scores [5:]
-            # Calculate absolute score = objectness * class_probability
-            scores = pred[:, 4:5] * pred[:, 5:]
-            class_ids = np.argmax(pred[:, 5:], axis=1)
-            max_scores = pred[:, 4] * pred[np.arange(len(pred)), 5 + class_ids]
-            
-            # Filter by per-class confidence thresholds and ignore null class (9)
-            # Vectorised NumPy op — replaces a ~25 000-iteration Python for-loop
-            keep_indices = (max_scores >= self._class_thresh_array[class_ids]) & (class_ids != 9)
-            
-            filtered_boxes = pred[keep_indices, 0:4]
-            filtered_scores = max_scores[keep_indices]
-            filtered_class_ids = class_ids[keep_indices]
-            
-            if len(filtered_boxes) > 0:
-                # Convert from [x_center, y_center, w, h] to [x1, y1, x2, y2]
-                x_center = filtered_boxes[:, 0]
-                y_center = filtered_boxes[:, 1]
-                w = filtered_boxes[:, 2]
-                h = filtered_boxes[:, 3]
-                
-                x1 = x_center - w / 2.0
-                y1 = y_center - h / 2.0
-                x2 = x_center + w / 2.0
-                y2 = y_center + h / 2.0
-                
-                boxes_x1y1x2y2 = np.stack([x1, y1, x2, y2], axis=1)
-                
-                # Perform Non-Maximum Suppression
-                keep = self.nms(boxes_x1y1x2y2, filtered_scores, iou_threshold)
-                final_boxes = boxes_x1y1x2y2[keep]
-                final_scores = filtered_scores[keep]
-                final_class_ids = filtered_class_ids[keep]
+            bufs = [np.asarray(o.buffer) for o in outputs]
+            # Expect 6: [cls8, box8, cls16, box16, cls32, box32]
+            if len(bufs) < 6:
+                self.get_logger().error(f'Expected 6 BPU outputs, got {len(bufs)}')
+                return
+            iou_thr = float(self._param_cache['iou_threshold'])
+            all_boxes, all_scores, all_cids = [], [], []
+            for li, stride in enumerate(STRIDES):
+                bb, ss, cc = self._decode_level(bufs[li * 2], bufs[li * 2 + 1], stride)
+                all_boxes.append(bb)
+                all_scores.append(ss)
+                all_cids.append(cc)
+            if sum(len(b) for b in all_boxes) == 0:
+                self._update_states(np.empty((0, 4)), np.empty((0,), dtype=np.int32))
+                self.publish_states()
+                return
+            boxes = np.concatenate(all_boxes)
+            scores = np.concatenate(all_scores)
+            cids = np.concatenate(all_cids)
 
-                # Perform Hybrid CV classification for traffic light color (Option 1)
-                # Reuse bgr640 already computed above — no second resize needed
-                h_img, w_img = bgr640.shape[:2]
-                for idx, cid in enumerate(final_class_ids):
-                    if cid in (6, 7, 8):  # Run CV color verification on green, red, or generic detections
-                        box = final_boxes[idx]
-                        x1_c = max(0, int(box[0]))
-                        y1_c = max(0, int(box[1]))
-                        x2_c = min(w_img, int(box[2]))
-                        y2_c = min(h_img, int(box[3]))
+            # Class-wise NMS
+            keep_idx = []
+            for c in np.unique(cids):
+                m = cids == c
+                for i in self.nms(boxes[m], scores[m], iou_thr):
+                    keep_idx.append(np.where(m)[0][i])
+            final_boxes = boxes[keep_idx]
+            final_scores = scores[keep_idx]
+            final_cids = cids[keep_idx].astype(np.int32)
 
-                        if x2_c > x1_c and y2_c > y1_c:
-                            crop = bgr640[y1_c:y2_c, x1_c:x2_c]
-                            new_cid = self.classify_traffic_light_color(crop)
-                            final_class_ids[idx] = new_cid
-            else:
-                final_boxes = np.empty((0, 4))
-                final_scores = np.array([])
-                final_class_ids = np.array([])
+            # Hybrid HSV traffic verification on lamp boxes (class 7)
+            h_img, w_img = bgr640.shape[:2]
+            verdicts = []
+            for idx, cid in enumerate(final_cids):
+                if cid == 7:
+                    x1c, y1c = max(0, int(final_boxes[idx, 0])), max(0, int(final_boxes[idx, 1]))
+                    x2c, y2c = min(w_img, int(final_boxes[idx, 2])), min(h_img, int(final_boxes[idx, 3]))
+                    if x2c > x1c and y2c > y1c:
+                        verdicts.append(self.classify_traffic_light_color(
+                            bgr640[y1c:y2c, x1c:x2c]))
+                    else:
+                        verdicts.append('unknown')
+                else:
+                    verdicts.append(None)
 
-            # Rate-limited status print (once per second) for diagnostics
             now = time.time()
             if now - self._last_log_time > 1.0:
-                max_score_val = float(np.max(max_scores)) if len(max_scores) > 0 else 0.0
                 self.get_logger().info(
-                    f"BPU Inference: received frame | max_score={max_score_val:.4f} | raw_det={len(filtered_boxes)} | post_nms={len(final_boxes)} | "
-                    f"classes={list(final_class_ids)}"
-                )
+                    f'YOLO11n BPU: post_nms={len(final_boxes)} classes={list(final_cids)}')
                 self._last_log_time = now
 
-            # Update detection states and publish updates
-            self.update_detection_states(final_boxes, final_class_ids)
+            self._update_states(final_boxes, final_cids, verdicts)
             self.publish_states()
-
-            # Render debug frames if requested (pass pre-resized frame — no extra resize)
             if self._param_cache['show_debug']:
-                self.draw_debug(bgr640, final_boxes, final_scores, final_class_ids)
-
+                self.draw_debug(bgr640, final_boxes, final_scores, final_cids)
         except Exception as e:
             self.get_logger().error(f'Inference error: {e}')
 
-    # ──────────────────────────────────────────────────────────────────────────
-    # Temporal filtering / confidence gating
-    # ──────────────────────────────────────────────────────────────────────────
+    # ── Temporal gating (3 consecutive frames, decay otherwise) ──────
+    def _bump(self, seen: bool, cnt: int) -> Tuple[int, bool]:
+        if seen:
+            cnt = min(10, cnt + 1)
+            return cnt, cnt >= 3
+        cnt = max(0, cnt - 1)
+        return cnt, (cnt > 0)
 
-    def update_detection_states(self, boxes: np.ndarray, class_ids: np.ndarray) -> None:
-        """Applies hysteresis / temporal filtering on current detections.
+    def _update_states(self, boxes, class_ids, verdicts=None) -> None:
+        cids = set(int(c) for c in np.atleast_1d(class_ids))
+        self._cnt_hill, self.hill_sign_active = self._bump(1 in cids, self._cnt_hill)
+        self._cnt_obstacle, self.obstacle_sign_active = self._bump(2 in cids, self._cnt_obstacle)
 
-        10-class model mapping:
-          0: Bumper_signboard       → obstacle_pub
-          1: Hill_signboard         → hill_pub
-          2: Obstacle_signboard     → obstacle_pub
-          3: ParallelP_signboard    → parking_pub
-          4: PerpendP_signboard     → parking_pub
-          5: RISAbotRemastered      → ignored
-          6: Traffic_Green          → traffic_light 'green'
-          7: Traffic_Red            → traffic_light 'red'
-          8: Trafficlight_signboard → traffic_light (CV-reclassified in image_callback)
-          9: null                   → ignored
-        """
+        # Parking with optional width gate
+        saw_park = False
+        min_w = int(self._param_cache['min_parking_sign_width'])
+        for idx, cid in enumerate(np.atleast_1d(class_ids)):
+            if int(cid) in (3, 4):
+                if min_w > 0:
+                    if boxes[idx, 2] - boxes[idx, 0] < min_w:
+                        continue
+                saw_park = True
+                break
+        self._cnt_parking, self.parking_sign_active = self._bump(saw_park, self._cnt_parking)
 
-        # 1. Hill sign (Class 1: Hill_signboard)
-        saw_hill = 1 in class_ids
-        if saw_hill:
-            self.detected_hill_consecutive = min(10, self.detected_hill_consecutive + 1)
-            if self.detected_hill_consecutive >= 3:
-                self.hill_sign_active = True
+        # Tunnel pair: tunnel sets True, end-of-tunnel clears
+        if 9 in cids:
+            self._cnt_tunnel = min(10, self._cnt_tunnel + 1)
+            self._cnt_endtunnel = 0
+            if self._cnt_tunnel >= 3:
+                self.tunnel_active = True
+        elif 0 in cids:
+            self._cnt_endtunnel = min(10, self._cnt_endtunnel + 1)
+            self._cnt_tunnel = 0
+            if self._cnt_endtunnel >= 3:
+                self.tunnel_active = False
         else:
-            self.detected_hill_consecutive = max(0, self.detected_hill_consecutive - 1)
-            if self.detected_hill_consecutive == 0:
-                self.hill_sign_active = False
+            self._cnt_tunnel = max(0, self._cnt_tunnel - 1)
+            self._cnt_endtunnel = max(0, self._cnt_endtunnel - 1)
 
-        # 2. Parking sign (Class 3: ParallelP_signboard OR Class 4: PerpendP_signboard)
-        # Optional: check if the bounding box meets minimum width constraints
-        saw_parking = False
-        min_width = int(self._param_cache['min_parking_sign_width'])
-
-        for idx, cid in enumerate(class_ids):
-            if cid in (3, 4):  # ParallelP_signboard or PerpendP_signboard
-                if min_width > 0:
-                    box = boxes[idx]
-                    box_w = box[2] - box[0]
-                    if box_w >= min_width:
-                        saw_parking = True
-                        break
-                else:
-                    saw_parking = True
-                    break
-
-        if saw_parking:
-            self.detected_parking_consecutive = min(10, self.detected_parking_consecutive + 1)
-            if self.detected_parking_consecutive >= 3:
-                self.parking_sign_active = True
-        else:
-            self.detected_parking_consecutive = max(0, self.detected_parking_consecutive - 1)
-            if self.detected_parking_consecutive == 0:
-                self.parking_sign_active = False
-
-        # 3. Obstacle sign (Class 0: Bumper_signboard OR Class 2: Obstacle_signboard)
-        saw_obstacle = (0 in class_ids) or (2 in class_ids)
-        if saw_obstacle:
-            self.detected_obstacle_consecutive = min(10, self.detected_obstacle_consecutive + 1)
-            if self.detected_obstacle_consecutive >= 3:
-                self.obstacle_sign_active = True
-        else:
-            self.detected_obstacle_consecutive = max(0, self.detected_obstacle_consecutive - 1)
-            if self.detected_obstacle_consecutive == 0:
-                self.obstacle_sign_active = False
-
-        # 4. Traffic light states
-        # Class 8: Trafficlight_signboard (generic) — CV-reclassified in image_callback to 6 or 7
-        # Class 6: Traffic_Green
-        # Class 7: Traffic_Red
-        # No yellow class in 10-class model
-        saw_red = 7 in class_ids
-        saw_green = 6 in class_ids
-
-        if saw_red:
-            self.detected_tl_red_consecutive = min(10, self.detected_tl_red_consecutive + 1)
-            self.detected_tl_green_consecutive = 0
-            self.detected_tl_yellow_consecutive = 0
-            if self.detected_tl_red_consecutive >= 3:
+        # Traffic lamp: HSV verdicts decide red/green
+        reds = greens = 0
+        if verdicts:
+            for cid, v in zip(np.atleast_1d(class_ids), verdicts):
+                if int(cid) == 7:
+                    if v == 'red':
+                        reds += 1
+                    elif v == 'green':
+                        greens += 1
+        if reds > 0 and reds >= greens:
+            self._cnt_red = min(10, self._cnt_red + 1)
+            self._cnt_green = 0
+            if self._cnt_red >= 3:
                 self.traffic_light_active = 'red'
-        elif saw_green:
-            self.detected_tl_green_consecutive = min(10, self.detected_tl_green_consecutive + 1)
-            self.detected_tl_red_consecutive = 0
-            self.detected_tl_yellow_consecutive = 0
-            if self.detected_tl_green_consecutive >= 3:
+        elif greens > 0:
+            self._cnt_green = min(10, self._cnt_green + 1)
+            self._cnt_red = 0
+            if self._cnt_green >= 3:
                 self.traffic_light_active = 'green'
         else:
-            # Decay all states
-            self.detected_tl_red_consecutive = max(0, self.detected_tl_red_consecutive - 1)
-            self.detected_tl_green_consecutive = max(0, self.detected_tl_green_consecutive - 1)
-            self.detected_tl_yellow_consecutive = max(0, self.detected_tl_yellow_consecutive - 1)
-
-            if (self.detected_tl_red_consecutive == 0 and
-                    self.detected_tl_green_consecutive == 0 and
-                    self.detected_tl_yellow_consecutive == 0):
+            self._cnt_red = max(0, self._cnt_red - 1)
+            self._cnt_green = max(0, self._cnt_green - 1)
+            if self._cnt_red == 0 and self._cnt_green == 0:
                 self.traffic_light_active = 'unknown'
 
-    def classify_traffic_light_color(self, crop: np.ndarray) -> int:
-        """Analyze cropped traffic light region in HSV to identify the active state.
-
-        Returns class IDs matching the 10-class model:
-            6 for Traffic_Green, 7 for Traffic_Red, 8 for unknown/generic.
-        """
+    def classify_traffic_light_color(self, crop: np.ndarray) -> str:
+        """HSV vote on lamp crop -> 'red' | 'green' | 'unknown'."""
         if crop is None or crop.size == 0:
-            return 2
-
+            return 'unknown'
         hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
-        
-        # Define color thresholds (HSV)
-        # Red wraps around 0 and 180 in Hue
-        lower_red1 = np.array([0, 80, 80])
-        upper_red1 = np.array([10, 255, 255])
-        lower_red2 = np.array([160, 80, 80])
-        upper_red2 = np.array([180, 255, 255])
-        
-        # Yellow/Orange: broadened Hue range
-        lower_yellow = np.array([11, 80, 80])
-        upper_yellow = np.array([38, 255, 255])
-        
-        # Green
-        lower_green = np.array([40, 80, 80])
-        upper_green = np.array([90, 255, 255])
-        
-        # Generate masks and count active pixels
-        mask_red1 = cv2.inRange(hsv, lower_red1, upper_red1)
-        mask_red2 = cv2.inRange(hsv, lower_red2, upper_red2)
-        red_count = cv2.countNonZero(mask_red1) + cv2.countNonZero(mask_red2)
-        
-        mask_yellow = cv2.inRange(hsv, lower_yellow, upper_yellow)
-        yellow_count = cv2.countNonZero(mask_yellow)
-        
-        mask_green = cv2.inRange(hsv, lower_green, upper_green)
-        green_count = cv2.countNonZero(mask_green)
-        
-        # Determine dominant color
-        # Map to 10-class model IDs: 6=Traffic_Green, 7=Traffic_Red
-        # Yellow pixels map to red (nearest match — no yellow class in model)
-        counts = {6: green_count, 7: red_count + yellow_count}
-        best_cls, max_pixels = max(counts.items(), key=lambda x: x[1])
+        red = (cv2.countNonZero(cv2.inRange(hsv, np.array([0, 80, 80]), np.array([10, 255, 255])))
+               + cv2.countNonZero(cv2.inRange(hsv, np.array([160, 80, 80]), np.array([180, 255, 255]))))
+        yellow = cv2.countNonZero(cv2.inRange(hsv, np.array([11, 80, 80]), np.array([38, 255, 255])))
+        green = cv2.countNonZero(cv2.inRange(hsv, np.array([40, 80, 80]), np.array([90, 255, 255])))
+        total = crop.shape[0] * crop.shape[1]
+        need = max(10, int(total * 0.02))
+        if red + yellow >= need and red + yellow >= green:
+            return 'red'
+        if green >= need:
+            return 'green'
+        return 'unknown'
 
-        # Require a minimum count of pixels to prevent noise trigger (e.g. 2% of area, min 10 pixels)
-        total_pixels = crop.shape[0] * crop.shape[1]
-        min_required = max(10, int(total_pixels * 0.02))
-        if max_pixels >= min_required:
-            return best_cls
+    # ── Debug overlay ────────────────────────────────────────────────
+    _COLORS = [(255, 255, 255)] * 10
 
-        return 8  # Trafficlight_signboard generic / unknown
-
-    # ──────────────────────────────────────────────────────────────────────────
-    # Debug visualization publisher
-    # ──────────────────────────────────────────────────────────────────────────
-
-    def draw_debug(self, bgr640: np.ndarray, boxes: np.ndarray, scores: np.ndarray, class_ids: np.ndarray) -> None:
-        """Overlay detection boxes/labels on the pre-resized 640x640 frame and publish debug stream."""
-        debug_img = bgr640.copy()
-        
-        # 10-class model — must match Roboflow alphabetical export order
-        CLASS_NAMES = [
-            'Bumper_signboard',       # Class 0
-            'Hill_signboard',         # Class 1
-            'Obstacle_signboard',     # Class 2
-            'ParallelP_signboard',    # Class 3
-            'PerpendP_signboard',     # Class 4
-            'Roundabout_signboard',   # Class 5 (Renamed from RISAbotRemastered)
-            'Traffic_Green',          # Class 6
-            'Traffic_Red',            # Class 7
-            'Trafficlight_signboard', # Class 8
-            'null',                   # Class 9
-        ]
-
-        COLOR_MAP = self._class_colors_cache  # use pre-built cache, not per-frame rebuild
-
-        for i, box in enumerate(boxes):
+    def draw_debug(self, bgr640, boxes, scores, class_ids) -> None:
+        dbg = bgr640.copy()
+        for box, score, cid in zip(boxes, scores, class_ids):
             x1, y1, x2, y2 = map(int, box)
-            score = scores[i]
-            cid = class_ids[i]
-
-            name = CLASS_NAMES[cid] if cid < len(CLASS_NAMES) else f'class_{cid}'
-            color = COLOR_MAP[cid] if cid < len(COLOR_MAP) else (255, 255, 255)
-
-            # Draw bounding box
-            cv2.rectangle(debug_img, (x1, y1), (x2, y2), color, 2)
-
-            # Draw label — bigger text with black outline (no filled background)
-            label = f'{name}: {score:.2f}'
-            font       = cv2.FONT_HERSHEY_SIMPLEX
-            font_scale = 0.65
-            thickness  = 2
-            # Black outline for readability
-            cv2.putText(debug_img, label, (x1, y1 - 6), font, font_scale,
-                        (0, 0, 0), thickness + 2, lineType=cv2.LINE_AA)
-            # Colored text on top
-            cv2.putText(debug_img, label, (x1, y1 - 6), font, font_scale,
-                        color, thickness, lineType=cv2.LINE_AA)
-            
-        # Draw status summaries on top left
-        summary_text = (
-            f"HILL: {'ACTIVE' if self.hill_sign_active else 'OFF'} "
-            f"| PARK: {'ACTIVE' if self.parking_sign_active else 'OFF'} "
-            f"| TL: {self.traffic_light_active.upper()}"
-        )
-        cv2.putText(
-            debug_img,
-            summary_text,
-            (10, 25),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.55,
-            (0, 255, 0) if self.parking_sign_active or self.hill_sign_active else (255, 255, 255),
-            2,
-            lineType=cv2.LINE_AA
-        )
-
+            cv2.rectangle(dbg, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            cv2.putText(dbg, f'{CLASS_NAMES[int(cid)]}:{score:.2f}', (x1, max(15, y1 - 6)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 0), 2)
+        cv2.putText(dbg,
+                    f"HILL:{'Y' if self.hill_sign_active else '-'} "
+                    f"PARK:{'Y' if self.parking_sign_active else '-'} "
+                    f"TL:{self.traffic_light_active.upper()} "
+                    f"TUN:{'Y' if self.tunnel_active else '-'}",
+                    (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
         try:
-            debug_msg = self.bridge.cv2_to_imgmsg(debug_img, encoding='bgr8')
-            self.debug_pub.publish(debug_msg)
+            self.debug_pub.publish(self.bridge.cv2_to_imgmsg(dbg, encoding='bgr8'))
         except Exception as e:
-            self.get_logger().error(f'Failed to publish debug image: {e}')
+            self.get_logger().error(f'Debug publish failed: {e}')
 
 
 def main(args=None) -> None:
