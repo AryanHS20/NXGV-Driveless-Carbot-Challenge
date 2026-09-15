@@ -118,3 +118,30 @@ Yes — the full 14-section proposal was read end to end. Mapping its asks onto 
 3. Dataset capture (needs the working camera + track time, ~1 hour total).
 4. Curvature feedforward — only if tuned-baseline traces show roundabout lag/hairpin widening;
    design it from that data.
+
+## 11. Official reference video (SIMULATED — not real footage)
+
+File: `WhatsApp Video 2026-09-15 at 6.25.42 AM.mp4` (21 MB, 640×360 @ 20 fps, ~3.6 min).
+Issued by the competition organizers. Carries a "SIMULATED DATA" badge throughout: synthetic
+onboard POV + track minimap + telemetry overlays, ~20 scripted chapters (track entry → 90°
+corners → traffic light red→green → tunnel with gate arm → lane change → roundabout →
+parallel park → L park → MISSION COMPLETE).
+
+What it's worth to us:
+
+1. **Venue look, confirmed:** dark asphalt, WHITE solid edge borders, WHITE dashed center line,
+   green surroundings. This settles the polarity debate for the real track — white-seeking
+   (`invert_binary: false`) is correct there. Lab mats differ, so treat lab tuning as
+   approximate and expect re-tuning at the venue.
+2. **Challenge order + visuals:** matches our state machine sequence; the traffic light is a
+   clearly visible red lamp on a pole, tunnel has a red/white gate arm, parking bays are marked.
+   Good mental model for what each detector must face.
+3. **Reference speeds:** the sim drives 0.12–0.18 m/s with steering up to ~36° — our
+   `forward_speed 0.15` sits right in that band, so our speed scale is sane.
+4. **Their approach:** border tracking (both edges + center fit) — essentially what our sliding
+   tracker does. Validating, not news.
+
+What it is NOT good for: **training images.** Do not mix these synthetic frames into the real
+dataset — the rendered-vs-camera domain gap will poison the model. The 400 real images from
+the car are still needed. The video's real uses are venue familiarization and HSV sanity-checks
+(the rendered red lamp is a decent reference for the color-vote logic).
