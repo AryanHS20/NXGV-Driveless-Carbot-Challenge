@@ -30,6 +30,9 @@ legal; keep them). Traffic-light: onboard perception mandatory; timer/delay logi
 No external control during runs.
 
 MISSION (18 checkpoints, 2 passes — see repo: Guide/competition_layout_overview.jpeg,
+Guide/risa_bot_mission_zones_2d.png (top-down: checkpoint order 01–18, zones Z01–Z10,
+UWB anchors A1/A2/A3, first-pass blue + second-pass orange routes),
+Guide/risa_bot_mission_zones_3d.png (isometric view of the same),
 RISA_Zone_Guide.docx, Stage 2 rulebook PDF at repo root):
 First pass (blue): 01 start → 02 lane change → 03 roundabout 12-o'clock exit (to TUNNEL)
 → 04 tunnel 90° → 05 straight → 06 90° corner → 07 uphill → 08 flat → 09 downhill →
