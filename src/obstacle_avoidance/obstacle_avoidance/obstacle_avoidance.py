@@ -8,6 +8,7 @@ Applies temporal smoothing to avoid false positives.
 """
 
 import math
+import time
 from typing import Dict
 
 import rclpy
@@ -28,6 +29,7 @@ class ObstacleAvoidanceNode(Node):
         # Parameters (tunable at runtime)
         self.declare_parameter('min_obstacle_distance', 0.48)
         self.declare_parameter('heartbeat_sec', 0.5)
+        self.declare_parameter('lidar_angle_offset', math.pi)
         self._param_cache: Dict[str, object] = {}
         self._update_param_cache()
         self.add_on_set_parameters_callback(self._on_params)
@@ -46,6 +48,7 @@ class ObstacleAvoidanceNode(Node):
 
         # State — temporal smoothing buffer
         self.obstacle_active_any = False
+        self.last_scan_time = 0.0
         self.distance_buffer = []
         self.buffer_size = 5
         self._heartbeat_timer = self.create_timer(
@@ -71,10 +74,13 @@ class ObstacleAvoidanceNode(Node):
 
     def _heartbeat_publish(self) -> None:
         """Publish last obstacle state on a fixed heartbeat."""
+        if time.monotonic() - self.last_scan_time > 0.5:
+            self.obstacle_active_any = True
         self.obstacle_front_pub.publish(Bool(data=self.obstacle_active_any))
         self.obstacle_all_pub.publish(Bool(data=self.obstacle_active_any))
 
     def scan_callback(self, msg: LaserScan) -> None:
+        self.last_scan_time = time.monotonic()
         angle_min = msg.angle_min
         angle_increment = msg.angle_increment
         ranges = msg.ranges
@@ -90,7 +96,7 @@ class ObstacleAvoidanceNode(Node):
 
             angle = angle_min + i * angle_increment
             # Compensate for 90° clockwise mount
-            angle += math.pi / 2
+            angle += float(self.get_parameter('lidar_angle_offset').value)
 
             # Normalize
             while angle > math.pi:
@@ -118,7 +124,7 @@ class ObstacleAvoidanceNode(Node):
         if valid:
             smoothed_min = sorted(valid)[len(valid) // 2]  # median
         else:
-            smoothed_min = float('inf')  # no data = clear
+            smoothed_min = 0.0  # insufficient coverage must not mean clear
 
         # Publish front-only detection
         front_obstacle = smoothed_min < min_dist

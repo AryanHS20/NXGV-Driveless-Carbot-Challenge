@@ -1228,7 +1228,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="s-row"><span class="s-label">Pos X</span><span class="s-val" id="odomX">0.00 m</span></div>
       <div class="s-row"><span class="s-label">Pos Y</span><span class="s-val" id="odomY">0.00 m</span></div>
       <div class="s-row"><span class="s-label">Heading</span><span class="s-val" id="odomYaw">0°</span></div>
-      <button onclick="fetch('/api/reset_odom',{method:'POST'}).then(update)" style="margin-top:10px;width:100%;padding:6px;background:#333;color:#fff;border:1px solid #555;border-radius:4px;cursor:pointer;">Reset Odometry</button>
+      <button onclick="fetch('/api/reset_odom',{method:'POST'}).then(update)" style="margin-top:10px;width:100%;padding:6px;background:#333;color:#fff;border:1px solid #555;border-radius:4px;cursor:pointer;">Reset Display Odometry</button>
     </div>
 
     <!-- Controller -->
@@ -2022,10 +2022,12 @@ const PARAM_TIPS = {
   thresh_perpendp:'Class 4 perpendicular parking threshold', thresh_roundabout:'Class 5 roundabout threshold',
   thresh_speedbump:'Class 6 speed bump threshold', thresh_tl_lamp:'Class 7 traffic lamp threshold',
   thresh_tl_warn:'Class 8 warning sign threshold', thresh_tunnel:'Class 9 tunnel sign threshold',
-  tunnel_publish_enabled:'Allow signage node to publish /tunnel_detected (edge-triggered)'
+  tunnel_publish_enabled:'Publish the advisory tunnel sign hint'
 };
 const PARAM_GROUPS = [
   { node: 'line_follower_camera', label: 'Line Follower', params: [
+    'tracker_mode','s_thresh','l_thresh','sobel_thresh','sliding_windows','sliding_margin','sliding_minpix',
+    'pp_metric_enabled','pp_lateral_span_m','pp_forward_span_m','pp_near_m','pp_lookahead_ratio','pp_steering_gain',
     'n_scanlines','min_valid_scanlines','min_line_width_px',
     'crop_ratio_base','search_radius_px',
     'white_threshold','use_otsu','invert_binary',
@@ -2037,15 +2039,17 @@ const PARAM_GROUPS = [
     'resize_width','print_debug','debug_print_rate','show_debug'
   ]},
   { node: 'auto_driver', label: 'Auto Driver', params: [
-    'forward_speed','stale_timeout',
+    'forward_speed','stale_timeout','lane_control_mode','parking_idle_duration','parking_max_duration',
     'dist_lap_complete','enable_subsumption_obstacle','max_odom_speed',
     'min_state_dwell_sec','publish_loop_stats',
     'pid_kp','pid_ki','pid_kd','pid_integral_max',
     'speed_error_scale','min_turn_speed','lane_steer_slew',
-    'dist_post_obstacle_clear','dist_roundabout'
+    'hill_pitch_threshold','hill_base_speed','hill_max_speed'
   ]},
   { node: 'cmd_safety_controller', label: 'Cmd Safety', params: [
-    'publish_hz','cmd_timeout','max_linear_speed','max_angular_speed',
+    'publish_hz','cmd_timeout','sensor_timeout','min_scan_points','require_signage',
+    'footprint_half_width','footprint_front','footprint_rear','sweep_distance','lidar_angle_offset',
+    'max_linear_speed','max_angular_speed',
     'max_linear_accel','max_angular_accel','deadband_linear','deadband_angular','publish_loop_stats'
   ]},
   { node: 'boom_gate_detector', label: 'Boom Gate', params: [
@@ -2056,26 +2060,26 @@ const PARAM_GROUPS = [
     'target_center_dist','forward_speed','kp','kd','kp_heading','kd_heading','max_angular',
     'left_angle_min','left_angle_max','right_angle_min','right_angle_max',
     'min_wall_points','max_wall_dist','lidar_angle_offset',
-    'ransac_threshold','ransac_iterations','tunnel_hysteresis_frames','heartbeat_sec'
+    'output_alpha','tunnel_hysteresis_frames','heartbeat_sec'
   ]},
   { node: 'obstruction_avoidance', label: 'Obstruction', params: [
-    'detect_dist','clear_dist','front_angle','side_angle_min','side_angle_max',
-    'steer_speed','steer_angular','pass_speed','pass_duration',
-    'steer_back_duration','steer_away_duration','lidar_angle_offset'
+    'detect_dist','min_safe_dist','lateral_offset_m','spline_length_m','forward_speed',
+    'lookahead_m','sensor_timeout','max_timeout_sec','lidar_angle_offset'
   ]},
   { node: 'parking_controller', label: 'Parking', params: [
     'parallel_forward_dist','parallel_reverse_dist','parallel_steer_angle',
     'perp_turn_angle','perp_forward_dist','park_wait_time',
-    'drive_speed','reverse_speed','signboard_min_area','signboard_resize_width'
+    'drive_speed','reverse_speed','lidar_stop_dist','lidar_angle_offset'
   ]},
   { node: 'obstacle_avoidance_camera', label: 'Camera Obstacle', params: [
     'edge_threshold','canny_low','canny_high','blur_kernel',
     'hysteresis_on','hysteresis_off','resize_width','heartbeat_sec','show_debug'
   ]},
   { node: 'obstacle_avoidance_node', label: 'LiDAR Obstacle', params: [
-    'min_obstacle_distance','heartbeat_sec'
+    'min_obstacle_distance','lidar_angle_offset','heartbeat_sec'
   ]},
   { node: 'servo_controller', label: 'Servo/Odom', params: [
+    'parallel_recording','perpendicular_recording','motor_duty_per_mps','auto_right_steer_boost',
     'servo_center','servo_range_left','servo_range_right','servo_steer_id',
     'joy_timeout','auto_cmd_timeout','unlock_requires_neutral','unlock_neutral_threshold',
     'ticks_per_meter','drive_motor_index','odom_distance_scale','odom_yaw_scale',
@@ -2092,7 +2096,7 @@ const PARAM_GROUPS = [
     'timeout_control','timeout_odom','timeout_joy'
   ]},
   { node: 'signage_detector', label: 'Signage Detector (BPU)', params: [
-    'model_path','conf_threshold','iou_threshold',
+    'model_path','observation_timeout','conf_threshold','iou_threshold',
     'min_parking_sign_width','heartbeat_sec','show_debug',
     'tunnel_publish_enabled',
     'thresh_end_tunnel','thresh_hill','thresh_obstacle',

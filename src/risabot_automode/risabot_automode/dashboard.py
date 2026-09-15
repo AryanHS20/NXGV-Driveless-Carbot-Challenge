@@ -16,6 +16,7 @@ import threading
 import time
 import os
 import yaml
+from .parameter_values import coerce_parameter_value
 
 import cv2
 import rclpy
@@ -728,45 +729,27 @@ def _ros_set_param(node_name, param_name, value_str):
         param.name = param_name
         pv = ParameterValue()
         
-        # Support setting array values
-        if value_str.startswith('[') and value_str.endswith(']'):
-            try:
-                arr = json.loads(value_str)
-                if isinstance(arr, list):
-                    if all(isinstance(x, bool) for x in arr):
-                        pv.type = ParameterType.PARAMETER_BOOL_ARRAY
-                        pv.bool_array_value = arr
-                    elif all(isinstance(x, int) for x in arr):
-                        pv.type = ParameterType.PARAMETER_INTEGER_ARRAY
-                        pv.integer_array_value = arr
-                    elif all(isinstance(x, (int, float)) for x in arr):
-                        pv.type = ParameterType.PARAMETER_DOUBLE_ARRAY
-                        pv.double_array_value = [float(x) for x in arr]
-                    elif all(isinstance(x, str) for x in arr):
-                        pv.type = ParameterType.PARAMETER_STRING_ARRAY
-                        pv.string_array_value = arr
-                    else:
-                        raise ValueError("Unsupported array element type")
-                else:
-                    raise ValueError("Not a list")
-            except Exception:
-                pv.type = ParameterType.PARAMETER_STRING
-                pv.string_value = value_str
-        elif value_str.lower() in ('true', 'false'):
-            pv.type = ParameterType.PARAMETER_BOOL
-            pv.bool_value = value_str.lower() == 'true'
-        else:
-            try:
-                # Check if it's a pure integer (no decimal point)
-                if '.' not in value_str:
-                    pv.type = ParameterType.PARAMETER_INTEGER
-                    pv.integer_value = int(value_str)
-                else:
-                    pv.type = ParameterType.PARAMETER_DOUBLE
-                    pv.double_value = float(value_str)
-            except ValueError:
-                pv.type = ParameterType.PARAMETER_STRING
-                pv.string_value = value_str
+        # Read the declared type instead of guessing from decimal punctuation.
+        get_client = _get_client(node_name, 'get')
+        if not get_client.wait_for_service(timeout_sec=0.15):
+            return False, 'Parameter service unavailable'
+        get_req = GetParameters.Request()
+        get_req.names = [param_name]
+        get_future = get_client.call_async(get_req)
+        deadline = time.monotonic() + 2.0
+        while not get_future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not get_future.done():
+            return False, 'Parameter type lookup timed out'
+        current = get_future.result()
+        if not current or not current.values:
+            return False, 'Parameter not declared'
+        pv.type = current.values[0].type
+        value = coerce_parameter_value(value_str, pv.type)
+        fields = {1:'bool_value', 2:'integer_value', 3:'double_value', 4:'string_value',
+                  5:'byte_array_value', 6:'bool_array_value', 7:'integer_array_value',
+                  8:'double_array_value', 9:'string_array_value'}
+        setattr(pv, fields[pv.type], value)
         param.value = pv
         req = SetParameters.Request()
         req.parameters = [param]
@@ -1045,7 +1028,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     _node_ref.data['odom_y'] = 0.0
                     _node_ref.data['odom_yaw'] = 0.0
                     _node_ref.data['speed'] = 0.0
-            resp = {'ok': True, 'msg': 'Odometry reset'}
+            resp = {'ok': True, 'msg': 'Display odometry reset; hardware localization unchanged'}
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.send_header('Access-Control-Allow-Origin', '*')

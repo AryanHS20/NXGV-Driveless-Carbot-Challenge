@@ -37,9 +37,10 @@ from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import Image
-from std_msgs.msg import Bool, Float32
+from std_msgs.msg import Bool, Float32, String
 
 from .topics import CAMERA_DEBUG_LINE_TOPIC, CAMERA_IMAGE_TOPIC, LANE_ERROR_TOPIC, LANE_LOST_TOPIC
+from .control_contract import observation_age
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -80,8 +81,8 @@ class LaneKalmanFilter:
 
     def update(self, measurement: float) -> None:
         """Update step: correct state with a new measurement."""
-        y = measurement - float(self.H @ self.x)  # innovation
-        S = float(self.H @ self.P @ self.H.T) + self.R
+        y = measurement - (self.H @ self.x).item()  # innovation
+        S = (self.H @ self.P @ self.H.T).item() + self.R
         K = (self.P @ self.H.T) / S                # Kalman gain
         self.x = self.x + K.flatten() * y
         self.P = (np.eye(2) - K @ self.H) @ self.P
@@ -148,6 +149,11 @@ class LineFollowerCamera(Node):
         self.declare_parameter('pp_lookahead_ratio', 0.50)     # lookahead position in crop (0=bottom, 1=top)
         self.declare_parameter('pp_wheelbase', 0.14)           # m (Yahboom chassis wheelbase)
         self.declare_parameter('pp_steering_gain', 1.0)
+        self.declare_parameter('pp_metric_enabled', False)
+        self.declare_parameter('pp_lateral_span_m', 0.4)
+        self.declare_parameter('pp_forward_span_m', 0.6)
+        self.declare_parameter('pp_near_m', 0.1)
+        self.declare_parameter('steering_max_deg', 50.0)
         # Kalman filter — MDPI-inspired (replaces EMA when enabled)
         self.declare_parameter('kalman_enabled', True)
         self.declare_parameter('kalman_process_noise', 0.01)
@@ -199,6 +205,12 @@ class LineFollowerCamera(Node):
         self.curvature_pub = self.create_publisher(Float32, '/lane_curvature', 10)
         self.lane_lost_pub = self.create_publisher(Bool, LANE_LOST_TOPIC, 10)
         self.debug_pub = self.create_publisher(Image, CAMERA_DEBUG_LINE_TOPIC, 10)
+        self.route_pub = self.create_publisher(String, '/lane_route_confirmed', 10)
+        self.route_request = 'follow'
+        self.route_confirmed = ''
+        self.route_count = 0
+        self.route_request_stamp = 0.0
+        self.create_subscription(String, '/lane_route', self._route_callback, 10)
         self.bridge = CvBridge()
         self._last_valid_poly = None
         self._last_poly_time = 0.0
@@ -261,6 +273,14 @@ class LineFollowerCamera(Node):
     def _on_params(self, params) -> SetParametersResult:
         """Update cached parameters when set via CLI or dashboard."""
         for p in params:
+            if isinstance(p.value, (int, float)) and not isinstance(p.value, bool):
+                if not math.isfinite(p.value) or p.value < 0:
+                    return SetParametersResult(successful=False, reason='Finite nonnegative values required')
+            if p.name in ('crop_ratio_base', 'ipm_top_width_ratio', 'ipm_bottom_width_ratio') and not 0 < p.value <= 1:
+                return SetParametersResult(successful=False, reason='Ratio must be in (0, 1]')
+            if p.name in ('sliding_windows', 'n_scanlines', 'pp_lateral_span_m', 'pp_forward_span_m', 'steering_max_deg', 'kalman_measurement_noise') and p.value <= 0:
+                return SetParametersResult(successful=False, reason='Positive value required')
+        for p in params:
             if p.name in self._param_cache:
                 self._param_cache[p.name] = p.value
                 if p.name == 'clahe_clip_limit':
@@ -276,6 +296,39 @@ class LineFollowerCamera(Node):
                 if p.name == 'kalman_measurement_noise':
                     self._kalman.R = float(p.value)
         return SetParametersResult(successful=True)
+
+    def _route_callback(self, msg):
+        if msg.data not in ('follow', 'through', 'right'):
+            return
+        if msg.data != self.route_request:
+            self.route_confirmed = ''
+            self.route_count = 0
+        self.route_request = msg.data
+        self.route_request_stamp = time.monotonic()
+
+    def _select_visible_branch(self, binary):
+        """Prefer an observed border pair; never synthesize an unseen exit."""
+        if time.monotonic() - self.route_request_stamp > 0.5:
+            self.route_request = 'follow'
+            self.route_confirmed = ''
+        if self.route_request == 'follow':
+            return
+        h, w = binary.shape
+        histogram = np.sum(binary[h//2:], axis=0)
+        threshold = max(255, float(histogram.max()) * 0.3)
+        row = np.where(histogram >= threshold, 255, 0).astype(np.uint8)
+        regions = self._find_all_white_regions(row, 2, w//4)
+        centers = [r[0] for r in regions]
+        pairs = [(a,b) for a,b in zip(centers,centers[1:]) if w*.18 <= b-a <= w*.7]
+        if len(pairs) < 2:
+            self.route_count = 0
+            return
+        pair = (max(pairs, key=lambda p:sum(p)) if self.route_request == 'right'
+                else min(pairs, key=lambda p:abs(sum(p)/2-w/2)))
+        self._expected_left, self._expected_right = pair
+        self.route_count += 1
+        if self.route_count >= 3:
+            self.route_confirmed = self.route_request
 
     # ──────────────────────────────────────────────────────────────────────────
     # IPM — Inverse Perspective Mapping (Bird's Eye View)
@@ -389,6 +442,7 @@ class LineFollowerCamera(Node):
             binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
 
         # 2. Histogram or Prior Search
+        self._select_visible_branch(binary)
         nwindows = self._param_cache['sliding_windows']
         margin = self._param_cache['sliding_margin']
         minpix = self._param_cache['sliding_minpix']
@@ -641,6 +695,9 @@ class LineFollowerCamera(Node):
 
     def color_callback(self, msg: Image) -> None:
         """Process a camera frame and publish lane error."""
+        if observation_age(msg, self.get_clock().now().nanoseconds / 1e9) > .5:
+            self.lane_lost_pub.publish(Bool(data=True))
+            return
         try:
             now = time.monotonic()
             dt = now - self._last_frame_time
@@ -667,7 +724,7 @@ class LineFollowerCamera(Node):
 
             # ── 3. IPM warp: perspective → Bird's Eye View ──────────────────
             tracker_mode = self._param_cache['tracker_mode']
-            if self._param_cache['ipm_enabled'] or tracker_mode == 'sliding':
+            if self._param_cache['ipm_enabled']:
                 road = self._apply_ipm(road)
 
             # ── 4 & 5. Detection Pipeline Branching ─────────────────────────
@@ -685,7 +742,7 @@ class LineFollowerCamera(Node):
 
                 if self._param_cache['use_otsu']:
                     _, binary = cv2.threshold(
-                        blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+                        blurred, 0, 255, (cv2.THRESH_BINARY_INV if self._param_cache['invert_binary'] else cv2.THRESH_BINARY) + cv2.THRESH_OTSU
                     )
                 else:
                     thresh_val = self._param_cache['white_threshold']
@@ -715,6 +772,7 @@ class LineFollowerCamera(Node):
                     binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
 
                 # ── 5. Multi-scanline detection ─────────────────────────────────
+                self._select_visible_branch(binary)
                 left_pts, right_pts, center_pts, scan_weights, valid_count = \
                     self._detect_scanlines(binary, crop_h, w)
 
@@ -759,13 +817,17 @@ class LineFollowerCamera(Node):
                     lookahead_pt = (lx_px, ly_px)
 
                     # Pure Pursuit Steering Angle
-                    alpha = math.atan2(x_L, max(0.1, y_L))
-                    l_d = max(0.15, math.sqrt(x_L**2 + y_L**2))
-                    curv = (2.0 * math.sin(alpha)) / l_d
-                    wb = float(self._param_cache['pp_wheelbase'])
-                    steer_rad = math.atan(curv * wb)
-                    # Normalize to [-1.0, 1.0] across max steering (~35 deg / 0.61 rad)
-                    raw_error = float(np.clip((steer_rad / 0.61) * float(self._param_cache['pp_steering_gain']), -1.0, 1.0))
+                    if self.get_parameter('pp_metric_enabled').value and self._param_cache['ipm_enabled']:
+                        # Calibrated ground-plane rectangle, both axes in metres.
+                        x_m = x_L * float(self.get_parameter('pp_lateral_span_m').value) / 2
+                        y_m = float(self.get_parameter('pp_near_m').value) + y_L * float(self.get_parameter('pp_forward_span_m').value)
+                        curv = 2*x_m / max(0.001, x_m*x_m+y_m*y_m)
+                        steer_rad = math.atan(curv * float(self._param_cache['pp_wheelbase']))
+                        raw_error = steer_rad / math.radians(float(self.get_parameter('steering_max_deg').value))
+                    else:
+                        # Uncalibrated image-space mode is explicitly a heuristic.
+                        raw_error = x_L
+                    raw_error = float(np.clip(raw_error * self._param_cache['pp_steering_gain'], -1., 1.))
 
                     # Publish exact peak road curvature across lookahead horizon [0, y_L]
                     a_coeff = poly_fitted[0]
@@ -799,6 +861,7 @@ class LineFollowerCamera(Node):
                 self.lane_lost_pub.publish(Bool(data=False))
             else:
                 self.frames_lost += 1
+                self.lane_lost_pub.publish(Bool(data=True))
                 if self.frames_lost >= self._param_cache['hold_error_frames']:
                     self.lane_lost_pub.publish(Bool(data=True))
                     self._expected_left = None
@@ -815,8 +878,9 @@ class LineFollowerCamera(Node):
                     # When within dead zone, SKIP the update entirely so the
                     # Kalman filter coasts on its prediction. Feeding 0.0 is
                     # a false measurement that biases the filter toward center.
-                    if abs(raw_error) >= self._param_cache['dead_zone']:
-                        self._kalman.update(raw_error)
+                    self._kalman.update(raw_error)
+                else:
+                    self._kalman.decay_velocity(0.8)
                     # else: let predict() carry the state forward (no update)
                 # When lane is lost, Kalman continues predicting using velocity
                 # This is much better than the old hold+decay approach
@@ -848,6 +912,7 @@ class LineFollowerCamera(Node):
 
             # ── 8. Publish ──────────────────────────────────────────────────
             self.error_pub.publish(Float32(data=self.lane_error))
+            self.route_pub.publish(String(data=self.route_confirmed if measurement_available else ''))
 
             # ── 9. Debug visualisation ──────────────────────────────────────
             if self._param_cache['show_debug']:
@@ -945,6 +1010,7 @@ class LineFollowerCamera(Node):
                     self._last_debug_print = now_mono
 
         except Exception as e:
+            self.lane_lost_pub.publish(Bool(data=True))
             self.get_logger().error(f'Line follower error: {e}')
 
 

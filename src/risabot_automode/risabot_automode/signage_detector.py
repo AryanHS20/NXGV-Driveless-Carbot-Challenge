@@ -14,7 +14,7 @@ BPU output protocol (D-Robotics ultralytics_yolo, YOLO11xDetect):
 NXGV class map (nxgv.yaml, alphabetical):
    0 end_of_tunnel_sign  -> TUNNEL_CONF_TOPIC False (advisory only, gated)
    1 hill_sign           -> HILL_SIGN_TOPIC
-   2 obstacle_sign       -> OBSTACLE_CAMERA_TOPIC
+   2 obstacle_sign       -> OBSTACLE_SIGN_TOPIC (mission advisory)
    3 parallel_parking    -> PARKING_SIGN_TOPIC (width gate kept)
    4 perpendicular_park  -> PARKING_SIGN_TOPIC (width gate kept)
    5 roundabout_sign     -> debug only (auto_driver is time-based; wire here)
@@ -31,6 +31,8 @@ will race for the same topic again (last-publisher-wins, non-deterministic).
 """
 
 import time
+import math
+from .control_contract import confirmed_counter, fresh, observation_age
 from typing import Dict, List, Tuple
 
 import cv2
@@ -47,7 +49,7 @@ from std_msgs.msg import Bool, String
 from .topics import (
     CAMERA_IMAGE_TOPIC,
     HILL_SIGN_TOPIC,
-    OBSTACLE_CAMERA_TOPIC,
+    OBSTACLE_SIGN_TOPIC,
     PARKING_SIGN_TOPIC,
     SIGNAGE_DEBUG_TOPIC,
     TRAFFIC_LIGHT_TOPIC,
@@ -99,6 +101,7 @@ class SignageDetector(Node):
         self.declare_parameter('show_debug', False)
         self.declare_parameter('heartbeat_sec', 0.5)
         self.declare_parameter('min_parking_sign_width', 0)
+        self.declare_parameter('observation_timeout', 0.5)
         self.declare_parameter('tunnel_publish_enabled', True)  # False = never publish /tunnel_confidence (vision sign hint, advisory only)
 
         # Per-class thresholds. Strict where FPs were measured on laptop:
@@ -129,6 +132,14 @@ class SignageDetector(Node):
         self.obstacle_sign_active = False
         self.tunnel_active = False
         self.traffic_light_active = 'unknown'
+        self.last_observation = 0.0
+        self.parking_kind = ''
+        self.roundabout_active = False
+        self._cnt_roundabout = 0
+        self._cnt_warning = 0
+        self.warning_active = False
+        self._cnt_parallel = self._cnt_perpendicular = 0
+        self.parallel_active = self.perpendicular_active = False
 
         self._cnt_hill = 0
         self._cnt_parking = 0
@@ -143,7 +154,11 @@ class SignageDetector(Node):
         self.parking_pub = self.create_publisher(Bool, PARKING_SIGN_TOPIC, 10)
         self.traffic_light_pub = self.create_publisher(String, TRAFFIC_LIGHT_TOPIC, 10)
         self.hill_pub = self.create_publisher(Bool, HILL_SIGN_TOPIC, 10)
-        self.obstacle_pub = self.create_publisher(Bool, OBSTACLE_CAMERA_TOPIC, 10)
+        self.obstacle_pub = self.create_publisher(Bool, OBSTACLE_SIGN_TOPIC, 10)
+        self.kind_pub = self.create_publisher(String, '/parking_sign_kind', 10)
+        self.roundabout_pub = self.create_publisher(Bool, '/roundabout_detected', 10)
+        self.warning_pub = self.create_publisher(Bool, '/traffic_warning_detected', 10)
+        self.valid_pub = self.create_publisher(Bool, '/signage_valid', 10)
         self.tunnel_pub = self.create_publisher(Bool, TUNNEL_CONF_TOPIC, 10)
         self.debug_pub = self.create_publisher(Image, SIGNAGE_DEBUG_TOPIC, 10)
 
@@ -179,6 +194,7 @@ class SignageDetector(Node):
     def _update_param_cache(self) -> None:
         self._param_cache = {
             'model_path': str(self.get_parameter('model_path').value),
+            'observation_timeout': float(self.get_parameter('observation_timeout').value),
             'conf_threshold': float(self.get_parameter('conf_threshold').value),
             'iou_threshold': float(self.get_parameter('iou_threshold').value),
             'show_debug': bool(self.get_parameter('show_debug').value),
@@ -194,13 +210,37 @@ class SignageDetector(Node):
             dtype=np.float32)
 
     def _on_params(self, params) -> SetParametersResult:
+        proposed = dict(self._param_cache)
         for p in params:
-            if p.name in self._param_cache:
-                self._param_cache[p.name] = p.value
-        self._update_param_cache()
+            if isinstance(p.value, (float, int)) and not isinstance(p.value, bool):
+                if not math.isfinite(p.value) or p.value < 0:
+                    return SetParametersResult(successful=False, reason='Finite nonnegative values required')
+            if (p.name.startswith('thresh_') or p.name in ('iou_threshold', 'conf_threshold')) and not 0 <= p.value <= 1:
+                return SetParametersResult(successful=False, reason='Threshold must be 0..1')
+            if p.name == 'model_path' and p.value != self._param_cache['model_path']:
+                return SetParametersResult(successful=False, reason='Restart required to load another model')
+            if p.name in proposed:
+                proposed[p.name] = p.value
+        self._param_cache = proposed
+        self._class_thresh_array = np.array([proposed[k] for k in self._THRESH_KEYS], dtype=np.float32)
         return SetParametersResult(successful=True)
 
     def publish_states(self) -> None:
+        valid = fresh(self.last_observation, time.monotonic(), self._param_cache['observation_timeout'])
+        if not valid:
+            self.hill_sign_active = self.parking_sign_active = self.obstacle_sign_active = False
+            self.parallel_active = self.perpendicular_active = self.roundabout_active = False
+            self._cnt_hill = self._cnt_parking = self._cnt_obstacle = 0
+            self._cnt_parallel = self._cnt_perpendicular = self._cnt_roundabout = 0
+            self._cnt_warning = 0
+            self.warning_active = False
+            self._cnt_red = self._cnt_green = 0
+            self.traffic_light_active = 'unknown'
+            self.parking_kind = ''
+        self.valid_pub.publish(Bool(data=valid))
+        self.warning_pub.publish(Bool(data=self.warning_active if valid else False))
+        self.kind_pub.publish(String(data=self.parking_kind))
+        self.roundabout_pub.publish(Bool(data=self.roundabout_active))
         self.parking_pub.publish(Bool(data=self.parking_sign_active))
         self.traffic_light_pub.publish(String(data=self.traffic_light_active))
         self.hill_pub.publish(Bool(data=self.hill_sign_active))
@@ -279,6 +319,10 @@ class SignageDetector(Node):
     def image_callback(self, msg: Image) -> None:
         if not self.bpu_available:
             return
+        age = observation_age(msg, self.get_clock().now().nanoseconds / 1e9)
+        if age > self._param_cache['observation_timeout']:
+            return
+        observed_at = time.monotonic() - age
         try:
             bgr = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             bgr640 = cv2.resize(bgr, (640, 640), interpolation=cv2.INTER_LINEAR)
@@ -298,6 +342,7 @@ class SignageDetector(Node):
                 all_scores.append(ss)
                 all_cids.append(cc)
             if sum(len(b) for b in all_boxes) == 0:
+                self.last_observation = observed_at
                 self._update_states(np.empty((0, 4)), np.empty((0,), dtype=np.int32))
                 self.publish_states()
                 return
@@ -337,24 +382,24 @@ class SignageDetector(Node):
                 self._last_log_time = now
 
             self._update_states(final_boxes, final_cids, verdicts)
+            self.last_observation = observed_at
             self.publish_states()
             if self._param_cache['show_debug']:
                 self.draw_debug(bgr640, final_boxes, final_scores, final_cids)
         except Exception as e:
+            self.last_observation = 0.0
             self.get_logger().error(f'Inference error: {e}')
 
     # ── Temporal gating (3 consecutive frames, decay otherwise) ──────
-    def _bump(self, seen: bool, cnt: int) -> Tuple[int, bool]:
-        if seen:
-            cnt = min(10, cnt + 1)
-            return cnt, cnt >= 3
-        cnt = max(0, cnt - 1)
-        return cnt, (cnt > 0)
+    def _bump(self, seen: bool, cnt: int, active=False) -> Tuple[int, bool]:
+        return confirmed_counter(seen, cnt, active)
 
     def _update_states(self, boxes, class_ids, verdicts=None) -> None:
         cids = set(int(c) for c in np.atleast_1d(class_ids))
-        self._cnt_hill, self.hill_sign_active = self._bump(1 in cids, self._cnt_hill)
-        self._cnt_obstacle, self.obstacle_sign_active = self._bump(2 in cids, self._cnt_obstacle)
+        self._cnt_hill, self.hill_sign_active = self._bump(1 in cids, self._cnt_hill, self.hill_sign_active)
+        self._cnt_obstacle, self.obstacle_sign_active = self._bump(2 in cids, self._cnt_obstacle, self.obstacle_sign_active)
+        self._cnt_roundabout, self.roundabout_active = self._bump(5 in cids, self._cnt_roundabout, self.roundabout_active)
+        self._cnt_warning, self.warning_active = self._bump(8 in cids, self._cnt_warning, self.warning_active)
 
         # Parking with optional width gate
         saw_park = False
@@ -366,7 +411,13 @@ class SignageDetector(Node):
                         continue
                 saw_park = True
                 break
-        self._cnt_parking, self.parking_sign_active = self._bump(saw_park, self._cnt_parking)
+        valid_kinds = {int(cid) for idx, cid in enumerate(np.atleast_1d(class_ids))
+                       if int(cid) in (3, 4) and (min_w <= 0 or boxes[idx, 2] - boxes[idx, 0] >= min_w)}
+        self._cnt_parallel, self.parallel_active = self._bump(3 in valid_kinds, self._cnt_parallel, self.parallel_active)
+        self._cnt_perpendicular, self.perpendicular_active = self._bump(4 in valid_kinds, self._cnt_perpendicular, self.perpendicular_active)
+        self.parking_kind = ('parallel' if self.parallel_active and not self.perpendicular_active
+                             else 'perpendicular' if self.perpendicular_active and not self.parallel_active else '')
+        self.parking_sign_active = bool(self.parking_kind)
 
         # Tunnel pair: tunnel sets True, end-of-tunnel clears
         if 9 in cids:

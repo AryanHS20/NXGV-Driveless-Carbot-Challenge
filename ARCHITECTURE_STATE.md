@@ -1,3 +1,5 @@
+> Local source update: see [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) for the 15 September safety/control changes. The deployment claims below are historical; these new changes have not been deployed or physically validated.
+
 # RISA-bot — Current Architecture & Issue Log
 
 > The car as actually built (repo `main`), plus every known problem.

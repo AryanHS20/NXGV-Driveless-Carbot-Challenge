@@ -17,6 +17,9 @@ def generate_launch_description():
     astra_pkg = get_package_share_directory('astra_camera')
     risabot_pkg = get_package_share_directory('risabot_automode')
     params_file = os.path.join(risabot_pkg, 'config', 'params.yaml')
+    camera_launch = os.path.join(astra_pkg, 'launch', 'astra_mini.launch.py')
+    if not os.path.exists(camera_launch):
+        camera_launch = os.path.join(astra_pkg, 'launch', 'astra_pro.launch.xml')
 
     # --- Disable FastRTPS shared memory to prevent /dev/shm corruption ---
     shm_xml = os.path.join(risabot_pkg, 'config', 'disable_shm.xml')
@@ -33,9 +36,7 @@ def generate_launch_description():
 
         # A. Astra Mini Camera
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(astra_pkg, 'launch', 'astra_mini.launch.py')
-            )
+            AnyLaunchDescriptionSource(camera_launch)
         ),
 
         # B. YDLiDAR Tmini Plus
@@ -112,6 +113,11 @@ def generate_launch_description():
             ),
         ]),
 
+
+        TimerAction(period=3.0, actions=[
+            Node(package='risabot_automode', executable='boom_gate_detector',
+                 name='boom_gate_detector', output='screen', parameters=[params_file]),
+        ]),
 
         # G2. Tunnel wall follower
         TimerAction(period=3.0, actions=[

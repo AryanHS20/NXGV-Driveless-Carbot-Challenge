@@ -1,0 +1,14 @@
+{
+  "name": "NXGV YOLO11n",
+  "file": "model_output/nxgv_yolo11n_640x640_nv12.bin",
+  "robot_path": "/home/sunrise/nxgv_yolo11n_640x640_nv12.bin",
+  "sha256": "107fe15d6cff3f78cf010df55fe4973040cd6262e2d1097fe77ec6a9edbfeecf",
+  "input": "BGR resized to 640x640 then NV12 uint8 (960,640)",
+  "outputs": ["cls8", "box8", "cls16", "box16", "cls32", "box32"],
+  "strides": [8, 16, 32],
+  "classes": ["end_of_tunnel_sign", "hill_sign", "obstacle_sign", "parallel_parking_sign", "perpendicular_park_sign", "roundabout_sign", "speed_bump_sign", "traffic_light", "traffic_warn_sign", "tunnel_sign"],
+  "dfl_bins": 16,
+  "decoder": "risabot_automode.signage_detector.SignageDetector",
+  "legacy_tooling": ["colab_training_script.py", "risabot_bpu_config.yaml", "compile_model.bat"],
+  "legacy_note": "YOLOv5 examples do not reproduce or replace this six-output YOLO11 model. Retraining/export must preserve this contract and be validated on hardware."
+}

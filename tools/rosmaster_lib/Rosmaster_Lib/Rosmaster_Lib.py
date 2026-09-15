@@ -521,9 +521,8 @@ class Rosmaster(object):
             if self.__debug:
                 print("motor:", cmd)
             time.sleep(self.__delay_time)
-        except:
-            print('---set_motor error!---')
-            pass
+        except Exception as exc:
+            raise IOError('Rosmaster motor write failed') from exc
 
 
     # 控制小车向前、向后、向左、向右等运动。

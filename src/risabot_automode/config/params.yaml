@@ -15,7 +15,9 @@
 auto_driver:
   ros__parameters:
     forward_speed: 0.15          # m/s maximum speed on a straight (conservative start)
-    stale_timeout: 3.0
+    stale_timeout: 0.75
+    lane_control_mode: direct
+    parking_max_duration: 45.0
     dist_lap_complete: 1.0
     enable_subsumption_obstacle: true
     max_odom_speed: 1.0
@@ -31,7 +33,7 @@ auto_driver:
     min_turn_speed: 0.4
     lane_steer_slew: 3.0         # max angular.z change per second (Cytron acceleration limit)
     # Heading fusion feedforward
-    heading_gain: 0.5            # feedforward gain for /fused_heading (corrects drift on straights)
+    heading_gain: 0.0            # feedforward gain for /fused_heading (corrects drift on straights)
     straight_curvature_threshold: 0.1  # curvature below this = straight enough for heading correction
     # Challenge 1→2 sequencing (distance-based gating)
     dist_post_obstacle_clear: 0.3     # re-center dist after obstacle clears (before roundabout)
@@ -63,6 +65,14 @@ cmd_safety_controller:
   ros__parameters:
     publish_hz: 50.0
     cmd_timeout: 0.35
+    sensor_timeout: 0.5
+    min_scan_points: 20
+    require_signage: true
+    lidar_angle_offset: 3.141592653589793
+    footprint_half_width: 0.12
+    footprint_front: 0.22
+    footprint_rear: 0.22
+    sweep_distance: 0.15
     max_linear_speed: 0.30
     max_angular_speed: 1.2
     max_linear_accel: 0.8
@@ -108,6 +118,11 @@ cmd_safety_controller:
 line_follower_camera:
   ros__parameters:
     tracker_mode: 'sliding'
+    pp_metric_enabled: false
+    pp_lateral_span_m: 0.4
+    pp_forward_span_m: 0.6
+    pp_near_m: 0.1
+    steering_max_deg: 50.0
     s_thresh: 100
     l_thresh: 200
     sobel_thresh: 30
@@ -121,8 +136,8 @@ line_follower_camera:
     search_radius_px: 80             # blob-to-expected match radius
     # Thresholding — lane detection
     white_threshold: 100              # inverted mode: pixels BELOW this = lane (tune 80-120)
-    use_otsu: false
-    invert_binary: true               # true = detect dark lane, false = detect white borders
+    use_otsu: true
+    invert_binary: false               # true = detect dark lane, false = detect white borders
     # Morphological cleanup
     morph_open_size: 3                # remove noise blobs (0=disable)
     morph_close_size: 5               # fill small gaps in lane lines (0=disable)
@@ -235,7 +250,7 @@ obstruction_avoidance:
     hysteresis_ratio: 0.15
     lidar_angle_offset: 3.1416
     side_clear_dist: 0.50
-    max_timeout_sec: 6.0
+    max_timeout_sec: 15.0
 
 # --- Parking Controller ---
 parking_controller:
@@ -271,6 +286,7 @@ obstacle_avoidance_camera:
 obstacle_avoidance_node:
   ros__parameters:
     min_obstacle_distance: 0.48
+    lidar_angle_offset: 3.141592653589793
     heartbeat_sec: 0.5
 
 # --- Dashboard ---
@@ -304,6 +320,9 @@ servo_controller:
     default_speed_index: 1
     joy_timeout: 0.8
     auto_cmd_timeout: 0.4
+    parallel_recording: ""
+    perpendicular_recording: ""
+    motor_duty_per_mps: 255.0
     unlock_requires_neutral: true
     unlock_neutral_threshold: 0.15
     hw_heartbeat_sec: 1.0
@@ -335,7 +354,7 @@ servo_controller:
 # CLASS MAP:
 #   0: end_of_tunnel_sign   <- clears /tunnel_confidence (advisory only, gated, edge-published)
 #   1: hill_sign            <- CRUCIAL  (Challenge 5 — hill climb trigger)
-#   2: obstacle_sign        <- /obstacle_detected_camera (now ON)
+#   2: obstacle_sign        <- /obstacle_sign_detected (mission advisory)
 #   3: parallel_parking     <- CRUCIAL  (parking trigger)
 #   4: perpendicular_park   <- CRUCIAL  (parking trigger)
 #   5: roundabout_sign      <- debug only (auto_driver is time-based)
@@ -360,6 +379,7 @@ servo_controller:
 signage_detector:
   ros__parameters:
     model_path: "/home/sunrise/nxgv_yolo11n_640x640_nv12.bin"
+    observation_timeout: 0.5
     conf_threshold: 0.25          # global fallback (per-class thresholds below take priority)
     iou_threshold: 0.45
     show_debug: false             # OFF by default — dashboard auto-enables when signage view active

@@ -69,6 +69,7 @@ class ObstacleAvoidanceCamera(Node):
 
         # State — hysteresis filtering
         self.obstacle_active = False
+        self.frame_stamp = 0.0
         self.detect_count = 0
         self.clear_count = 0
         self._heartbeat_timer = self.create_timer(
@@ -103,6 +104,8 @@ class ObstacleAvoidanceCamera(Node):
 
     def _heartbeat_publish(self) -> None:
         """Publish last obstacle state on a fixed heartbeat."""
+        if time.monotonic() - self.frame_stamp > 0.5:
+            self.obstacle_active = True
         self.obstacle_pub.publish(Bool(data=self.obstacle_active))
 
     def color_callback(self, msg: Image) -> None:
@@ -117,6 +120,7 @@ class ObstacleAvoidanceCamera(Node):
 
             # Convert ROS Image to OpenCV
             color_image = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            self.frame_stamp = time.monotonic()
             h, w = color_image.shape[:2]
             resize_w = self._param_cache['resize_width']
             if resize_w > 0 and w > resize_w:

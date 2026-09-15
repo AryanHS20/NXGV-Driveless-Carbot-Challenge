@@ -9,6 +9,8 @@ Publishes Bool on /boom_gate_open (True = open/clear, False = blocked).
 """
 
 import math
+import time
+from .control_contract import valid_scan
 from typing import Dict
 
 import numpy as np
@@ -59,6 +61,7 @@ class BoomGateDetector(Node):
 
         # State
         self.gate_blocked = False
+        self.scan_stamp = 0.0
         self.blocked_count = 0
         self.clear_count = 0
         self._heartbeat_timer = self.create_timer(
@@ -90,11 +93,18 @@ class BoomGateDetector(Node):
 
     def _heartbeat_publish(self) -> None:
         """Publish last gate state on a fixed heartbeat."""
+        if time.monotonic() - self.scan_stamp > 0.5:
+            self.gate_blocked = True
         gate_msg = Bool()
         gate_msg.data = not self.gate_blocked
         self.gate_pub.publish(gate_msg)
 
     def scan_callback(self, msg: LaserScan) -> None:
+        self.scan_stamp = time.monotonic()
+        if not valid_scan(msg):
+            self.scan_stamp = 0.0
+            self._heartbeat_publish()
+            return
         min_dist = self._param_cache['min_detect_dist']
         max_dist = self._param_cache['max_detect_dist']
         angle_win = self._param_cache['angle_window']

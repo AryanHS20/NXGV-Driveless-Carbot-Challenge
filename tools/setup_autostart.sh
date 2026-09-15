@@ -41,51 +41,8 @@ fi
 # Wait for hardware to be ready
 sleep 5
 
-# Launch all nodes
-echo "[RISABOT] Starting bringup..."
-ros2 launch risabot_automode bringup.launch.py &
-BRINGUP_PID=$!
-
-sleep 5
-
-# Launch camera
-echo "[RISABOT] Starting camera..."
-ros2 launch astra_camera astra_mini.launch.py 2>/dev/null &
-
-sleep 3
-
-# Launch servo controller (joystick + motor)
-echo "[RISABOT] Starting servo controller..."
-ros2 run control_servo servo_controller &
-
-sleep 2
-
-# Launch line follower
-echo "[RISABOT] Starting line follower..."
-ros2 run risabot_automode line_follower_camera &
-
-sleep 1
-
-# Launch dashboard
-echo "[RISABOT] Starting dashboard..."
-ros2 run risabot_automode dashboard &
-
-sleep 1
-
-# Launch obstacle avoidance
-echo "[RISABOT] Starting obstacle avoidance..."
-ros2 run obstacle_avoidance_camera obstacle_avoidance_camera &
-
-sleep 1
-
-# Launch joy node
-echo "[RISABOT] Starting joystick..."
-ros2 run joy joy_node &
-
-echo "[RISABOT] ✅ All nodes started!"
-
-# Wait for any child to exit (keeps service alive)
-wait $BRINGUP_PID
+# One launch graph owns all hardware.
+exec ros2 launch risabot_automode bringup.launch.py
 LAUNCH_EOF
 
 chmod +x /usr/local/bin/risabot-launch.sh
@@ -106,7 +63,8 @@ User=sunrise
 Group=sunrise
 Environment="HOME=/home/sunrise"
 ExecStart=/usr/local/bin/risabot-launch.sh
-ExecStop=/bin/bash -c "pkill -f 'ros2' || true"
+KillMode=control-group
+KillSignal=SIGINT
 Restart=on-failure
 RestartSec=10
 TimeoutStartSec=60
@@ -117,7 +75,7 @@ SERVICE_EOF
 
 # Reload systemd and enable
 systemctl daemon-reload
-systemctl disable risabot.service
+systemctl enable risabot.service
 
 echo "  ✅ Service 'risabot' created and enabled"
 
