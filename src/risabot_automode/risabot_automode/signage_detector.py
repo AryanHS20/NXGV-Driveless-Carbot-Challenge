@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Signage Detector Node — YOLO11n BPU Model Inference via hobot_dnn.
 
-REVIEW DRAFT for NXGV YOLO11n 10-class model. Drop into
-src/risabot_automode/risabot_automode/ as signage_detector.py (replacing the
-YOLOv5 version) after review. Topics unchanged except tunnel handling — see below.
+Production NXGV YOLO11n 10-class detector. Sign advisories are kept separate
+from physical sensor topics so publishers cannot overwrite one another.
 
 BPU output protocol (D-Robotics ultralytics_yolo, YOLO11xDetect):
   6 outputs: [cls8, box8, cls16, box16, cls32, box32], NHWC float32
@@ -17,10 +16,10 @@ NXGV class map (nxgv.yaml, alphabetical):
    2 obstacle_sign       -> OBSTACLE_SIGN_TOPIC (mission advisory)
    3 parallel_parking    -> PARKING_SIGN_TOPIC (width gate kept)
    4 perpendicular_park  -> PARKING_SIGN_TOPIC (width gate kept)
-   5 roundabout_sign     -> debug only (auto_driver is time-based; wire here)
+   5 roundabout_sign     -> /roundabout_detected
    6 speed_bump_sign     -> debug only (no topic yet; wire to speed logic)
    7 traffic_light lamp  -> TRAFFIC_LIGHT_TOPIC via HSV (red/green/unknown)
-   8 traffic_warn_sign   -> debug only
+   8 traffic_warn_sign   -> /traffic_warning_detected
    9 tunnel_sign         -> TUNNEL_CONF_TOPIC True (advisory only, gated)
 
 NOTE: /tunnel_detected (TUNNEL_DETECTED_TOPIC) is NOT published by this node.

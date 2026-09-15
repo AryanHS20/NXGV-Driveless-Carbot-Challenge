@@ -1,6 +1,6 @@
 # Local implementation status — 15 September 2026
 
-These changes are local, uncommitted, and not deployed or physically calibrated.
+These changes are on `feat/safety-contract-rework` and have not been deployed or physically calibrated.
 The older handoff and architecture files describe the previous deployed system.
 
 ## Implemented
@@ -75,7 +75,13 @@ python tools/bpu_model/verify_bpu.py
 
 The behavioral tests import production classes with inert ROS/motor interfaces. A package-level test runs them in a subprocess so stubs cannot leak into other ROS tests. Python compilation, model hash, package-source selection, dashboard JavaScript, and shell syntax are also checked locally.
 
-No ROS build, BPU inference, live DDS integration, real stopping-distance measurement, or track run has been performed for this change set. Those remain required before calling the robot competition-ready.
+A ROS Humble `colcon build` completed successfully for the five changed application packages in an isolated WSL build/install/log directory:
+
+```text
+colcon build --packages-select control_servo obstacle_avoidance obstacle_avoidance_camera risabot_automode risabot_sim --base-paths src ros2_astra_camera
+```
+
+Full target-board build, hardware-driver build, BPU inference, live DDS integration, real stopping-distance measurement, and track run have not been performed for this change set. Those remain required before calling the robot competition-ready.
 
 ## Robot validation sequence
 

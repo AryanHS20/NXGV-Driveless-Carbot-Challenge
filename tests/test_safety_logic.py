@@ -90,10 +90,13 @@ class SafetyTests(unittest.TestCase):
 
     def test_obstacle_sign_advisory_stops_until_lidar_behavior(self):
         d=self.car(); d.obstacle_sign_callback(Message(True)); d.publish_cmd_vel()
+        self.assertIn('/obstacle_sign_detected',d.subs)
         self.assertEqual(d.last_cmd.linear.x,0)
         self.assertIn('OBSTACLE SIGN',d.stop_reason)
         d.obstruction_active=True; d.obstruction_cmd.linear.x=.1; d.publish_cmd_vel()
         self.assertGreater(d.last_cmd.linear.x,0)
+        stale=self.car(); stale.obstacle_sign_active=True; stale.obstacle_sign_stamp=98.
+        stale.publish_cmd_vel(); self.assertGreater(stale.last_cmd.linear.x,0)
 
     def test_lane_lost_stops_roundabout(self):
         d=self.car(); d.roundabout_seen=True; d.lane_lost=True; d.publish_cmd_vel()
