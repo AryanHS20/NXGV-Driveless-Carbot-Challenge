@@ -1015,6 +1015,7 @@ class LineFollowerCamera(Node):
 
 
 def main(args=None) -> None:
+    cv2.setNumThreads(1)  # Other perception nodes run concurrently on this board.
     rclpy.init(args=args)
     node = LineFollowerCamera()
     try:

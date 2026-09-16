@@ -34,7 +34,7 @@ def generate_launch_description():
         # A. Astra Mini Camera
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
-                os.path.join(astra_pkg, 'launch', 'astra_mini.launch.py')
+                os.path.join(risabot_pkg, 'launch', 'camera.launch.py')
             )
         ),
 

@@ -1757,7 +1757,10 @@ function update() {
         document.getElementById('dotHealth').className = 'dot dot-red';
         document.getElementById('valHealth').textContent = 'STALE';
       }
-      const stale = Array.isArray(d.health_stale) ? d.health_stale : (Array.isArray(d.stale_streams) ? d.stale_streams : []);
+      const stale = [...new Set([
+        ...(Array.isArray(d.health_stale) ? d.health_stale : []),
+        ...(Array.isArray(d.stale_streams) ? d.stale_streams : [])
+      ])];
       const staleEl = document.getElementById('valStale');
       if (stale.length === 0) {
         staleEl.textContent = 'NONE';

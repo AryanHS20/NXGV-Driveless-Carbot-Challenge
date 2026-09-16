@@ -165,12 +165,40 @@ class SafetyTests(unittest.TestCase):
         s=SignageDetector(); s.last_observation=98; s.parking_kind='parallel'; s.parking_sign_active=True
         s.publish_states(); self.assertFalse(s.valid_pub.messages[-1].data); self.assertEqual(s.kind_pub.messages[-1].data,'')
 
+    def test_empty_detection_still_publishes_debug_frame(self):
+        s = SignageDetector()
+        s.bpu_available = True
+        s._param_cache['show_debug'] = True
+        s.bridge = types.SimpleNamespace(imgmsg_to_cv2=lambda *a: np.zeros((240, 320, 3), dtype=np.uint8))
+        s.model = types.SimpleNamespace(forward=lambda *a: [types.SimpleNamespace(buffer=np.zeros(1)) for _ in range(6)])
+        empty = (np.empty((0, 4)), np.empty(0), np.empty(0, dtype=np.int32))
+        with patch.object(s, '_decode_level', return_value=empty), patch.object(s, 'draw_debug') as draw:
+            s.image_callback(self.image())
+            draw.assert_called_once()
+            self.assertEqual(len(draw.call_args.args[1]), 0)
+            self.assertTrue(s.valid_pub.messages[-1].data)
+            s._param_cache['show_debug'] = False
+            s.image_callback(self.image())
+            self.assertEqual(draw.call_count, 1)
+
     def test_kalman_accepts_centered_measurement(self):
         lane=LineFollowerCamera(); lane._kalman.x=np.array([.3,0.]); lane._param_cache['poly_fit_enabled']=False
         lane.bridge=types.SimpleNamespace(imgmsg_to_cv2=lambda *a:np.zeros((240,320,3),dtype=np.uint8))
         lane._detect_sliding_windows=lambda *a:([],[],[(160,100),(160,80)],[1.,1.],2)
         for _ in range(30): lane.color_callback(self.image())
         self.assertLess(abs(lane.lane_error),.05)
+
+    def test_signage_preview_size_and_rate_limit(self):
+        s = SignageDetector()
+        s.bridge = types.SimpleNamespace(cv2_to_imgmsg=lambda image, **kw: Message(data=image.shape))
+        args = (np.zeros((640, 640, 3), dtype=np.uint8), [], [], [])
+        s.draw_debug(*args)
+        s.draw_debug(*args)
+        self.assertEqual(len(s.debug_pub.messages), 1)
+        self.assertEqual(s.debug_pub.messages[0].data, (240, 320, 3))
+        with patch('time.monotonic', return_value=100.11):
+            s.draw_debug(*args)
+        self.assertEqual(len(s.debug_pub.messages), 2)
 
     def test_ipm_false_is_honored_by_sliding(self):
         lane=LineFollowerCamera(); lane.bridge=types.SimpleNamespace(imgmsg_to_cv2=lambda *a:np.zeros((240,320,3),dtype=np.uint8))

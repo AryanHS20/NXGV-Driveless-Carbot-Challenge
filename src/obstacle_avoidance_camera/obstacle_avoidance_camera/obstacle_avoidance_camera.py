@@ -220,6 +220,7 @@ class ObstacleAvoidanceCamera(Node):
             self.get_logger().error(f'Color processing error: {e}')
 
 def main(args=None) -> None:
+    cv2.setNumThreads(1)  # Avoid a worker pool per camera-processing process.
     rclpy.init(args=args)
     node = ObstacleAvoidanceCamera()
 

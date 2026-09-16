@@ -1,6 +1,10 @@
 # Local implementation status — 15 September 2026
 
-These changes are on `feat/safety-contract-rework` and have not been deployed or physically calibrated.
+Update, 16 September 2026: the feature-branch application was verified on the board,
+and the dashboard/performance fixes were deployed with backups and tested while
+stationary in manual mode. See [BOARD_VALIDATION_2026-09-16.md](BOARD_VALIDATION_2026-09-16.md).
+Physical calibration and full mission validation remain outstanding. The sections
+below record the earlier 15 September implementation and validation scope.
 The older handoff and architecture files describe the previous deployed system.
 
 ## Implemented

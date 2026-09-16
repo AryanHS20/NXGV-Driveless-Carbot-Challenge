@@ -344,6 +344,9 @@ class SignageDetector(Node):
                 self.last_observation = observed_at
                 self._update_states(np.empty((0, 4)), np.empty((0,), dtype=np.int32))
                 self.publish_states()
+                if self._param_cache['show_debug']:
+                    self.draw_debug(bgr640, np.empty((0, 4)), np.empty((0,)),
+                                    np.empty((0,), dtype=np.int32))
                 return
             boxes = np.concatenate(all_boxes)
             scores = np.concatenate(all_scores)
@@ -479,6 +482,10 @@ class SignageDetector(Node):
     _COLORS = [(255, 255, 255)] * 10
 
     def draw_debug(self, bgr640, boxes, scores, class_ids) -> None:
+        now = time.monotonic()
+        if now - getattr(self, '_last_debug_frame', float('-inf')) < 0.1:
+            return
+        self._last_debug_frame = now
         dbg = bgr640.copy()
         for box, score, cid in zip(boxes, scores, class_ids):
             x1, y1, x2, y2 = map(int, box)
@@ -492,12 +499,15 @@ class SignageDetector(Node):
                     f"TUN:{'Y' if self.tunnel_active else '-'}",
                     (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
         try:
+            # Match the dashboard display size before transporting the image.
+            dbg = cv2.resize(dbg, (320, 240))
             self.debug_pub.publish(self.bridge.cv2_to_imgmsg(dbg, encoding='bgr8'))
         except Exception as e:
             self.get_logger().error(f'Debug publish failed: {e}')
 
 
 def main(args=None) -> None:
+    cv2.setNumThreads(1)  # Avoid competing worker pools across perception nodes.
     rclpy.init(args=args)
     node = SignageDetector()
     try:

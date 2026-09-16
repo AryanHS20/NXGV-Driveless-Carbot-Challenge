@@ -622,8 +622,11 @@ class DashboardNode(Node):
         stale_sec = float(self.get_parameter('freshness_stale_sec').value)
         freshness = {}
         stale_streams = []
-        event_driven_topics = {'boom_gate', 'parking_complete', 'auto_mode', 'set_challenge', 'record_playback_state', 'joy'}
+        event_driven_topics = {'boom_gate', 'parking_complete', 'auto_mode', 'set_challenge', 'record_playback_state', 'joy', 'obstacle_fused'}
+        inactive_odom = 'odom_sim' if self.get_parameter('use_hw_odom').value else 'odom'
         for key, last_t in updates.items():
+            if key == inactive_odom:
+                continue
             if last_t <= 0.0:
                 freshness[key] = None
                 if key not in event_driven_topics:
@@ -906,9 +909,15 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 while True:
                     jpeg_bytes = None
                     with _node_ref.jpeg_condition:
-                        # Wait until a new frame has been generated (up to 1s to keep conn alive)
-                        if _node_ref.frame_id == last_frame_id:
-                            _node_ref.jpeg_condition.wait(timeout=1.0)
+                        # A view switch clears the JPEG before its first frame.
+                        # Wait for BOTH a new id and an image; otherwise this
+                        # handler spins continuously while that view is empty.
+                        ready = _node_ref.jpeg_condition.wait_for(
+                            lambda: (_node_ref.frame_id != last_frame_id
+                                     and _node_ref.latest_jpeg is not None),
+                            timeout=5.0)
+                        if not ready:
+                            break  # Release abandoned clients; the player reconnects.
                         
                         if _node_ref.frame_id != last_frame_id and _node_ref.latest_jpeg:
                             last_frame_id = _node_ref.frame_id
@@ -1147,6 +1156,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
 def main(args=None) -> None:
     global _node_ref
+    cv2.setNumThreads(1)
     rclpy.init(args=args)
     load_default_params()
     node = DashboardNode()
@@ -1155,7 +1165,7 @@ def main(args=None) -> None:
     # ── Dedicated param helper node (isolated from camera/subscription load) ──
     global _param_helper_node, _param_executor
     from rclpy.executors import SingleThreadedExecutor
-    _param_helper_node = rclpy.create_node('dashboard_param_helper')
+    _param_helper_node = rclpy.create_node('dashboard_param_helper', use_global_arguments=False)
     _param_executor = SingleThreadedExecutor()
     _param_executor.add_node(_param_helper_node)
 
@@ -1192,8 +1202,10 @@ def main(args=None) -> None:
     node.get_logger().info(f'  → http://{hostname}.local:8080')
     node.get_logger().info(f'  → http://{ip}:8080')
 
-    from rclpy.executors import MultiThreadedExecutor
-    executor = MultiThreadedExecutor()
+    # All dashboard callbacks share the default mutually exclusive group.
+    # Additional executor workers only add contention; HTTP and parameter
+    # requests already have their own threads.
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
     try:
         executor.spin()

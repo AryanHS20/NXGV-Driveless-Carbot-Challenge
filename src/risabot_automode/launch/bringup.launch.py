@@ -17,9 +17,7 @@ def generate_launch_description():
     astra_pkg = get_package_share_directory('astra_camera')
     risabot_pkg = get_package_share_directory('risabot_automode')
     params_file = os.path.join(risabot_pkg, 'config', 'params.yaml')
-    camera_launch = os.path.join(astra_pkg, 'launch', 'astra_mini.launch.py')
-    if not os.path.exists(camera_launch):
-        camera_launch = os.path.join(astra_pkg, 'launch', 'astra_pro.launch.xml')
+    camera_launch = os.path.join(risabot_pkg, 'launch', 'camera.launch.py')
 
     # --- Disable FastRTPS shared memory to prevent /dev/shm corruption ---
     shm_xml = os.path.join(risabot_pkg, 'config', 'disable_shm.xml')
