@@ -134,6 +134,7 @@ class AutoDriver(Node):
         # Tunable parameters
         self.declare_parameter('forward_speed', 0.15)  # m/s maximum forward speed (straight)
         self.declare_parameter('stale_timeout', 3.0)   # seconds before treating module data as stale
+        self.declare_parameter('traffic_unresolved_hold_sec', 1.0)
         self.declare_parameter('max_odom_speed', 1.0)  # ignore odom speed spikes beyond this
         self.declare_parameter('min_state_dwell_sec', 0.25)
         self.declare_parameter('publish_loop_stats', True)
@@ -340,6 +341,7 @@ class AutoDriver(Node):
         self._param_cache = {
             'forward_speed': float(self.get_parameter('forward_speed').value),
             'stale_timeout': float(self.get_parameter('stale_timeout').value),
+            'traffic_unresolved_hold_sec': float(self.get_parameter('traffic_unresolved_hold_sec').value),
             'dist_lap_complete': float(self.get_parameter('dist_lap_complete').value),
             'enable_subsumption_obstacle': bool(self.get_parameter('enable_subsumption_obstacle').value),
             'max_odom_speed': float(self.get_parameter('max_odom_speed').value),
@@ -441,6 +443,7 @@ class AutoDriver(Node):
         self.route_stamp = time.monotonic()
 
     def _warning_cb(self, msg):
+        # An advance warning is advisory, not evidence of a lamp or red light.
         if msg.data:
             self.light_expected = True
 

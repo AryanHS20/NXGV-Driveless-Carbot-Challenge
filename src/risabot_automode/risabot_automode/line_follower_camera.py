@@ -11,12 +11,14 @@ Enhanced with techniques from:
 
 Algorithm:
   1. Resize + crop bottom portion of camera image (road surface)
-  2. IPM warp: perspective → Bird's Eye View (parallel lane lines)
-  3. CLAHE histogram equalization (adaptive lighting compensation)
-  4. Gaussian blur + Otsu's auto-threshold
-  5. Multiple horizontal scanlines scan for left/right white lane edges
-  6. Kalman filter: predict + update lane center position & velocity
-  7. Publish Float32 on /lane_error (range -1.0 to +1.0)
+  2. Optional depth ground-plane mask (ground_mask_enabled): drop non-floor
+     white using depth geometry before any detector runs
+  3. IPM warp: perspective → Bird's Eye View (parallel lane lines)
+  4. CLAHE histogram equalization (adaptive lighting compensation)
+  5. Gaussian blur + Otsu's auto-threshold
+  6. Multiple horizontal scanlines scan for left/right white lane edges
+  7. Kalman filter: predict + update lane center position & velocity
+  8. Publish Float32 on /lane_error (range -1.0 to +1.0)
 
 References:
   Cytron Technologies — Differential Line Following Algorithm
@@ -40,7 +42,15 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Float32, String
 
 from .topics import CAMERA_DEBUG_LINE_TOPIC, CAMERA_IMAGE_TOPIC, LANE_ERROR_TOPIC, LANE_LOST_TOPIC
+from .topics import DEPTH_CAMINFO_TOPIC, DEPTH_IMAGE_TOPIC
 from .control_contract import observation_age
+
+try:
+    # Real ROS provides this; the local unit-test stub does not. The node
+    # runs without it (ground mask stays off until intrinsics arrive).
+    from sensor_msgs.msg import CameraInfo
+except ImportError:  # pragma: no cover
+    CameraInfo = None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -104,6 +114,46 @@ class LaneKalmanFilter:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Depth ground-plane mask (no training — pure geometry)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def compute_floor_mask(
+    depth_m: np.ndarray,
+    fx: float, fy: float, cx: float, cy: float,
+    cam_height_m: float, cam_tilt_deg: float, tol_m: float,
+) -> np.ndarray:
+    """Return a boolean mask of pixels consistent with the flat floor plane.
+
+    Camera model: pinhole, optical frame (x right, y DOWN, z forward), lens
+    ``cam_height_m`` above the floor and pitched down ``cam_tilt_deg`` degrees.
+    ``depth_m`` holds z-depth in metres (0 / NaN / inf = no return → not floor).
+    A pixel passes when its measured z-depth is within ``tol_m`` of the range
+    where its ray meets the floor plane. Rows whose ray never points downward
+    (at/above the horizon) always fail.
+
+    Raises:
+        ValueError: if ``depth_m`` is not 2D or intrinsics/height/tolerance
+            are degenerate.
+    """
+    arr = np.asarray(depth_m)
+    if arr.ndim != 2:
+        raise ValueError(
+            f'compute_floor_mask expects a 2D depth image, got shape {arr.shape}')
+    if not (fx > 0 and fy > 0 and tol_m >= 0 and cam_height_m > 0):
+        raise ValueError('degenerate intrinsics, tolerance, or camera height')
+    z = arr.astype(np.float32, copy=False)
+    valid = np.isfinite(z) & (z > 0)
+    ys, xs = np.mgrid[0:arr.shape[0], 0:arr.shape[1]].astype(np.float32)
+    # Camera-frame z of the floor hit: s = h / (dy*cos(t) + sin(t)).
+    t = math.radians(cam_tilt_deg)
+    denom = ((ys - cy) / fy) * math.cos(t) + math.sin(t)
+    hits = denom > 1e-6
+    expected = np.where(hits, cam_height_m / np.maximum(denom, 1e-6),
+                        np.inf).astype(np.float32)
+    return valid & hits & (np.abs(z - expected) <= tol_m)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main Node
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -127,6 +177,8 @@ class LineFollowerCamera(Node):
         # Scanline detection
         self.declare_parameter('n_scanlines', 8)
         self.declare_parameter('min_valid_scanlines', 2)
+        self.declare_parameter('min_measured_windows', 4)
+        self.declare_parameter('poly_residual_max', 0.08)
         self.declare_parameter('min_line_width_px', 5)
         self.declare_parameter('crop_ratio_base', 0.55)
         self.declare_parameter('search_radius_px', 50)   # blob-to-expected match radius
@@ -144,6 +196,12 @@ class LineFollowerCamera(Node):
         self.declare_parameter('ipm_enabled', False)
         self.declare_parameter('ipm_top_width_ratio', 0.35)   # narrow top of trapezoid
         self.declare_parameter('ipm_bottom_width_ratio', 1.0)  # wide bottom
+        # Depth ground-plane mask (no training; needs depth stream + intrinsics)
+        self.declare_parameter('ground_mask_enabled', False)
+        self.declare_parameter('ground_mask_tol_m', 0.03)
+        self.declare_parameter('cam_height_m', 0.085)
+        self.declare_parameter('cam_tilt_deg', 0.0)
+        self.declare_parameter('depth_max_age', 0.3)
         # Polynomial Fit & Pure Pursuit Trajectory Tracker
         self.declare_parameter('poly_fit_enabled', True)
         self.declare_parameter('pp_lookahead_ratio', 0.50)     # lookahead position in crop (0=bottom, 1=top)
@@ -181,7 +239,16 @@ class LineFollowerCamera(Node):
         self.last_lane_widths: Dict[int, int] = {}
         self._expected_left: Optional[int] = None
         self._expected_right: Optional[int] = None
+        self._last_measured_count = 0
+        self._last_inferred_count = 0
+        self._last_point_measured: List[bool] = []
+        self._last_fit_inliers: List[bool] = []
+        self._last_pair_time = 0.0
         self._last_frame_time = time.monotonic()
+        self._last_depth_m = None
+        self._last_depth_mono = 0.0
+        self._depth_K = None  # (fx, fy, cx, cy) latched from depth CameraInfo
+        self._mask_active = False  # true when the published debug used the mask
 
         # CLAHE object (reused across frames)
         self._clahe = cv2.createCLAHE(
@@ -220,6 +287,19 @@ class LineFollowerCamera(Node):
             self.color_callback,
             QoSPresetProfiles.SENSOR_DATA.value
         )
+        self.depth_sub = self.create_subscription(
+            Image,
+            DEPTH_IMAGE_TOPIC,
+            self.depth_callback,
+            QoSPresetProfiles.SENSOR_DATA.value
+        )
+        if CameraInfo is not None:
+            self.info_sub = self.create_subscription(
+                CameraInfo,
+                DEPTH_CAMINFO_TOPIC,
+                self.depth_info_callback,
+                10
+            )
         self.get_logger().info(
             'Line Follower Camera: Ready (MDPI-enhanced + Polynomial Pure Pursuit)'
         )
@@ -240,6 +320,8 @@ class LineFollowerCamera(Node):
             'sliding_minpix':          int(self.get_parameter('sliding_minpix').value),
             'n_scanlines':             int(self.get_parameter('n_scanlines').value),
             'min_valid_scanlines':     int(self.get_parameter('min_valid_scanlines').value),
+            'min_measured_windows':    int(self.get_parameter('min_measured_windows').value),
+            'poly_residual_max':       float(self.get_parameter('poly_residual_max').value),
             'min_line_width_px':       int(self.get_parameter('min_line_width_px').value),
             'crop_ratio_base':         float(self.get_parameter('crop_ratio_base').value),
             'search_radius_px':        int(self.get_parameter('search_radius_px').value),
@@ -253,6 +335,11 @@ class LineFollowerCamera(Node):
             'ipm_enabled':             bool(self.get_parameter('ipm_enabled').value),
             'ipm_top_width_ratio':     float(self.get_parameter('ipm_top_width_ratio').value),
             'ipm_bottom_width_ratio':  float(self.get_parameter('ipm_bottom_width_ratio').value),
+            'ground_mask_enabled':     bool(self.get_parameter('ground_mask_enabled').value),
+            'ground_mask_tol_m':       float(self.get_parameter('ground_mask_tol_m').value),
+            'cam_height_m':            float(self.get_parameter('cam_height_m').value),
+            'cam_tilt_deg':            float(self.get_parameter('cam_tilt_deg').value),
+            'depth_max_age':           float(self.get_parameter('depth_max_age').value),
             'poly_fit_enabled':        bool(self.get_parameter('poly_fit_enabled').value),
             'pp_lookahead_ratio':      float(self.get_parameter('pp_lookahead_ratio').value),
             'pp_wheelbase':            float(self.get_parameter('pp_wheelbase').value),
@@ -278,7 +365,7 @@ class LineFollowerCamera(Node):
                     return SetParametersResult(successful=False, reason='Finite nonnegative values required')
             if p.name in ('crop_ratio_base', 'ipm_top_width_ratio', 'ipm_bottom_width_ratio') and not 0 < p.value <= 1:
                 return SetParametersResult(successful=False, reason='Ratio must be in (0, 1]')
-            if p.name in ('sliding_windows', 'n_scanlines', 'pp_lateral_span_m', 'pp_forward_span_m', 'steering_max_deg', 'kalman_measurement_noise') and p.value <= 0:
+            if p.name in ('sliding_windows', 'n_scanlines', 'min_measured_windows', 'poly_residual_max', 'pp_lateral_span_m', 'pp_forward_span_m', 'steering_max_deg', 'kalman_measurement_noise') and p.value <= 0:
                 return SetParametersResult(successful=False, reason='Positive value required')
         for p in params:
             if p.name in self._param_cache:
@@ -408,10 +495,63 @@ class LineFollowerCamera(Node):
                 regions.append(((white_start + len(row)) // 2, white_start, len(row)))
         return regions
 
+    def _lane_width_valid(self, slot: int, width: int, image_width: int) -> bool:
+        """Reject crossed, implausibly narrow/wide, or abruptly changing borders."""
+        if width < int(image_width * 0.12) or width > int(image_width * 0.65):
+            return False
+        prior = self.last_lane_widths.get(slot)
+        if prior is None:
+            return True
+        tolerance = max(24, int(prior * 0.45))
+        return abs(width - prior) <= tolerance
+
+    def _remember_lane_width(self, slot: int, width: int) -> None:
+        prior = self.last_lane_widths.get(slot)
+        self.last_lane_widths[slot] = width if prior is None else int(0.20 * width + 0.80 * prior)
+
+    def _robust_polyfit(
+        self, y_values: np.ndarray, x_values: np.ndarray, weights: np.ndarray
+    ) -> Tuple[Optional[np.ndarray], np.ndarray]:
+        """Quadratic fit with iterative median-residual outlier rejection."""
+        count = len(x_values)
+        mask = np.ones(count, dtype=bool)
+        if count < 4 or len(y_values) != count or len(weights) != count:
+            return None, mask
+        try:
+            for _ in range(3):
+                if int(mask.sum()) < 3:
+                    return None, mask
+                poly = np.polyfit(y_values[mask], x_values[mask], 2, w=weights[mask])
+                predicted = np.polyval(poly, y_values)
+                residuals = np.abs(x_values - predicted)
+                active = residuals[mask]
+                median = float(np.median(active))
+                mad = float(np.median(np.abs(active - median)))
+                threshold = max(float(self._param_cache['poly_residual_max']), median + 2.5 * max(mad, 0.01))
+                new_mask = residuals <= threshold
+                if int(new_mask.sum()) < 3:
+                    return None, new_mask
+                if np.array_equal(new_mask, mask):
+                    break
+                mask = new_mask
+            if int(mask.sum()) < max(3, int(math.ceil(count * 0.60))):
+                return None, mask
+            poly = np.polyfit(y_values[mask], x_values[mask], 2, w=weights[mask])
+            if not np.isfinite(poly).all():
+                return None, mask
+            return poly, mask
+        except (TypeError, ValueError, np.linalg.LinAlgError):
+            return None, mask
+
     def _detect_sliding_windows(
-        self, img: np.ndarray, crop_h: int, w: int
+        self, img: np.ndarray, crop_h: int, w: int,
+        floor_mask: Optional[np.ndarray] = None
     ) -> Tuple[List[Tuple[int, int]], List[Tuple[int, int]], List[Tuple[int, int]], List[float], int]:
-        """Run robust sliding window detection on HLS+Sobel thresholded image."""
+        """Run robust sliding window detection on HLS+Sobel thresholded image.
+
+        When ``floor_mask`` (uint8 0/255, crop_h × w) is given, non-floor
+        pixels are removed from the binary image before window search.
+        """
         # 1. HLS + Sobel Thresholding (Vectorized)
         hls = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
         l_channel = hls[:, :, 1]
@@ -441,6 +581,9 @@ class LineFollowerCamera(Node):
             kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (close_sz, close_sz))
             binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
 
+        if floor_mask is not None:
+            binary = cv2.bitwise_and(binary, binary, mask=floor_mask)
+
         # 2. Histogram or Prior Search
         self._select_visible_branch(binary)
         nwindows = self._param_cache['sliding_windows']
@@ -467,12 +610,12 @@ class LineFollowerCamera(Node):
             if histogram[left_base] > 10: leftx_current = left_base
             if histogram[right_base] > 10: rightx_current = right_base
 
-        # Fallback to single line if one is missing
-        if leftx_current is None and rightx_current is not None:
-            leftx_current = max(0, rightx_current - (w // 2))
-        elif rightx_current is None and leftx_current is not None:
-            rightx_current = min(w - 1, leftx_current + (w // 2))
-        elif leftx_current is None and rightx_current is None:
+        # Never invent a lane width at startup. Single-border tracking is only
+        # allowed after a real pair established the width for that window.
+        if leftx_current is None or rightx_current is None:
+            self._last_measured_count = 0
+            self._last_inferred_count = 0
+            self._last_point_measured = []
             return [], [], [], [], 0
             
         left_points = []
@@ -480,6 +623,9 @@ class LineFollowerCamera(Node):
         center_points = []
         scanline_weights = []
         valid_count = 0
+        measured_count = 0
+        inferred_count = 0
+        point_measured = []
 
         # 3. Sliding Window Loop
         for window in range(nwindows):
@@ -506,50 +652,59 @@ class LineFollowerCamera(Node):
                 rightx = int(np.mean(nonzerox[good_right_inds]))
                 rightx_current = rightx
                 
-            if leftx is not None or rightx is not None:
-                valid_count += 1
-                y_center = (win_y_low + win_y_high) // 2
-                if leftx is not None and rightx is not None:
-                    center_x = (leftx + rightx) // 2
-                    left_points.append((leftx, y_center))
-                    right_points.append((rightx, y_center))
-                elif leftx is not None:
-                    target_w = self.last_lane_widths.get(window, w // 2)
-                    center_x = leftx + target_w // 2
-                    left_points.append((leftx, y_center))
-                    right_points.append((leftx + target_w, y_center))
+            measured = leftx is not None and rightx is not None
+            if measured:
+                lane_width = rightx - leftx
+                if not self._lane_width_valid(window, lane_width, w):
+                    continue
+                self._remember_lane_width(window, lane_width)
+                measured_count += 1
+            elif leftx is not None or rightx is not None:
+                target_w = self.last_lane_widths.get(window)
+                if target_w is None or not self._lane_width_valid(window, target_w, w):
+                    continue
+                if leftx is not None:
+                    rightx = leftx + target_w
                 else:
-                    target_w = self.last_lane_widths.get(window, w // 2)
-                    center_x = rightx - target_w // 2
-                    left_points.append((rightx - target_w, y_center))
-                    right_points.append((rightx, y_center))
+                    leftx = rightx - target_w
+                if leftx < 0 or rightx >= w:
+                    continue
+                inferred_count += 1
+            else:
+                continue
+
+            valid_count += 1
+            y_center = (win_y_low + win_y_high) // 2
+            center_x = (leftx + rightx) // 2
+            left_points.append((leftx, y_center))
+            right_points.append((rightx, y_center))
+            point_measured.append(measured)
                     
-                center_points.append((center_x, y_center))
-                
-                # Update expected width
-                if leftx is not None and rightx is not None:
-                    self.last_lane_widths[window] = rightx - leftx
+            center_points.append((center_x, y_center))
 
                 # Weight for polyfit (bottom higher)
-                y_frac = (window + 0.5) / nwindows
-                scanline_weights.append(1.0 - y_frac + 0.5)
+            y_frac = (window + 0.5) / nwindows
+            scanline_weights.append(1.0 - y_frac + 0.5)
                 
                 # Save bottom-most valid center for prior
-                if valid_count == 1:
-                    smooth = 0.15
-                    if self._expected_left is not None:
-                        # EMA to prevent jitter
-                        nl = int(smooth * leftx_current + (1 - smooth) * self._expected_left)
-                        nr = int(smooth * rightx_current + (1 - smooth) * self._expected_right)
-                        self._expected_left = np.clip(nl, self._expected_left - 15, self._expected_left + 15)
-                        self._expected_right = np.clip(nr, self._expected_right - 15, self._expected_right + 15)
-                    else:
-                        self._expected_left = leftx_current
-                        self._expected_right = rightx_current
+            if valid_count == 1:
+                smooth = 0.15
+                if self._expected_left is not None:
+                    nl = int(smooth * leftx + (1 - smooth) * self._expected_left)
+                    nr = int(smooth * rightx + (1 - smooth) * self._expected_right)
+                    self._expected_left = int(np.clip(nl, self._expected_left - 15, self._expected_left + 15))
+                    self._expected_right = int(np.clip(nr, self._expected_right - 15, self._expected_right + 15))
+                else:
+                    self._expected_left = leftx
+                    self._expected_right = rightx
 
         if valid_count == 0:
             self._expected_left = None
             self._expected_right = None
+
+        self._last_measured_count = measured_count
+        self._last_inferred_count = inferred_count
+        self._last_point_measured = point_measured
 
         return left_points, right_points, center_points, scanline_weights, valid_count
 
@@ -569,6 +724,9 @@ class LineFollowerCamera(Node):
         center_points = []
         scanline_weights = []  # weight per valid scanline (bottom = higher)
         valid_count = 0
+        measured_count = 0
+        inferred_count = 0
+        point_measured = []
 
         # Start from last known good position, or center if completely lost
         if self._expected_left is None or self._expected_right is None:
@@ -632,31 +790,31 @@ class LineFollowerCamera(Node):
                             left_x = None
 
             # Determine lane center
-            if left_x is not None and right_x is not None:
-                valid_count += 1
-                self.last_lane_widths[i] = right_x - left_x
-                center_x = (left_x + right_x) // 2
-                expected_left = left_x
-                expected_right = right_x
-
-            elif left_x is not None:
-                valid_count += 1
-                width = self.last_lane_widths.get(i, w // 2)
-                right_x = left_x + width
-                center_x = (left_x + right_x) // 2
-                expected_left = left_x
-                expected_right = right_x
-
-            elif right_x is not None:
-                valid_count += 1
-                width = self.last_lane_widths.get(i, w // 2)
-                left_x = right_x - width
-                center_x = (left_x + right_x) // 2
-                expected_left = left_x
-                expected_right = right_x
-
+            measured = left_x is not None and right_x is not None
+            if measured:
+                width = right_x - left_x
+                if not self._lane_width_valid(i, width, w):
+                    continue
+                self._remember_lane_width(i, width)
+                measured_count += 1
+            elif left_x is not None or right_x is not None:
+                width = self.last_lane_widths.get(i)
+                if width is None or not self._lane_width_valid(i, width, w):
+                    continue
+                if left_x is not None:
+                    right_x = left_x + width
+                else:
+                    left_x = right_x - width
+                if left_x < 0 or right_x >= w:
+                    continue
+                inferred_count += 1
             else:
                 continue
+
+            valid_count += 1
+            center_x = (left_x + right_x) // 2
+            expected_left = left_x
+            expected_right = right_x
 
             # Save the bottom-most valid row as the expectation for the NEXT frame
             # Use aggressive EMA smoothing to prevent frame-to-frame jumps
@@ -678,6 +836,7 @@ class LineFollowerCamera(Node):
             left_points.append((int(left_x), y_in_crop))
             right_points.append((int(right_x), y_in_crop))
             center_points.append((int(center_x), y_in_crop))
+            point_measured.append(measured)
             # Weight: bottom scanlines (close to robot) are more reliable
             # y_frac goes from 0.5/n (bottom) to ~1.0 (top), invert for weight
             scanline_weights.append(1.0 - y_frac + 0.5)
@@ -687,11 +846,42 @@ class LineFollowerCamera(Node):
             self._expected_left = None
             self._expected_right = None
 
+        self._last_measured_count = measured_count
+        self._last_inferred_count = inferred_count
+        self._last_point_measured = point_measured
+
         return left_points, right_points, center_points, scanline_weights, valid_count
 
     # ──────────────────────────────────────────────────────────────────────────
     # Main camera callback
     # ──────────────────────────────────────────────────────────────────────────
+
+    def depth_info_callback(self, msg) -> None:
+        """Latch depth intrinsics (K) for the ground-plane mask."""
+        try:
+            k = msg.k  # 3x3 row-major: [fx, 0, cx, 0, fy, cy, 0, 0, 1]
+            self._depth_K = (float(k[0]), float(k[4]), float(k[2]), float(k[5]))
+        except (AttributeError, IndexError, TypeError, ValueError):
+            pass
+
+    def depth_callback(self, msg: Image) -> None:
+        """Store the latest depth frame, arrival-timed (not stamp-timed)."""
+        try:
+            img = self.bridge.imgmsg_to_cv2(msg, 'passthrough')
+        except Exception:
+            return
+        arr = np.asarray(img)
+        if arr.ndim != 2:
+            return
+        if arr.dtype == np.uint16:
+            # Astra depth: millimetres.
+            self._last_depth_m = arr.astype(np.float32) / 1000.0
+        elif arr.dtype == np.float32:
+            # Already metres.
+            self._last_depth_m = arr
+        else:
+            return
+        self._last_depth_mono = time.monotonic()
 
     def color_callback(self, msg: Image) -> None:
         """Process a camera frame and publish lane error."""
@@ -705,7 +895,7 @@ class LineFollowerCamera(Node):
             if dt <= 0.0 or dt > 0.5:
                 dt = 0.033  # assume ~30 fps
 
-            # ── 1. Resize — Maintain aspect ratio by center-cropping to 4:3 first
+                # -- 1. Resize - Maintain aspect ratio by center-cropping to 4:3 first
             bgr = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
             h_raw, w_raw = bgr.shape[:2]
             target_w = int(h_raw * 4 / 3)
@@ -722,15 +912,40 @@ class LineFollowerCamera(Node):
             crop_h = int(h * crop_ratio)
             road = bgr[h - crop_h:, :]
 
+            # ── 2b. Depth ground-plane mask (optional, gated by params) ─────
+            # Arrival-timed (not stamp-timed) so a clock-skewed driver stamp
+            # can never wedge it; stale/missing depth simply disables masking.
+            floor_crop = None
+            self._mask_active = False
+            if self._param_cache['ground_mask_enabled']:
+                age = now - self._last_depth_mono
+                if (self._last_depth_m is not None and self._depth_K is not None
+                        and 0.0 <= age <= float(self._param_cache['depth_max_age'])):
+                    fx, fy, cx, cy = self._depth_K
+                    m = compute_floor_mask(
+                        self._last_depth_m, fx, fy, cx, cy,
+                        float(self._param_cache['cam_height_m']),
+                        float(self._param_cache['cam_tilt_deg']),
+                        float(self._param_cache['ground_mask_tol_m']))
+                    m320 = cv2.resize(m.astype(np.uint8) * 255, (w, h),
+                                      interpolation=cv2.INTER_NEAREST)
+                    floor_crop = m320[h - crop_h:, :]
+                    self._mask_active = True
+
             # ── 3. IPM warp: perspective → Bird's Eye View ──────────────────
             tracker_mode = self._param_cache['tracker_mode']
             if self._param_cache['ipm_enabled']:
                 road = self._apply_ipm(road)
+                if floor_crop is not None:
+                    floor_crop = (self._apply_ipm(floor_crop) > 127).astype(np.uint8) * 255
 
-            # ── 4 & 5. Detection Pipeline Branching ─────────────────────────
+                # -- 4 & 5. Detection Pipeline Branching --
+            self._last_measured_count = 0
+            self._last_inferred_count = 0
+            self._last_point_measured = []
             if tracker_mode == 'sliding':
                 left_pts, right_pts, center_pts, scan_weights, valid_count = \
-                    self._detect_sliding_windows(road, crop_h, w)
+                    self._detect_sliding_windows(road, crop_h, w, floor_mask=floor_crop)
             else:
                 # ── 4. CLAHE + threshold (fixed or Otsu) + morphology ───────────
                 gray = cv2.cvtColor(road, cv2.COLOR_BGR2GRAY)
@@ -771,6 +986,9 @@ class LineFollowerCamera(Node):
                     )
                     binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel_close)
 
+                if floor_crop is not None:
+                    binary = cv2.bitwise_and(binary, binary, mask=floor_crop)
+
                 # ── 5. Multi-scanline detection ─────────────────────────────────
                 self._select_visible_branch(binary)
                 left_pts, right_pts, center_pts, scan_weights, valid_count = \
@@ -781,29 +999,43 @@ class LineFollowerCamera(Node):
             measurement_available = False
             poly_fitted = None
             lookahead_pt = None
+            measured_count = self._last_measured_count
+            inferred_count = self._last_inferred_count
+            min_measured = self._param_cache['min_measured_windows']
+            pair_grace_ok = (now - self._last_pair_time) <= 0.25
+            if measured_count >= min_measured:
+                self._last_pair_time = now
+                pair_grace_ok = True
+            elif self._last_pair_time <= 0.0:
+                # Cold start: no lock history yet - allow acquisition on a
+                # single measured pair plus valid scanlines; the 4-pair
+                # confirmation takes over as soon as it appears.
+                pair_grace_ok = True
+            geometry_confident = (
+                measured_count >= min_measured
+                or (measured_count >= 1 and valid_count >= conf_min and pair_grace_ok)
+            )
+            self._last_fit_inliers = [True] * len(center_pts)
 
-            if valid_count >= conf_min and len(center_pts) > 0:
-                if self._param_cache['poly_fit_enabled'] and len(center_pts) >= 3:
+            if geometry_confident and valid_count >= conf_min and len(center_pts) > 0:
+                if self._param_cache['poly_fit_enabled'] and len(center_pts) >= 4:
                     # Normalized coords: y in [0, 1] (0=bumper, 1=far), x in [-1, 1]
                     y_norm = np.array([(crop_h - pt[1]) / float(crop_h) for pt in center_pts])
                     x_norm = np.array([(pt[0] - image_center) / float(image_center) for pt in center_pts])
 
-                    try:
-                        poly = np.polyfit(y_norm, x_norm, 2)
-                        if not np.isnan(poly).any() and not np.isinf(poly).any():
-                            # Clamp physical bounds
-                            poly[0] = float(np.clip(poly[0], -1.5, 1.5))
-                            poly[1] = float(np.clip(poly[1], -2.0, 2.0))
-                            poly[2] = float(np.clip(poly[2], -1.0, 1.0))
-                            self._last_valid_poly = poly
-                            self._last_poly_time = now
-                            poly_fitted = poly
-                    except Exception:
-                        poly_fitted = self._last_valid_poly
-
-                if poly_fitted is None and self._last_valid_poly is not None and (now - self._last_poly_time) < 0.5:
-                    decay = max(0.0, 1.0 - 2.0 * (now - self._last_poly_time))
-                    poly_fitted = self._last_valid_poly * decay
+                    poly_fitted, inlier_mask = self._robust_polyfit(
+                        y_norm, x_norm, np.asarray(scan_weights, dtype=float)
+                    )
+                    self._last_fit_inliers = inlier_mask.tolist()
+                    # NOTE: a rejected fit (None) is not a failure - it falls
+                    # through to the weighted-average fallback below, so valid
+                    # geometry-checked points still steer.
+                    if poly_fitted is not None:
+                        poly_fitted[0] = float(np.clip(poly_fitted[0], -1.5, 1.5))
+                        poly_fitted[1] = float(np.clip(poly_fitted[1], -2.0, 2.0))
+                        poly_fitted[2] = float(np.clip(poly_fitted[2], -1.0, 1.0))
+                        self._last_valid_poly = poly_fitted
+                        self._last_poly_time = now
 
                 if poly_fitted is not None:
                     # Pure Pursuit Lookahead
@@ -847,7 +1079,8 @@ class LineFollowerCamera(Node):
                     kappa_max = max(kappa_candidates)
                     self.curvature_pub.publish(Float32(data=kappa_max))
                 else:
-                    # Fallback weighted average
+                    # Fallback weighted average - also the degradation path
+                    # when the robust fit rejects (see above).
                     total_weight = sum(scan_weights)
                     if total_weight > 0:
                         avg_center_x = sum(pt[0] * wt for pt, wt in zip(center_pts, scan_weights)) / total_weight
@@ -921,17 +1154,19 @@ class LineFollowerCamera(Node):
                 crop_top = 0  # debug view is already cropped
 
                 # Draw scanline detection points
-                for lp, rp, cp in zip(left_pts, right_pts, center_pts):
+                for idx, (lp, rp, cp) in enumerate(zip(left_pts, right_pts, center_pts)):
                     ly = lp[1]
                     ry = rp[1]
                     cy = cp[1]
 
-                    # Left line point (blue)
-                    cv2.circle(debug, (lp[0], ly), 4, (255, 130, 130), -1)
-                    # Right line point (pink)
-                    cv2.circle(debug, (rp[0], ry), 4, (130, 130, 255), -1)
-                    # Center point (green)
-                    cv2.circle(debug, (cp[0], cy), 5, (0, 255, 0), -1)
+                    measured = idx < len(self._last_point_measured) and self._last_point_measured[idx]
+                    inlier = idx < len(self._last_fit_inliers) and self._last_fit_inliers[idx]
+                    left_color = (255, 130, 130) if measured else (0, 165, 255)
+                    right_color = (130, 130, 255) if measured else (0, 165, 255)
+                    center_color = (0, 255, 0) if measured and inlier else (0, 165, 255)
+                    cv2.circle(debug, (lp[0], ly), 4, left_color, -1)
+                    cv2.circle(debug, (rp[0], ry), 4, right_color, -1)
+                    cv2.circle(debug, (cp[0], cy), 5, center_color, -1)
                     # Scanline visualization
                     cv2.line(debug, (lp[0], ly), (rp[0], ry), (50, 50, 50), 1)
 
@@ -960,7 +1195,9 @@ class LineFollowerCamera(Node):
                     cv2.putText(img, text, pos, cv2.FONT_HERSHEY_SIMPLEX, scale, (0, 0, 0), thick + 2)
                     cv2.putText(img, text, pos, cv2.FONT_HERSHEY_SIMPLEX, scale, color, thick)
 
-                if abs(self.lane_error) < 0.05:
+                if not measurement_available:
+                    direction, t_color = 'NO LANE', (0, 0, 255)
+                elif abs(self.lane_error) < 0.05:
                     direction, t_color = 'CENTERED', (0, 255, 0)
                 elif self.lane_error > 0:
                     # Positive error -> positive angular_z -> robot physically steers RIGHT
@@ -972,18 +1209,16 @@ class LineFollowerCamera(Node):
                 steer_deg = abs(self.lane_error) * 50.0
                 put_text(debug, f'{direction} ({steer_deg:.0f} deg)', (10, 20), 0.55, t_color)
 
-                status_str = (
-                    f'LOCK({valid_count}/{self._param_cache["n_scanlines"]})'
-                    if valid_count >= conf_min
-                    else (f'HOLD({self.current_hold_frames})'
-                          if self.current_hold_frames > 0
-                          else f'LOST({self.frames_lost}f)')
-                )
+                total_slots = (self._param_cache['sliding_windows'] if tracker_mode == 'sliding'
+                               else self._param_cache['n_scanlines'])
+                mask_str = '|MASK' if self._mask_active else ''
+                status_str = (f'LOCK M{measured_count}/P{inferred_count}/{total_slots}{mask_str}'
+                              if measurement_available else f'LOW CONF M{measured_count}/P{inferred_count}{mask_str}')
                 ipm_str = 'IPM' if self._param_cache['ipm_enabled'] else 'RAW'
                 kf_str = 'KF' if self._param_cache['kalman_enabled'] else 'EMA'
                 put_text(debug, f'{status_str} [{ipm_str}|{kf_str}]', (10, 42), 0.45, (0, 255, 255))
 
-                if len(self.last_lane_widths) > 0:
+                if measurement_available and measured_count >= min_measured and len(self.last_lane_widths) > 0:
                     avg_w = sum(self.last_lane_widths.values()) / len(self.last_lane_widths)
                     lane_w_cm = avg_w * 40.0 / (w * 0.4)
                     put_text(debug, f'W={lane_w_cm:.0f}cm', (10, 60), 0.45, (0, 255, 255))
@@ -1004,7 +1239,7 @@ class LineFollowerCamera(Node):
                     kf_str = f'kv={self._kalman.velocity:.3f}' if self._param_cache['kalman_enabled'] else ''
                     print(
                         f'\r[LF] Err:{self.lane_error:.2f} | {status} | '
-                        f'valid={valid_count}/{self._param_cache["n_scanlines"]} | {kf_str}',
+                        f'measured={measured_count} predicted={inferred_count} | {kf_str}',
                         end='', flush=True
                     )
                     self._last_debug_print = now_mono

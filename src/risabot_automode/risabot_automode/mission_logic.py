@@ -14,6 +14,8 @@ def reset_mission(driver):
     driver.mission_finished = False
     driver.mission_fault = ''
     driver.red_latched = False
+    driver.lamp_pending = False
+    driver.lamp_pending_stamp = 0.0
     driver.route = ''
     driver.route_confirmed = ''
     driver.roundabout_seen = False
@@ -55,8 +57,13 @@ def select_command(d, now):
         if d.traffic_light_state in ('red', 'yellow'):
             d.red_latched = True
             d.light_cleared = False
+        elif d.traffic_light_state == 'unresolved':
+            d.lamp_pending = True
+            d.lamp_pending_stamp = now
+            d.light_cleared = False
         elif d.traffic_light_state == 'green':
             d.red_latched = False
+            d.lamp_pending = False
             d.light_cleared = True
 
     stop = ''
@@ -66,8 +73,10 @@ def select_command(d, now):
         stop = 'SENSOR INTERLOCK'
     elif d.red_latched:
         stop = 'AWAITING CONFIRMED GREEN'
-    elif d.light_expected and not d.light_cleared:
-        stop = 'WAITING FOR TRAFFIC LIGHT CLEARANCE'
+    elif d.lamp_pending and fresh(
+            d.lamp_pending_stamp, now,
+            float(d._param_cache['traffic_unresolved_hold_sec'])):
+        stop = 'TRAFFIC LAMP UNRESOLVED: WAITING FOR GREEN'
     elif recent(d.boom_gate_last_time) and not d.boom_gate_open and not (
             d.route == 'right' and d.route_confirmed == 'right' and recent(d.route_stamp)
             and recent(d.lane_stamp) and not d.lane_lost and d.lane_error > .05):
@@ -78,8 +87,11 @@ def select_command(d, now):
         if d.parking_requested:
             d.rp_cmd_pub.publish(String(data='stop'))
             d.mission_fault = 'Parking interrupted: ' + stop
-        state = S.TRAFFIC_LIGHT if d.red_latched else S.EMERGENCY_STOP
+        state = (S.TRAFFIC_LIGHT if stop in (
+            'AWAITING CONFIRMED GREEN', 'TRAFFIC LAMP UNRESOLVED: WAITING FOR GREEN')
+            else S.EMERGENCY_STOP)
         return state, zero, stop
+    d.lamp_pending = False
     if d.mission_finished:
         return S.FINISHED, zero, 'MISSION COMPLETE'
     if d.mission_fault:

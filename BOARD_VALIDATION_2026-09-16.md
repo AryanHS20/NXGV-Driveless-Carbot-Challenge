@@ -1,5 +1,20 @@
 # Dashboard and board validation — 16 September 2026
 
+## Traffic-warning correction (later update)
+
+- Advance warning signs set an advisory only; they no longer block lane following.
+- A detected traffic lamp without confirmed colour publishes `unresolved`.
+  Mission control holds this stop until confirmed green, including when the lamp
+  subsequently disappears. Confirmed red/yellow also remains latched until green.
+- Traffic waits display `TRAFFIC_LIGHT`; a real e-stop or sensor interlock retains
+  `EMERGENCY_STOP` even when a red-light latch is also present.
+- 59 local tests and preflight pass, including warning-only driving, uncertain
+  lamp hold, red-to-unknown hold, green release and e-stop label priority.
+- Three updated files: mission_logic.py, auto_driver.py, signage_detector.py.
+  Board backup: `/home/sunrise/nxgv-traffic-backup-20260916-174016`.
+- Stationary manual mode verified before installation. No motion or synthetic
+  traffic-light topic commands used for verification. Track validation remains.
+
 ## Deployment
 
 - Board: `sunrise@192.168.137.161`, workspace `/home/sunrise/risabotcar_ws`.

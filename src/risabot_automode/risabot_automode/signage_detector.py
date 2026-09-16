@@ -101,6 +101,7 @@ class SignageDetector(Node):
         self.declare_parameter('heartbeat_sec', 0.5)
         self.declare_parameter('min_parking_sign_width', 0)
         self.declare_parameter('observation_timeout', 0.5)
+        self.declare_parameter('traffic_confirm_frames', 5)
         self.declare_parameter('tunnel_publish_enabled', True)  # False = never publish /tunnel_confidence (vision sign hint, advisory only)
 
         # Per-class thresholds. Strict where FPs were measured on laptop:
@@ -147,6 +148,7 @@ class SignageDetector(Node):
         self._cnt_endtunnel = 0
         self._cnt_red = 0
         self._cnt_green = 0
+        self._cnt_lamp = 0
         self._last_tunnel_pub = None  # edge-triggered /tunnel_confidence (advisory vision sign hint)
 
         # ── ROS interfaces (topics UNCHANGED from YOLOv5 node + tunnel) ──
@@ -194,6 +196,7 @@ class SignageDetector(Node):
         self._param_cache = {
             'model_path': str(self.get_parameter('model_path').value),
             'observation_timeout': float(self.get_parameter('observation_timeout').value),
+            'traffic_confirm_frames': int(self.get_parameter('traffic_confirm_frames').value),
             'conf_threshold': float(self.get_parameter('conf_threshold').value),
             'iou_threshold': float(self.get_parameter('iou_threshold').value),
             'show_debug': bool(self.get_parameter('show_debug').value),
@@ -216,6 +219,8 @@ class SignageDetector(Node):
                     return SetParametersResult(successful=False, reason='Finite nonnegative values required')
             if (p.name.startswith('thresh_') or p.name in ('iou_threshold', 'conf_threshold')) and not 0 <= p.value <= 1:
                 return SetParametersResult(successful=False, reason='Threshold must be 0..1')
+            if p.name == 'traffic_confirm_frames' and p.value < 1:
+                return SetParametersResult(successful=False, reason='traffic_confirm_frames must be positive')
             if p.name == 'model_path' and p.value != self._param_cache['model_path']:
                 return SetParametersResult(successful=False, reason='Restart required to load another model')
             if p.name in proposed:
@@ -233,7 +238,7 @@ class SignageDetector(Node):
             self._cnt_parallel = self._cnt_perpendicular = self._cnt_roundabout = 0
             self._cnt_warning = 0
             self.warning_active = False
-            self._cnt_red = self._cnt_green = 0
+            self._cnt_red = self._cnt_green = self._cnt_lamp = 0
             self.traffic_light_active = 'unknown'
             self.parking_kind = ''
         self.valid_pub.publish(Bool(data=valid))
@@ -439,27 +444,41 @@ class SignageDetector(Node):
         # Traffic lamp: HSV verdicts decide red/green
         reds = greens = 0
         if verdicts:
-            for cid, v in zip(np.atleast_1d(class_ids), verdicts):
-                if int(cid) == 7:
-                    if v == 'red':
-                        reds += 1
-                    elif v == 'green':
-                        greens += 1
+            # verdicts contains one entry per class-7 box, in class-7 order.
+            for v in verdicts:
+                if v == 'red':
+                    reds += 1
+                elif v == 'green':
+                    greens += 1
+        confirm = int(self._param_cache['traffic_confirm_frames'])
+        lamp_seen = 7 in cids
+        self._cnt_lamp = min(10, self._cnt_lamp + 1) if lamp_seen else 0
         if reds > 0 and reds >= greens:
             self._cnt_red = min(10, self._cnt_red + 1)
             self._cnt_green = 0
-            if self._cnt_red >= 3:
+            if self._cnt_red >= confirm:
                 self.traffic_light_active = 'red'
         elif greens > 0:
             self._cnt_green = min(10, self._cnt_green + 1)
             self._cnt_red = 0
-            if self._cnt_green >= 3:
+            if self._cnt_green >= confirm:
                 self.traffic_light_active = 'green'
         else:
             self._cnt_red = max(0, self._cnt_red - 1)
             self._cnt_green = max(0, self._cnt_green - 1)
             if self._cnt_red == 0 and self._cnt_green == 0:
                 self.traffic_light_active = 'unknown'
+
+        # Distinguish an actual lamp with unconfirmed colour from no lamp.
+        # A historical green must never clear a newly observed uncertain lamp.
+        if not lamp_seen:
+            self.traffic_light_active = 'unknown'
+        elif self._cnt_lamp >= confirm and not (
+                (reds > 0 and self.traffic_light_active == 'red') or
+                (greens > 0 and self.traffic_light_active == 'green')):
+            self.traffic_light_active = 'unresolved'
+        elif self._cnt_lamp < confirm:
+            self.traffic_light_active = 'unknown'
 
     def classify_traffic_light_color(self, crop: np.ndarray) -> str:
         """HSV vote on lamp crop -> 'red' | 'green' | 'unknown'."""

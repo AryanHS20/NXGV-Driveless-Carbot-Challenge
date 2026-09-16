@@ -16,6 +16,7 @@ auto_driver:
   ros__parameters:
     forward_speed: 0.15          # m/s maximum speed on a straight (conservative start)
     stale_timeout: 0.75
+    traffic_unresolved_hold_sec: 1.0  # uncertain lamp expires; confirmed red still latches
     lane_control_mode: direct
     parking_max_duration: 45.0
     dist_lap_complete: 1.0
@@ -131,6 +132,8 @@ line_follower_camera:
     sliding_minpix: 30
     n_scanlines: 8
     min_valid_scanlines: 2
+    min_measured_windows: 4           # require real left+right pairs before steering
+    poly_residual_max: 0.08           # normalized lateral fit residual
     min_line_width_px: 5
     crop_ratio_base: 0.55           # raised from 0.4 — robot sees further ahead
     search_radius_px: 80             # blob-to-expected match radius
@@ -147,6 +150,12 @@ line_follower_camera:
     ipm_enabled: false
     ipm_top_width_ratio: 0.35    # 0° tilt at 8.5cm height → moderate warp
     ipm_bottom_width_ratio: 1.0
+    # Depth ground-plane mask (no training; drop non-floor white via depth)
+    ground_mask_enabled: false  # true = require depth floor agreement (needs depth stream + intrinsics)
+    ground_mask_tol_m: 0.03     # floor residual tolerance in metres
+    cam_height_m: 0.085         # lens height above floor in metres
+    cam_tilt_deg: 0.0           # downward pitch in degrees
+    depth_max_age: 0.3          # max depth-frame age in seconds (arrival-timed)
     # Kalman filter (MDPI-inspired)
     kalman_enabled: true
     kalman_process_noise: 0.01
@@ -380,6 +389,7 @@ signage_detector:
   ros__parameters:
     model_path: "/home/sunrise/nxgv_yolo11n_640x640_nv12.bin"
     observation_timeout: 0.5
+    traffic_confirm_frames: 5         # consecutive lamp frames before red/green/unresolved
     conf_threshold: 0.25          # global fallback (per-class thresholds below take priority)
     iou_threshold: 0.45
     show_debug: false             # OFF by default — dashboard auto-enables when signage view active

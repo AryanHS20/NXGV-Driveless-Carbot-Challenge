@@ -2039,6 +2039,7 @@ const PARAM_GROUPS = [
     'ipm_enabled','ipm_top_width_ratio','ipm_bottom_width_ratio',
     'kalman_enabled','kalman_process_noise','kalman_measurement_noise',
     'smoothing_alpha','dead_zone','hold_error_frames','error_decay_rate',
+    'ground_mask_enabled','ground_mask_tol_m','cam_height_m','cam_tilt_deg','depth_max_age',
     'resize_width','print_debug','debug_print_rate','show_debug'
   ]},
   { node: 'auto_driver', label: 'Auto Driver', params: [

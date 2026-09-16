@@ -84,6 +84,50 @@ class SafetyTests(unittest.TestCase):
         d.boom_gate_callback(Message(False)); d.publish_cmd_vel()
         self.assertEqual(d.last_cmd.linear.x,0)
 
+    def test_warning_only_does_not_stop_lane_following(self):
+        d = self.car()
+        d._warning_cb(Message(True))
+        d.traffic_light_callback(Message('unknown'))
+        d.publish_cmd_vel()
+        self.assertGreater(d.last_cmd.linear.x, 0)
+
+    def test_uncertain_lamp_hold_expires_without_confirmed_red(self):
+        d = self.car()
+        for light in ('unresolved', 'unknown'):
+            d.traffic_light_callback(Message(light))
+            d.publish_cmd_vel()
+            self.assertEqual(d.last_cmd.linear.x, 0)
+            self.assertEqual(d.state, S.TRAFFIC_LIGHT)
+        d.lamp_pending_stamp = 98.0
+        d.publish_cmd_vel()
+        self.assertGreater(d.last_cmd.linear.x, 0)
+
+    def test_estop_label_takes_priority_over_red(self):
+        d = self.car()
+        d.traffic_light_callback(Message('red'))
+        d.cmd_safety_estop = True
+        d.publish_cmd_vel()
+        self.assertEqual(d.state, S.EMERGENCY_STOP)
+
+    def test_warning_and_uncertain_lamp_have_distinct_outputs(self):
+        s = SignageDetector()
+        s._update_states(np.zeros((1, 4)), np.array([8]))
+        self.assertEqual(s.traffic_light_active, 'unknown')
+        for _ in range(5):
+            s._update_states(np.zeros((1, 4)), np.array([7]), ['unknown'])
+        self.assertEqual(s.traffic_light_active, 'unresolved')
+        for _ in range(5):
+            s._update_states(np.zeros((1, 4)), np.array([7]), ['green'])
+        self.assertEqual(s.traffic_light_active, 'green')
+        s._update_states(np.empty((0, 4)), np.array([], dtype=int))
+        self.assertEqual(s.traffic_light_active, 'unknown')
+
+    def test_transient_lamp_detection_does_not_stop(self):
+        s = SignageDetector()
+        for _ in range(4):
+            s._update_states(np.zeros((1, 4)), np.array([7]), ['unknown'])
+            self.assertEqual(s.traffic_light_active, 'unknown')
+
     def test_no_reverse_for_proximity_flag(self):
         d=self.car(); d.obstacle_active=True; d.publish_cmd_vel()
         self.assertEqual(d.last_cmd.linear.x,0)
@@ -184,9 +228,42 @@ class SafetyTests(unittest.TestCase):
     def test_kalman_accepts_centered_measurement(self):
         lane=LineFollowerCamera(); lane._kalman.x=np.array([.3,0.]); lane._param_cache['poly_fit_enabled']=False
         lane.bridge=types.SimpleNamespace(imgmsg_to_cv2=lambda *a:np.zeros((240,320,3),dtype=np.uint8))
-        lane._detect_sliding_windows=lambda *a:([],[],[(160,100),(160,80)],[1.,1.],2)
+        def centered(*_):
+            lane._last_measured_count=4; lane._last_inferred_count=0; lane._last_point_measured=[True]*4
+            return [],[],[(160,110),(160,90),(160,70),(160,50)],[1.]*4,4
+        lane._detect_sliding_windows=centered
         for _ in range(30): lane.color_callback(self.image())
         self.assertLess(abs(lane.lane_error),.05)
+
+    def test_single_border_without_learned_width_is_not_a_lane(self):
+        lane=LineFollowerCamera(); lane._param_cache['invert_binary']=False
+        binary=np.zeros((120,320),dtype=np.uint8); binary[:,50:58]=255
+        _,_,centers,_,valid=lane._detect_scanlines(binary,120,320)
+        self.assertEqual(valid,0); self.assertEqual(centers,[])
+        self.assertEqual(lane._last_measured_count,0)
+
+    def test_two_borders_are_measured_not_inferred(self):
+        lane=LineFollowerCamera(); lane._param_cache['invert_binary']=False
+        binary=np.zeros((120,320),dtype=np.uint8)
+        binary[:,60:68]=255; binary[:,250:258]=255
+        _,_,_,_,valid=lane._detect_scanlines(binary,120,320)
+        self.assertGreaterEqual(valid,2)
+        self.assertEqual(lane._last_measured_count,valid)
+        self.assertEqual(lane._last_inferred_count,0)
+
+    def test_implausibly_wide_room_edges_are_rejected(self):
+        lane=LineFollowerCamera(); lane._param_cache['invert_binary']=False
+        binary=np.zeros((120,320),dtype=np.uint8)
+        binary[:,20:28]=255; binary[:,292:300]=255
+        _,_,centers,_,valid=lane._detect_scanlines(binary,120,320)
+        self.assertEqual(valid,0); self.assertEqual(centers,[])
+
+    def test_robust_polyfit_rejects_large_center_outlier(self):
+        lane=LineFollowerCamera()
+        y=np.linspace(0.,1.,8); x=.15*y*y; x[4]+=.8
+        poly,mask=lane._robust_polyfit(y,x,np.ones(8))
+        self.assertIsNotNone(poly); self.assertFalse(mask[4])
+        self.assertLess(abs(np.polyval(poly,.5)-.15*.25),.03)
 
     def test_signage_preview_size_and_rate_limit(self):
         s = SignageDetector()
