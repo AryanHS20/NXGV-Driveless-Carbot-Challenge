@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Signage Detector Node — YOLO11n BPU Model Inference via hobot_dnn.
 
-Production NXGV YOLO11n 10-class detector. Sign advisories are kept separate
-from physical sensor topics so publishers cannot overwrite one another.
+Production NXGV YOLO11n unified 16-class detector. Sign advisories are kept
+separate from physical sensor topics so publishers cannot overwrite one another.
 
 BPU output protocol (D-Robotics ultralytics_yolo, YOLO11xDetect):
   6 outputs: [cls8, box8, cls16, box16, cls32, box32], NHWC float32
@@ -21,6 +21,12 @@ NXGV class map (nxgv.yaml, alphabetical):
    7 traffic_light lamp  -> TRAFFIC_LIGHT_TOPIC via HSV (red/green/unknown)
    8 traffic_warn_sign   -> /traffic_warning_detected
    9 tunnel_sign         -> TUNNEL_CONF_TOPIC True (advisory only, gated)
+  10 traffic_red         -> TRAFFIC_LIGHT_TOPIC red (direct, no HSV needed)
+  11 traffic_yellow      -> TRAFFIC_LIGHT_TOPIC yellow
+  12 traffic_green       -> TRAFFIC_LIGHT_TOPIC green
+  13 boom_closed         -> BOOM_GATE_TOPIC False, gated by publish_boom_state
+  14 boom_partial        -> BOOM_GATE_TOPIC False, gated (zero recall: blocked)
+  15 boom_open           -> BOOM_GATE_TOPIC True, gated by publish_boom_state
 
 NOTE: /tunnel_detected (TUNNEL_DETECTED_TOPIC) is NOT published by this node.
 tunnel_wall_follower.py is the sole owner of that topic (LiDAR wall-pair
@@ -46,6 +52,7 @@ from std_msgs.msg import Bool, String
 
 # Import topics from our shared module (same as YOLOv5 node)
 from .topics import (
+    BOOM_GATE_TOPIC,
     CAMERA_IMAGE_TOPIC,
     HILL_SIGN_TOPIC,
     OBSTACLE_SIGN_TOPIC,
@@ -76,6 +83,12 @@ CLASS_NAMES = [
     'traffic_light',           # 7 lamp (HSV -> red/green)
     'traffic_warn_sign',       # 8 signals-ahead warning
     'tunnel_sign',             # 9
+    'traffic_red',             # 10 direct lamp colour (no HSV needed)
+    'traffic_yellow',          # 11
+    'traffic_green',           # 12
+    'boom_closed',             # 13 vision hint only (LiDAR owns boom state)
+    'boom_partial',            # 14 (zero validation recall - treat as blocked)
+    'boom_open',               # 15
 ]
 
 STRIDES = (8, 16, 32)
@@ -94,7 +107,7 @@ class SignageDetector(Node):
         super().__init__('signage_detector')
 
         # ── Tunable parameters ─────────────────────────────────────────
-        self.declare_parameter('model_path', '/home/sunrise/nxgv_yolo11n_640x640_nv12.bin')
+        self.declare_parameter('model_path', '/home/sunrise/unified16_yolo11n_640x640_nv12.bin')
         self.declare_parameter('conf_threshold', 0.25)   # global fallback
         self.declare_parameter('iou_threshold', 0.45)
         self.declare_parameter('show_debug', False)
@@ -103,6 +116,10 @@ class SignageDetector(Node):
         self.declare_parameter('observation_timeout', 0.5)
         self.declare_parameter('traffic_confirm_frames', 5)
         self.declare_parameter('tunnel_publish_enabled', True)  # False = never publish /tunnel_confidence (vision sign hint, advisory only)
+        # Boom vision is OFF by default: the LiDAR boom_gate_detector owns
+        # /boom_gate_open. Enable only after real camera footage is collected
+        # and validated (boom_partial currently has zero validation recall).
+        self.declare_parameter('publish_boom_state', False)
 
         # Per-class thresholds. Strict where FPs were measured on laptop:
         # parking 0.50 (phone UI hit 0.72), obstacle 0.50 (blue clutter),
@@ -117,6 +134,12 @@ class SignageDetector(Node):
         self.declare_parameter('thresh_tl_lamp',     0.30)  # 7
         self.declare_parameter('thresh_tl_warn',     0.40)  # 8
         self.declare_parameter('thresh_tunnel',      0.40)  # 9
+        self.declare_parameter('thresh_traffic_red',    0.25)  # 10 direct colour
+        self.declare_parameter('thresh_traffic_yellow', 0.25)  # 11
+        self.declare_parameter('thresh_traffic_green',  0.25)  # 12
+        self.declare_parameter('thresh_boom_closed',    0.35)  # 13
+        self.declare_parameter('thresh_boom_partial',   0.35)  # 14
+        self.declare_parameter('thresh_boom_open',      0.35)  # 15
 
         self._param_cache: Dict[str, object] = {}
         self._update_param_cache()
@@ -148,7 +171,11 @@ class SignageDetector(Node):
         self._cnt_endtunnel = 0
         self._cnt_red = 0
         self._cnt_green = 0
+        self._cnt_yellow = 0
         self._cnt_lamp = 0
+        self.boom_gate_open = True  # vision hint only; LiDAR owns boom state
+        self._cnt_boom_blocked = 0
+        self._cnt_boom_open = 0
         self._last_tunnel_pub = None  # edge-triggered /tunnel_confidence (advisory vision sign hint)
 
         # ── ROS interfaces (topics UNCHANGED from YOLOv5 node + tunnel) ──
@@ -161,6 +188,10 @@ class SignageDetector(Node):
         self.warning_pub = self.create_publisher(Bool, '/traffic_warning_detected', 10)
         self.valid_pub = self.create_publisher(Bool, '/signage_valid', 10)
         self.tunnel_pub = self.create_publisher(Bool, TUNNEL_CONF_TOPIC, 10)
+        # Vision boom hint shares /boom_gate_open with the LiDAR detector;
+        # publish_boom_state gates it (default OFF): enabling without
+        # real-footage validation would race the LiDAR ground truth.
+        self.boom_pub = self.create_publisher(Bool, BOOM_GATE_TOPIC, 10)
         self.debug_pub = self.create_publisher(Image, SIGNAGE_DEBUG_TOPIC, 10)
 
         self._heartbeat_timer = self.create_timer(
@@ -190,7 +221,9 @@ class SignageDetector(Node):
     _THRESH_KEYS = ('thresh_end_tunnel', 'thresh_hill', 'thresh_obstacle',
                     'thresh_parallelp', 'thresh_perpendp', 'thresh_roundabout',
                     'thresh_speedbump', 'thresh_tl_lamp', 'thresh_tl_warn',
-                    'thresh_tunnel')
+                    'thresh_tunnel', 'thresh_traffic_red', 'thresh_traffic_yellow',
+                    'thresh_traffic_green', 'thresh_boom_closed',
+                    'thresh_boom_partial', 'thresh_boom_open')
 
     def _update_param_cache(self) -> None:
         self._param_cache = {
@@ -203,6 +236,7 @@ class SignageDetector(Node):
             'heartbeat_sec': float(self.get_parameter('heartbeat_sec').value),
             'min_parking_sign_width': int(self.get_parameter('min_parking_sign_width').value),
             'tunnel_publish_enabled': bool(self.get_parameter('tunnel_publish_enabled').value),
+            'publish_boom_state': bool(self.get_parameter('publish_boom_state').value),
         }
         for k in self._THRESH_KEYS:
             self._param_cache[k] = float(self.get_parameter(k).value)
@@ -238,7 +272,7 @@ class SignageDetector(Node):
             self._cnt_parallel = self._cnt_perpendicular = self._cnt_roundabout = 0
             self._cnt_warning = 0
             self.warning_active = False
-            self._cnt_red = self._cnt_green = self._cnt_lamp = 0
+            self._cnt_red = self._cnt_green = self._cnt_yellow = self._cnt_lamp = 0
             self.traffic_light_active = 'unknown'
             self.parking_kind = ''
         self.valid_pub.publish(Bool(data=valid))
@@ -258,6 +292,8 @@ class SignageDetector(Node):
             if self._last_tunnel_pub is None or self.tunnel_active != self._last_tunnel_pub:
                 self.tunnel_pub.publish(Bool(data=self.tunnel_active))
                 self._last_tunnel_pub = self.tunnel_active
+        if self._param_cache['publish_boom_state']:
+            self.boom_pub.publish(Bool(data=self.boom_gate_open))
 
     # ── NV12 preprocessing (unchanged: 640 BGR -> NV12) ──────────────
     def bgr_to_nv12(self, bgr640: np.ndarray) -> np.ndarray:
@@ -441,32 +477,54 @@ class SignageDetector(Node):
             self._cnt_tunnel = max(0, self._cnt_tunnel - 1)
             self._cnt_endtunnel = max(0, self._cnt_endtunnel - 1)
 
-        # Traffic lamp: HSV verdicts decide red/green
-        reds = greens = 0
+        # Boom-gate vision hint (state always tracked; publishing is gated).
+        # boom_partial has zero validation recall, so it counts as blocked.
+        saw_boom_blocked = (13 in cids) or (14 in cids)
+        saw_boom_open = 15 in cids
+        self._cnt_boom_blocked, blocked = self._bump(saw_boom_blocked, self._cnt_boom_blocked)
+        self._cnt_boom_open, opened = self._bump(saw_boom_open, self._cnt_boom_open)
+        if blocked:
+            self.boom_gate_open = False
+        elif opened:
+            self.boom_gate_open = True
+
+        # Direct colour classes win; generic class 7 falls back to HSV.
+        # (class-7 lamp boxes still use the HSV vote via `verdicts`.)
+        reds = int(10 in cids)
+        yellows = int(11 in cids)
+        greens = int(12 in cids)
         if verdicts:
-            # verdicts contains one entry per class-7 box, in class-7 order.
             for v in verdicts:
                 if v == 'red':
                     reds += 1
                 elif v == 'green':
                     greens += 1
         confirm = int(self._param_cache['traffic_confirm_frames'])
-        lamp_seen = 7 in cids
+        lamp_seen = (7 in cids) or (reds + yellows + greens > 0)
         self._cnt_lamp = min(10, self._cnt_lamp + 1) if lamp_seen else 0
-        if reds > 0 and reds >= greens:
+        if reds > 0 and reds >= greens and reds >= yellows:
             self._cnt_red = min(10, self._cnt_red + 1)
+            self._cnt_yellow = 0
             self._cnt_green = 0
             if self._cnt_red >= confirm:
                 self.traffic_light_active = 'red'
-        elif greens > 0:
+        elif greens > 0 and greens >= yellows:
             self._cnt_green = min(10, self._cnt_green + 1)
             self._cnt_red = 0
+            self._cnt_yellow = 0
             if self._cnt_green >= confirm:
                 self.traffic_light_active = 'green'
+        elif yellows > 0:
+            self._cnt_yellow = min(10, self._cnt_yellow + 1)
+            self._cnt_red = 0
+            self._cnt_green = 0
+            if self._cnt_yellow >= confirm:
+                self.traffic_light_active = 'yellow'
         else:
             self._cnt_red = max(0, self._cnt_red - 1)
+            self._cnt_yellow = max(0, self._cnt_yellow - 1)
             self._cnt_green = max(0, self._cnt_green - 1)
-            if self._cnt_red == 0 and self._cnt_green == 0:
+            if self._cnt_red == 0 and self._cnt_yellow == 0 and self._cnt_green == 0:
                 self.traffic_light_active = 'unknown'
 
         # Distinguish an actual lamp with unconfirmed colour from no lamp.
@@ -475,7 +533,8 @@ class SignageDetector(Node):
             self.traffic_light_active = 'unknown'
         elif self._cnt_lamp >= confirm and not (
                 (reds > 0 and self.traffic_light_active == 'red') or
-                (greens > 0 and self.traffic_light_active == 'green')):
+                (greens > 0 and self.traffic_light_active == 'green') or
+                (yellows > 0 and self.traffic_light_active == 'yellow')):
             self.traffic_light_active = 'unresolved'
         elif self._cnt_lamp < confirm:
             self.traffic_light_active = 'unknown'
@@ -498,7 +557,7 @@ class SignageDetector(Node):
         return 'unknown'
 
     # ── Debug overlay ────────────────────────────────────────────────
-    _COLORS = [(255, 255, 255)] * 10
+    _COLORS = [(255, 255, 255)] * 16
 
     def draw_debug(self, bgr640, boxes, scores, class_ids) -> None:
         now = time.monotonic()
@@ -515,7 +574,8 @@ class SignageDetector(Node):
                     f"HILL:{'Y' if self.hill_sign_active else '-'} "
                     f"PARK:{'Y' if self.parking_sign_active else '-'} "
                     f"TL:{self.traffic_light_active.upper()} "
-                    f"TUN:{'Y' if self.tunnel_active else '-'}",
+                    f"TUN:{'Y' if self.tunnel_active else '-'} "
+                    f"BOOM:{'OPEN' if self.boom_gate_open else 'BLOCKED'}",
                     (10, 25), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
         try:
             # Match the dashboard display size before transporting the image.

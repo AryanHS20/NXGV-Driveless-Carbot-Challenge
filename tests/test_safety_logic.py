@@ -122,6 +122,38 @@ class SafetyTests(unittest.TestCase):
         s._update_states(np.empty((0, 4)), np.array([], dtype=int))
         self.assertEqual(s.traffic_light_active, 'unknown')
 
+    def test_direct_colour_classes_vote_without_hsv(self):
+        s = SignageDetector()
+        for _ in range(5):
+            s._update_states(np.zeros((1, 4)), np.array([10]))
+        self.assertEqual(s.traffic_light_active, 'red')
+        for _ in range(5):
+            s._update_states(np.zeros((1, 4)), np.array([12]))
+        self.assertEqual(s.traffic_light_active, 'green')
+
+    def test_direct_yellow_class_reports_yellow(self):
+        s = SignageDetector()
+        for _ in range(5):
+            s._update_states(np.zeros((1, 4)), np.array([11]))
+        self.assertEqual(s.traffic_light_active, 'yellow')
+
+    def test_boom_vision_tracks_state_but_stays_unpublished_by_default(self):
+        s = SignageDetector()
+        self.assertFalse(s._param_cache['publish_boom_state'])
+        for _ in range(5):
+            s._update_states(np.zeros((1, 4)), np.array([15]))
+        self.assertTrue(s.boom_gate_open)
+        for _ in range(5):
+            s._update_states(np.zeros((1, 4)), np.array([13]))
+        self.assertFalse(s.boom_gate_open)
+
+    def test_yellow_latches_stop_until_green(self):
+        d = self.car()
+        d.traffic_light_callback(Message('yellow')); d.publish_cmd_vel()
+        self.assertEqual(d.last_cmd.linear.x, 0)
+        d.traffic_light_callback(Message('green')); d.publish_cmd_vel()
+        self.assertGreater(d.last_cmd.linear.x, 0)
+
     def test_transient_lamp_detection_does_not_stop(self):
         s = SignageDetector()
         for _ in range(4):

@@ -2105,7 +2105,10 @@ const PARAM_GROUPS = [
     'tunnel_publish_enabled',
     'thresh_end_tunnel','thresh_hill','thresh_obstacle',
     'thresh_parallelp','thresh_perpendp','thresh_roundabout',
-    'thresh_speedbump','thresh_tl_lamp','thresh_tl_warn','thresh_tunnel'
+    'thresh_speedbump','thresh_tl_lamp','thresh_tl_warn','thresh_tunnel',
+    'thresh_traffic_red','thresh_traffic_yellow','thresh_traffic_green',
+    'thresh_boom_closed','thresh_boom_partial','thresh_boom_open',
+    'tunnel_publish_enabled','publish_boom_state'
   ]},
 ];
 
