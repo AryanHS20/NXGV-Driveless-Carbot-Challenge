@@ -1,6 +1,8 @@
 from pathlib import Path
 import unittest
 
+import yaml
+
 from risabot_v4_experimental.shadow_core import evaluate_inputs
 
 
@@ -37,6 +39,19 @@ class ShadowCoreTests(unittest.TestCase):
         self.assertNotIn("'/cmd_vel", node_source)
         self.assertNotIn('"/cmd_vel', node_source)
         self.assertNotIn('AckermannDrive', node_source)
+
+    def test_stage4_physical_validation_gates_ship_closed(self):
+        config_path = Path(__file__).parents[1] / 'config' / 'v4_experimental.yaml'
+        config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+        params = config['v4_trajectory_shadow']['ros__parameters']
+        self.assertFalse(params['enabled'])
+        self.assertFalse(params['vehicle_geometry_validated'])
+        self.assertFalse(params['minimum_turn_radius_validated'])
+        self.assertFalse(params['lidar_extrinsics_validated'])
+
+        pose_params = config['v4_pose_shadow']['ros__parameters']
+        self.assertFalse(pose_params['enabled'])
+        self.assertFalse(pose_params['uwb_frame_alignment_validated'])
 
 
 if __name__ == '__main__':

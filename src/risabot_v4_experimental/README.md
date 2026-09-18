@@ -21,12 +21,24 @@ MIPI cameras. The checked-in profiles are explicit uncalibrated placeholders,
 so the node refuses to publish BEV images until physical measurements are
 entered. See `CALIBRATION.md`.
 
-The Stage 2 work-in-progress adds coverage-aware dark-road candidates,
+Stage 2 adds coverage-aware dark-road candidates,
 four-connected growth from the vehicle seed, metric corridor samples, and a
 2.5 cm odometry-fixed recent-road memory. Planning memory expires by age and
 travel, and clears on odometry discontinuities. Its thresholds are explicitly
 marked unvalidated and it cannot receive camera data until Stage 1 profiles are
 calibrated.
+
+Stage 3 mirrors `/odom` as the local pose and filters valid `/uwb_fix`
+measurements into a separate coarse-global rigid transform. A UWB update
+cannot rewrite the local pose. Innovation gating rejects gross outliers, and an
+odometry discontinuity clears the coarse offset. UWB fusion remains gated until
+the UWB and odometry frame alignment has been measured.
+
+Stage 4 generates nine short bicycle-model rollouts and checks the complete
+vehicle footprint against the synchronized road mask plus fresh LiDAR points.
+It publishes JSON candidate diagnostics only. Processing remains blocked until
+camera calibration, road thresholds, body geometry, minimum turning radius,
+and LiDAR extrinsics have each been measured and explicitly marked validated.
 
 ## Build only this package
 
@@ -61,6 +73,19 @@ The Stage 2 pipeline is likewise disabled by default:
 ros2 launch risabot_v4_experimental stage2_road_mask.launch.py enabled:=true
 ros2 topic echo /v4_experimental/road/status
 ```
+
+Stages 3 and 4 have separate disabled-by-default launches:
+
+```bash
+ros2 launch risabot_v4_experimental stage3_pose.launch.py enabled:=true
+ros2 topic echo /v4_experimental/pose/status
+
+ros2 launch risabot_v4_experimental stage4_trajectory.launch.py enabled:=true
+ros2 topic echo /v4_experimental/trajectory/status
+```
+
+Stage 4 will report its physical-validation blockers and produce no candidates
+with the checked-in configuration.
 
 ## Simulator relationship
 

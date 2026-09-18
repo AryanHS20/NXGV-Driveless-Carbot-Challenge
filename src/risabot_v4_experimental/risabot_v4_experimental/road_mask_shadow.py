@@ -122,6 +122,7 @@ class RoadMaskShadow(Node):
         self._last_error = {'primary': '', 'secondary': ''}
         self._last_corridor = {'primary': [], 'secondary': []}
         self._last_frame_mono = {'primary': 0.0, 'secondary': 0.0}
+        self._last_image_stamp = {'primary': None, 'secondary': None}
         self._memory_error = ''
         self._memory_resets = 0
         self._pose: Optional[Pose2D] = None
@@ -353,7 +354,11 @@ class RoadMaskShadow(Node):
             self._last_corridor[name] = []
         self._frames[name] += 1
         self._last_frame_mono[name] = time.monotonic()
+        self._last_image_stamp[name] = image_stamp
         self._last_error[name] = ''
+        # Publish the corridor metadata for this exact mask frame. Stage 4
+        # compares this timestamp with the fused Image header before planning.
+        self._publish_status()
 
     def _publish_status(self) -> None:
         now = time.monotonic()
@@ -374,6 +379,7 @@ class RoadMaskShadow(Node):
                 name: None if stamp == 0.0 else round(now - stamp, 3)
                 for name, stamp in self._last_frame_mono.items()
             },
+            'last_image_stamp_sec': self._last_image_stamp,
             'last_error': self._last_error,
             'memory_error': self._memory_error,
             'memory_resets': self._memory_resets,

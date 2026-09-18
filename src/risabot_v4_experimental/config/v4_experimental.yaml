@@ -55,3 +55,48 @@ v4_road_mask_shadow:
     memory_planning_distance_m: 0.50
     memory_reset_jump_m: 0.50
     memory_reset_yaw_rad: 1.0
+
+v4_pose_shadow:
+  ros__parameters:
+    enabled: false
+    odom_topic: /odom
+    uwb_topic: /uwb_fix
+    odom_timeout_sec: 0.25
+    uwb_timeout_sec: 1.00
+    # Keep closed until the UWB and odometry axes are measured together.
+    uwb_frame_alignment_validated: false
+    uwb_frame_yaw_rad: 0.0
+    initial_offset_sigma_m: 0.75
+    process_sigma_m_per_s: 0.015
+    process_sigma_m_per_m: 0.04
+    default_uwb_sigma_m: 0.20
+    minimum_uwb_sigma_m: 0.03
+    maximum_uwb_sigma_m: 2.0
+    innovation_gate: 13.82
+    odom_reset_jump_m: 0.50
+    odom_reset_yaw_rad: 1.0
+
+v4_trajectory_shadow:
+  ros__parameters:
+    enabled: false
+    road_status_topic: /v4_experimental/road/status
+    road_mask_topic: /v4_experimental/road/primary/fused
+    scan_topic: /scan
+    road_timeout_sec: 0.35
+    scan_timeout_sec: 0.50
+    road_mask_sync_tolerance_sec: 0.02
+    # These three gates remain false until measured on the physical car.
+    vehicle_geometry_validated: false
+    minimum_turn_radius_validated: false
+    lidar_extrinsics_validated: false
+    vehicle_length_m: 0.300
+    vehicle_width_m: 0.192
+    wheelbase_m: 0.216
+    rear_overhang_m: 0.042
+    minimum_turn_radius_m: 0.400
+    footprint_padding_m: 0.005
+    lidar_x_m: 0.0
+    lidar_y_m: 0.0
+    lidar_yaw_rad: 0.0
+    minimum_scan_range_m: 0.03
+    maximum_scan_range_m: 2.0

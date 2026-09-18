@@ -31,6 +31,8 @@ setup(
             'bev_shadow = risabot_v4_experimental.bev_shadow:main',
             'calibrate_intrinsics = risabot_v4_experimental.calibrate_intrinsics:main',
             'road_mask_shadow = risabot_v4_experimental.road_mask_shadow:main',
+            'pose_shadow = risabot_v4_experimental.pose_shadow:main',
+            'trajectory_shadow = risabot_v4_experimental.trajectory_shadow:main',
         ],
     },
 )
