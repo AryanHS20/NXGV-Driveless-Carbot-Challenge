@@ -28,7 +28,7 @@ ORDER = [
     'right/odom/card.html',
     'right/controller/card.html',
     'flow/card.html',
-    'log/card.html',
+    'eventlog/card.html',
     'paramdrawer/card.html',
     'ctrldrawer/card.html',
     'script/core_head.js',

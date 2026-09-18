@@ -14,7 +14,7 @@ setup(
         'dashboard_panels/center/*/*.html',
         'dashboard_panels/right/*/*.html',
         'dashboard_panels/flow/*.html',
-        'dashboard_panels/log/*.html',
+        'dashboard_panels/eventlog/*.html',
         'dashboard_panels/paramdrawer/*.html',
         'dashboard_panels/ctrldrawer/*.html',
         'dashboard_panels/script/*.js',
