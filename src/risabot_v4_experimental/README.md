@@ -21,6 +21,13 @@ MIPI cameras. The checked-in profiles are explicit uncalibrated placeholders,
 so the node refuses to publish BEV images until physical measurements are
 entered. See `CALIBRATION.md`.
 
+The Stage 2 work-in-progress adds coverage-aware dark-road candidates,
+four-connected growth from the vehicle seed, metric corridor samples, and a
+2.5 cm odometry-fixed recent-road memory. Planning memory expires by age and
+travel, and clears on odometry discontinuities. Its thresholds are explicitly
+marked unvalidated and it cannot receive camera data until Stage 1 profiles are
+calibrated.
+
 ## Build only this package
 
 ```bash
@@ -46,6 +53,13 @@ The Stage 1 launch is also disabled by default:
 ```bash
 ros2 launch risabot_v4_experimental stage1_bev.launch.py enabled:=true
 ros2 topic echo /v4_experimental/bev/status
+```
+
+The Stage 2 pipeline is likewise disabled by default:
+
+```bash
+ros2 launch risabot_v4_experimental stage2_road_mask.launch.py enabled:=true
+ros2 topic echo /v4_experimental/road/status
 ```
 
 ## Simulator relationship

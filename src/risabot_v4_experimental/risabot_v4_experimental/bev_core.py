@@ -157,14 +157,39 @@ def ground_to_bev_points(profile: CameraProfile) -> np.ndarray:
     """Map [forward, left] ground coordinates to BEV pixel coordinates."""
     if not profile.calibrated:
         raise CalibrationError(f'{profile.name} is not calibrated')
+    return metric_to_bev(profile, profile.ground_points_m)
+
+
+def metric_to_bev(profile: CameraProfile, points_m: np.ndarray) -> np.ndarray:
+    """Map arbitrary [forward, left] metric points into the profile's BEV."""
+    if not profile.calibrated:
+        raise CalibrationError(f'{profile.name} is not calibrated')
+    points = np.asarray(points_m, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 2 or not np.all(np.isfinite(points)):
+        raise CalibrationError('metric points must be a finite Nx2 array')
     width, height = profile.output_size
     f0, f1 = profile.forward_bounds_m
     l0, l1 = profile.left_bounds_m
-    forward = profile.ground_points_m[:, 0]
-    left = profile.ground_points_m[:, 1]
+    forward = points[:, 0]
+    left = points[:, 1]
     u = (l1 - left) * (width - 1) / (l1 - l0)
     v = (f1 - forward) * (height - 1) / (f1 - f0)
     return np.column_stack((u, v)).astype(np.float32)
+
+
+def bev_to_metric(profile: CameraProfile, points_px: np.ndarray) -> np.ndarray:
+    """Map arbitrary BEV [u, v] pixels back to [forward, left] metres."""
+    if not profile.calibrated:
+        raise CalibrationError(f'{profile.name} is not calibrated')
+    points = np.asarray(points_px, dtype=np.float64)
+    if points.ndim != 2 or points.shape[1] != 2 or not np.all(np.isfinite(points)):
+        raise CalibrationError('BEV points must be a finite Nx2 array')
+    width, height = profile.output_size
+    f0, f1 = profile.forward_bounds_m
+    l0, l1 = profile.left_bounds_m
+    left = l1 - points[:, 0] * (l1 - l0) / (width - 1)
+    forward = f1 - points[:, 1] * (f1 - f0) / (height - 1)
+    return np.column_stack((forward, left)).astype(np.float32)
 
 
 def undistorted_source_points(profile: CameraProfile) -> np.ndarray:

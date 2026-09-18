@@ -6,9 +6,11 @@ import numpy as np
 
 from risabot_v4_experimental.bev_core import (
     CalibrationError,
+    bev_to_metric,
     build_homography,
     ground_to_bev_points,
     load_profiles,
+    metric_to_bev,
     profile_from_mapping,
     warp_to_bev,
 )
@@ -32,6 +34,12 @@ def calibrated_mapping():
 
 
 class BevCoreTests(unittest.TestCase):
+    def test_metric_pixel_mapping_round_trip(self):
+        profile = profile_from_mapping('test', calibrated_mapping())
+        metric = np.array([[0.1, -0.4], [0.5, 0.0], [0.9, 0.35]], np.float64)
+        pixels = metric_to_bev(profile, metric)
+        np.testing.assert_allclose(bev_to_metric(profile, pixels), metric, atol=1e-6)
+
     def test_synthetic_intrinsic_calibration_recovers_low_reprojection_error(self):
         obj = checkerboard_object_points(9, 6, 0.024)
         matrix = np.array(

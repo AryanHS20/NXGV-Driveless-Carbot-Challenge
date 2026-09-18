@@ -30,6 +30,7 @@ setup(
             'shadow_monitor = risabot_v4_experimental.shadow_monitor:main',
             'bev_shadow = risabot_v4_experimental.bev_shadow:main',
             'calibrate_intrinsics = risabot_v4_experimental.calibrate_intrinsics:main',
+            'road_mask_shadow = risabot_v4_experimental.road_mask_shadow:main',
         ],
     },
 )

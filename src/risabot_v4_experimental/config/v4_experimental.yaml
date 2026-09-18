@@ -26,3 +26,32 @@ v4_bev_shadow:
     primary_camera_topic: /camera/color/image_raw
     secondary_camera_topic: /camera/second/image_raw
     max_hz: 10.0
+
+v4_road_mask_shadow:
+  ros__parameters:
+    enabled: false
+    # Keep false until thresholds are measured on recorded competition surface.
+    thresholds_validated: false
+    primary_bev_topic: /v4_experimental/bev/primary/image
+    primary_coverage_topic: /v4_experimental/bev/primary/coverage
+    secondary_bev_topic: /v4_experimental/bev/secondary/image
+    secondary_coverage_topic: /v4_experimental/bev/secondary/coverage
+    value_min: 0
+    value_max: 135
+    saturation_max: 255
+    morph_open_px: 3
+    morph_close_px: 7
+    min_component_px: 100
+    seed_radius_m: 0.10
+    min_corridor_width_m: 0.12
+    max_corridor_width_m: 0.80
+    corridor_row_step_px: 8
+    sync_tolerance_sec: 0.10
+    odom_topic: /odom
+    odom_timeout_sec: 0.25
+    memory_cell_size_m: 0.025
+    memory_retention_sec: 25.0
+    memory_planning_age_sec: 2.0
+    memory_planning_distance_m: 0.50
+    memory_reset_jump_m: 0.50
+    memory_reset_yaw_rad: 1.0
