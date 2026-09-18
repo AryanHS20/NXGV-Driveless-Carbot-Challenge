@@ -228,7 +228,16 @@ def generate_launch_description():
             parameters=[params_file]
         ),
 
-        # M. Dashboard (web UI at http://<robot_ip>:8080)
+        # M. Map recorder (every run appends to ~/risabot_maps; record-only)
+        Node(
+            package='risabot_automode',
+            executable='map_recorder',
+            name='map_recorder',
+            output='screen',
+            parameters=[params_file]
+        ),
+
+        # N. Dashboard (web UI at http://<robot_ip>:8080)
         Node(
             package='risabot_automode',
             executable='dashboard',

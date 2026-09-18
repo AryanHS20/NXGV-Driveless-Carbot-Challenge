@@ -2099,6 +2099,9 @@ const PARAM_GROUPS = [
     'publish_period','timeout_perception','timeout_state',
     'timeout_control','timeout_odom','timeout_joy'
   ]},
+  { node: 'map_recorder', label: 'Map Recorder', params: [
+    'map_enabled','map_dir','sample_hz'
+  ]},
   { node: 'signage_detector', label: 'Signage Detector (BPU)', params: [
     'model_path','observation_timeout','conf_threshold','iou_threshold',
     'min_parking_sign_width','heartbeat_sec','show_debug',

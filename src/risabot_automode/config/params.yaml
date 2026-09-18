@@ -415,3 +415,12 @@ signage_detector:
     thresh_boom_closed: 0.35      # class 13
     thresh_boom_partial: 0.35     # class 14 (zero recall: counts as blocked)
     thresh_boom_open: 0.35        # class 15
+
+# --- Map Recorder (persistent run mapping) ---
+# Records every run to <map_dir>/run_<UTC>.jsonl. Phase 1 is record-only:
+# nothing consumes the map yet, so these params cannot affect driving.
+map_recorder:
+  ros__parameters:
+    map_enabled: true             # record every run; false pauses mapping
+    map_dir: ""                   # empty = ~/risabot_maps
+    sample_hz: 5.0                # samples per second

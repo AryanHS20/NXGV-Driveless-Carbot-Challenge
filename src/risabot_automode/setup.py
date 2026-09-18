@@ -39,6 +39,7 @@ setup(
             'bag_regression_validator = risabot_automode.bag_regression_validator:main',
             'signage_detector = risabot_automode.signage_detector:main',
             'heading_fusion = risabot_automode.heading_fusion:main',
+            'map_recorder = risabot_automode.map_recorder:main',
         ],
     },
 )

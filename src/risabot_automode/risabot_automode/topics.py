@@ -63,6 +63,11 @@ SIGNAGE_DEBUG_TOPIC = '/camera/debug/signage'
 RECORD_PLAYBACK_STATE_TOPIC = '/record_playback_state'
 RECORD_PLAYBACK_CMD_TOPIC = '/record_playback_cmd'
 
+# UWB positioning feed (teammate tool; JSON String, see map_store.UWB_FIX_SCHEMA).
+# {"t": wall s, "x": m|None, "y": m|None, "valid": bool,
+#  "anchors": [{"id": str, "range_m": float, "age_ms": float}]}
+UWB_FIX_TOPIC = '/uwb_fix'
+
 # Frames
 ODOM_FRAME = 'odom'
 BASE_FRAME = 'base_link'
