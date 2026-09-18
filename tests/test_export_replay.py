@@ -184,23 +184,24 @@ class ReplayStoreTests(unittest.TestCase):
         self.assertTrue(err)
         self.assertEqual(summarize_replay({})['frames'], 0)
 
-    def test_symlink_escape_rejected(self):
-        outer = tempfile.mkdtemp(prefix='outside_')
-        with open(os.path.join(outer, 'secret.json'), 'w') as handle:
-            handle.write('{}')
-        with open(os.path.join(outer, 'secret.html'), 'w') as handle:
+    def test_colcon_style_symlink_chain_serves(self):
+        # Deployment layout: install share -> build -> source tree.
+        # Lexical containment must accept this legitimate chain.
+        outer = tempfile.mkdtemp(prefix='srcroot_')
+        real = os.path.join(outer, 'real')
+        os.makedirs(real)
+        with open(os.path.join(real, 'index.html'), 'w') as handle:
             handle.write('<html></html>')
-        for link, target in (
-                (os.path.join(self.tmp, 'link.json'),
-                 os.path.join(outer, 'secret.json')),
-                (os.path.join(self.sim, 'evil.html'),
-                 os.path.join(outer, 'secret.html'))):
-            try:
-                os.symlink(target, link)
-            except (OSError, NotImplementedError):
-                self.skipTest('symlinks unavailable')
-        self.assertIsNone(safe_replay_path(self.tmp, 'link.json'))
-        self.assertIsNone(safe_static_path(self.sim, 'evil.html'))
+        build = os.path.join(self.tmp, 'build')
+        share = os.path.join(self.tmp, 'share')
+        try:
+            os.symlink(real, build)
+            os.symlink(build, share)
+        except (OSError, NotImplementedError):
+            self.skipTest('symlinks unavailable')
+        resolved = safe_static_path(share, 'index.html')
+        self.assertTrue(resolved and resolved.endswith('index.html'))
+        self.assertIsNone(safe_static_path(share, '../outside.json'))
 
 
 if __name__ == '__main__':

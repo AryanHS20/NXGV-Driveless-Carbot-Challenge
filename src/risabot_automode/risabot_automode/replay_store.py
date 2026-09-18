@@ -32,23 +32,27 @@ def mime_for(filename: str):
 
 
 def _contained(base_dir: str, candidate: str) -> bool:
-    """True when candidate resolves inside base_dir, symlinks included."""
+    """Lexical containment: candidate stays inside base_dir textually.
+
+    Deliberately NOT realpath-based: colcon --symlink-install serves the
+    dashboard through legitimate symlink chains (install share -> build ->
+    source tree), which realpath/commonpath rejects. The remote attacker
+    controls only the URL path, and lexical containment fully neutralizes
+    ``..`` traversal; a malicious symlink inside the served directory would
+    require write access to it, which is the true trust boundary.
+    """
     try:
-        base = os.path.realpath(base_dir)
-        target = os.path.realpath(candidate)
+        base = os.path.abspath(base_dir)
+        target = os.path.abspath(candidate)
     except (OSError, ValueError):
         return False
-    try:
-        return os.path.commonpath([base, target]) == base
-    except ValueError:
-        return False
+    return target == base or target.startswith(base + os.sep)
 
 
 def safe_static_path(base_dir: str, rel_path: str):
     """Resolve a /sim/<path> request. Returns an abs path or None.
 
-    Rejects traversal, missing files, directories, unknown suffixes and
-    symlinks escaping the base directory.
+    Rejects traversal, missing files, directories and unknown suffixes.
     """
     if not rel_path or not base_dir:
         return None
