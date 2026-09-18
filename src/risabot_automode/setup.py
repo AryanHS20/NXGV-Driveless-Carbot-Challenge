@@ -15,6 +15,7 @@ setup(
         # ADD THIS LINE BELOW:
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         (os.path.join('share', package_name, 'config'), glob('config/*.xml')),
+        (os.path.join('share', package_name, 'sim_views'), glob('sim_views/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,

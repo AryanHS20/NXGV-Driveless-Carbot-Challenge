@@ -1200,6 +1200,21 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </div>
       <canvas id="lidarCanvas" width="320" height="320" style="width:100%; margin-top:8px; border-radius:12px; background:#0a0a0f; border:1px solid rgba(0,0,0,0.1);"></canvas>
     </div>
+
+    <!-- V4 Views (sim replay, display only — never commands motion) -->
+    <div class="card">
+      <h3>V4 Views</h3>
+      <button class="cam-toggle" id="simBtn" onclick="toggleSim()">📊 Enable V4 Views</button>
+      <div id="simPanel" style="display:none; margin-top:8px;">
+        <select id="replaySel" onchange="onReplayChange()" style="width:100%; padding:6px; border-radius:6px; margin-bottom:6px;">
+          <option value="">Select replay…</option>
+        </select>
+        <div id="replayMeta" style="font-size:0.8em; color:#888; margin-bottom:6px;">No replay selected</div>
+        <iframe id="simFrame" src="" style="display:none; width:100%; height:480px; border:0; border-radius:12px; background:#0d1b28;"></iframe>
+        <button class="cam-toggle" onclick="openSimReplay()" style="margin-top:6px;">↗ Open replay in simulator tab</button>
+        <div style="font-size:0.75em; color:#888; margin-top:4px;">Replay playback inside the sim needs its loader hook (format: tools/REPLAY_FORMAT.md).</div>
+      </div>
+    </div>
   </div>
 
   <!-- ===== RIGHT COLUMN ===== -->
@@ -1551,6 +1566,59 @@ function setCamView(view, btn) {
       startCamStream();
     }
   });
+}
+
+let simLoaded = false;
+function toggleSim() {
+  const panel = document.getElementById('simPanel');
+  const frame = document.getElementById('simFrame');
+  const btn = document.getElementById('simBtn');
+  const show = panel.style.display === 'none';
+  panel.style.display = show ? 'block' : 'none';
+  btn.textContent = show ? '📊 Disable V4 Views' : '📊 Enable V4 Views';
+  if (show && !simLoaded) {
+    simLoaded = true;
+    frame.src = '/sim/index.html';
+    frame.style.display = 'block';
+    fetch('/api/replay/list').then(r => r.json()).then(data => {
+      const sel = document.getElementById('replaySel');
+      (data.replays || []).forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      });
+    }).catch(() => {});
+  }
+  if (!show) {
+    frame.src = '';
+    frame.style.display = 'none';
+  }
+}
+
+function onReplayChange() {
+  const name = document.getElementById('replaySel').value;
+  const meta = document.getElementById('replayMeta');
+  if (!name) {
+    meta.textContent = 'No replay selected';
+    return;
+  }
+  meta.textContent = 'Loading…';
+  fetch('/api/replay/get?name=' + encodeURIComponent(name) + '&meta=1').then(r => r.json()).then(data => {
+    if (data.ok && data.meta) {
+      const m = data.meta;
+      meta.textContent = m.frames + ' frames, ' + m.duration_s + 's' +
+        (m.has_odom ? ', odom ✓' : ', no odom') +
+        (m.corridor_frames ? ', corridor ' + m.corridor_frames : ', no corridor');
+    } else {
+      meta.textContent = 'Error: ' + (data.error || 'unknown');
+    }
+  }).catch(() => { meta.textContent = 'Load failed'; });
+}
+
+function openSimReplay() {
+  const name = document.getElementById('replaySel').value;
+  window.open('/sim/index.html' + (name ? '?replay=' + encodeURIComponent(name) : ''), '_blank');
 }
 
 function rpCmd(action) {

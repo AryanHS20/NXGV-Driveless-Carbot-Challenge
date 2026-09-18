@@ -67,6 +67,43 @@ try:
 except ImportError:
     CvBridge = None
 
+try:
+    from ament_index_python.packages import get_package_share_directory
+except ImportError:
+    get_package_share_directory = None
+
+from .replay_store import (
+    list_replays,
+    load_replay_json,
+    mime_for,
+    replay_dir,
+    safe_replay_path,
+    safe_static_path,
+    summarize_replay,
+)
+
+_SIM_DIR = None
+
+
+def _get_sim_dir():
+    """Installed sim_views dir (ament share first, source tree fallback)."""
+    global _SIM_DIR
+    if _SIM_DIR is None:
+        candidates = []
+        if get_package_share_directory is not None:
+            try:
+                candidates.append(os.path.join(
+                    get_package_share_directory('risabot_automode'), 'sim_views'))
+            except Exception:
+                pass
+        candidates.append(os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), '..', 'sim_views'))
+        for candidate in candidates:
+            if os.path.isdir(candidate):
+                _SIM_DIR = candidate
+                break
+    return _SIM_DIR
+
 # ======================== HTML Dashboard ========================
 
 from .dashboard_templates import DASHBOARD_HTML, TEACH_HTML
@@ -1012,6 +1049,54 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             self.send_header('Access-Control-Allow-Origin', '*')
             self.end_headers()
             self.wfile.write(json.dumps(result).encode())
+        elif self.path == '/sim' or self.path == '/sim/':
+            self._serve_static('index.html')
+        elif self.path.startswith('/sim/'):
+            from urllib.parse import urlparse
+            self._serve_static(urlparse(self.path).path[len('/sim/'):])
+        elif self.path.startswith('/api/replay/list'):
+            payload = {'ok': True}
+            payload.update(list_replays(replay_dir()))
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(payload).encode())
+        elif self.path.startswith('/api/replay/get'):
+            from urllib.parse import urlparse, parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            name = qs.get('name', [''])[0]
+            meta_only = qs.get('meta', [''])[0] == '1'
+            path = safe_replay_path(replay_dir(), name)
+            if not path:
+                result = {'ok': False, 'error': 'unknown replay'}
+            elif meta_only:
+                doc, err = load_replay_json(path)
+                if doc is None:
+                    result = {'ok': False, 'error': err}
+                else:
+                    result = {'ok': True, 'meta': summarize_replay(doc)}
+            else:
+                try:
+                    with open(path, 'rb') as handle:
+                        blob = handle.read()
+                except OSError:
+                    blob = None
+                if blob is None:
+                    result = {'ok': False, 'error': 'unreadable replay'}
+                else:
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.send_header('Cache-Control', 'no-cache')
+                    self.send_header('Content-Length', str(len(blob)))
+                    self.end_headers()
+                    self.wfile.write(blob)
+                    return
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.end_headers()
+            self.wfile.write(json.dumps(result).encode())
         elif self.path.startswith('/teach'):
             self.send_response(200)
             self.send_header('Content-Type', 'text/html; charset=utf-8')
@@ -1139,6 +1224,31 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _serve_static(self, rel):
+        """Serve one file from sim_views (path-traversal safe)."""
+        base = _get_sim_dir()
+        path = safe_static_path(base, rel) if base else None
+        if not path:
+            self.send_response(404)
+            self.end_headers()
+            return
+        try:
+            with open(path, 'rb') as handle:
+                blob = handle.read()
+        except OSError:
+            self.send_response(404)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header('Content-Type', mime_for(path))
+        if path.endswith('.js') or path.endswith('.css'):
+            self.send_header('Cache-Control', 'max-age=3600')
+        else:
+            self.send_header('Cache-Control', 'no-cache')
+        self.send_header('Content-Length', str(len(blob)))
+        self.end_headers()
+        self.wfile.write(blob)
 
     def log_message(self, format, *args):
         """Suppress default HTTP logging."""
