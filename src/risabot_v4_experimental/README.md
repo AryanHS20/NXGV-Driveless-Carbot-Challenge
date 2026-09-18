@@ -40,6 +40,14 @@ It publishes JSON candidate diagnostics only. Processing remains blocked until
 camera calibration, road thresholds, body geometry, minimum turning radius,
 and LiDAR extrinsics have each been measured and explicitly marked validated.
 
+Stage 5 adds analytic Reeds-Shepp parking proposals with forward and reverse
+segments. Every candidate is reconstructed with the bicycle model, bounded by
+gear-change and reverse-distance limits, and checked against the secondary
+camera parking-area mask and fresh LiDAR points using the complete footprint.
+It requires a measured rear-axle goal described in `PARKING_GOAL.md`. No live
+node supplies that goal yet, all physical gates remain false, and the package
+cannot execute a proposed path.
+
 ## Build only this package
 
 ```bash
@@ -86,6 +94,17 @@ ros2 topic echo /v4_experimental/trajectory/status
 
 Stage 4 will report its physical-validation blockers and produce no candidates
 with the checked-in configuration.
+
+Stage 5 is also disabled by default:
+
+```bash
+ros2 launch risabot_v4_experimental stage5_parking.launch.py enabled:=true
+ros2 topic echo /v4_experimental/parking/status
+ros2 topic echo /v4_experimental/parking/proposed_path
+```
+
+It reports the missing calibration, geometry, rear-coverage, and goal-source
+evidence instead of inventing a parking target.
 
 ## Simulator relationship
 

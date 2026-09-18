@@ -10,7 +10,7 @@ existing `risabot_automode` controller stays available throughout.
 | 2 | Road mask, corridor and odometry-fixed recent memory implemented offline; physical threshold tuning pending | Mask, corridor, memory and confidence topics | Recorded track video with stale-frame tests |
 | 3 | Local pose estimator implemented; UWB kept in a coarse global offset | Local/global pose diagnostics | Core noise/outlier tests pass; recorded replay still required |
 | 4 | Footprint-aware bicycle rollouts implemented; physical gates remain closed | JSON candidate summaries and rejection reasons | Synthetic geometry tests pass; replay and stationary wheels-up comparison still required |
-| 5 | Reeds-Shepp parking planner | Proposed parking path only | Measured geometry and repeated slow parking trials |
+| 5 | Reeds-Shepp parking proposals implemented; all physical gates remain closed | Proposed JSON parking path only | Synthetic analytic/footprint tests pass; measured goal source, geometry, replay and repeated slow trials still required |
 | 6 | Bounded reverse-and-rejoin recovery | Proposed recovery path only | Rules review, rear coverage, obstacle veto tests |
 | 7 | Reviewed command arbitration integration | Gated motion request | Full safety review and explicit physical validation |
 
