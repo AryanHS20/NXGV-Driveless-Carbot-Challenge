@@ -9,7 +9,9 @@ language, owned in one place. Route handlers move here in a later phase;
 this phase covers structure only.
 """
 
+import importlib
 import os
+from types import SimpleNamespace
 
 _PANELS_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -81,3 +83,58 @@ def build_dashboard_html() -> str:
 def build_teach_html() -> str:
     """Assemble the teach page (single fragment, kept whole)."""
     return _read(TEACH_PAGE)
+
+
+# (method, match-kind, pattern, module, function), evaluated in order.
+# Mirrors the original handler branch order exactly.
+ROUTES = [
+    ('GET', 'exact', '/data', 'routes_core', 'serve_data'),
+    ('GET', 'exact', '/lidar_data', 'routes_lidar', 'serve_data'),
+    ('GET', 'prefix', '/camera_feed', 'routes_camera', 'serve_feed'),
+    ('GET', 'prefix', '/api/set_cam_view', 'routes_camera', 'set_view'),
+    ('GET', 'prefix', '/api/get_param', 'routes_params', 'get_param'),
+    ('GET', 'prefix', '/api/recording_data', 'routes_record', 'recording_data'),
+    ('GET', 'exact', '/sim', 'routes_replay', 'serve_index'),
+    ('GET', 'exact', '/sim/', 'routes_replay', 'serve_index'),
+    ('GET', 'prefix', '/sim/', 'routes_replay', 'serve_file'),
+    ('GET', 'prefix', '/api/replay/list', 'routes_replay', 'replay_list'),
+    ('GET', 'prefix', '/api/replay/get', 'routes_replay', 'replay_get'),
+    ('GET', 'prefix', '/teach', 'routes_core', 'serve_teach'),
+    ('GET', 'catch-all', '', 'routes_core', 'serve_index'),
+    ('POST', 'exact', '/api/reset_odom', 'routes_state', 'reset_odom'),
+    ('POST', 'exact', '/api/set_param', 'routes_params', 'set_param'),
+    ('POST', 'exact', '/api/save_defaults', 'routes_params', 'save_defaults'),
+    ('POST', 'exact', '/api/record_playback', 'routes_record', 'record_playback'),
+    ('POST', 'exact', '/api/reset_competition', 'routes_state', 'reset_competition'),
+    ('POST', 'exact', '/api/calibrate_imu', 'routes_imu', 'calibrate_imu'),
+    ('POST', 'catch-all', '', 'routes_core', 'serve_404'),
+]
+
+_route_cache = {}
+
+
+def _resolve(module_name: str, func_name: str):
+    """Import a route handler lazily (keeps this module dependency-free)."""
+    key = (module_name, func_name)
+    if key not in _route_cache:
+        module = importlib.import_module('.' + module_name, __package__)
+        _route_cache[key] = getattr(module, func_name)
+    return _route_cache[key]
+
+
+def make_context(handler, node, helpers: dict):
+    """Build the context passed to every route handler."""
+    return SimpleNamespace(h=handler, node=node, **helpers)
+
+
+def dispatch(ctx, method: str, path: str) -> bool:
+    """Route one request to the first matching plugin handler."""
+    for route_method, kind, pattern, module_name, func_name in ROUTES:
+        if route_method != method:
+            continue
+        if kind == 'exact' and path != pattern:
+            continue
+        if kind == 'prefix' and not path.startswith(pattern):
+            continue
+        return bool(_resolve(module_name, func_name)(ctx, path))
+    return False
