@@ -10,9 +10,9 @@ existing `risabot_automode` controller stays available throughout.
 | 2 | Road mask, corridor and odometry-fixed recent memory implemented offline; physical threshold tuning pending | Mask, corridor, memory and confidence topics | Recorded track video with stale-frame tests |
 | 3 | Local pose estimator implemented; UWB kept in a coarse global offset | Local/global pose diagnostics | Core noise/outlier tests pass; recorded replay still required |
 | 4 | Footprint-aware bicycle rollouts implemented; physical gates remain closed | JSON candidate summaries and rejection reasons | Synthetic geometry tests pass; replay and stationary wheels-up comparison still required |
-| 5 | Reeds-Shepp parking proposals implemented; all physical gates remain closed | Proposed JSON parking path only | Synthetic analytic/footprint tests pass; measured goal source, geometry, replay and repeated slow trials still required |
-| 6 | Bounded reverse-and-rejoin recovery | Proposed recovery path only | Rules review, rear coverage, obstacle veto tests |
-| 7 | Reviewed command arbitration integration | Gated motion request | Full safety review and explicit physical validation |
+| 5 | Reeds-Shepp parking proposals plus gated marking-based goal source | Proposed JSON parking path only | Physical marking thresholds, geometry, replay and repeated slow trials still required |
+| 6 | Bounded reverse-and-rejoin recovery plus gated mission-policy request source | Proposed recovery path only | Rules review, rear coverage and stopped/attempt policy validation |
+| 7 | Diagnostic command arbitration implemented; all promotion gates closed | JSON proposal only | Full safety review and explicit physical validation before any motion interface |
 
 The simulator assumes three cameras. The physical adaptation begins with the two
 available MIPI cameras; blind regions must be measured before later stages.

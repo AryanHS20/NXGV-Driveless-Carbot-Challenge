@@ -1,6 +1,7 @@
 """Unit tests for the replay exporter and replay_store helpers (no ROS)."""
 import json
 import os
+from pathlib import Path
 import sys
 import tempfile
 import unittest
@@ -147,6 +148,16 @@ class ReplayStoreTests(unittest.TestCase):
         self.assertIsNone(safe_static_path(self.sim, 'index.html '))
         self.assertEqual(mime_for('a.js'), 'application/javascript')
         self.assertIsNone(mime_for('a.exe'))
+
+    def test_simulator_replay_loader_is_packaged_and_contract_aware(self):
+        root = Path(__file__).parents[1] / 'src' / 'risabot_automode' / 'sim_views'
+        index = (root / 'index.html').read_text(encoding='utf-8')
+        loader = (root / 'replay-loader.js').read_text(encoding='utf-8')
+        self.assertIn('replay-loader.js', index)
+        self.assertIn("new URLSearchParams(window.location.search).get('replay')", loader)
+        self.assertIn('/api/replay/get?name=', loader)
+        self.assertIn('payload.version !== 1', loader)
+        self.assertIn('frame.corridor', loader)
 
     def test_replay_paths_and_list(self):
         good = safe_replay_path(self.tmp, 'run_a.replay.json')

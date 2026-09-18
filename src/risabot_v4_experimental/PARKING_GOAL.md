@@ -1,9 +1,10 @@
 # Stage 5 measured parking-goal contract
 
 Stage 5 accepts a measured target on `/v4_experimental/parking/goal` as a
-`std_msgs/String` containing JSON. No current production node publishes this
-topic. A future parking-bay detector must be validated before its gate can be
-enabled.
+`std_msgs/String` containing JSON. The experimental `parking_goal_source`
+measures this contract from closed bright markings in the calibrated secondary
+BEV image. It is disabled and its threshold, geometry, and coverage gates must
+be validated before it can publish a goal.
 
 ```json
 {

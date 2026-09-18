@@ -77,6 +77,24 @@ class ShadowCoreTests(unittest.TestCase):
         ):
             self.assertFalse(recovery_params[gate])
 
+        goal_params = config['v4_parking_goal_source']['ros__parameters']
+        request_params = config['v4_recovery_request_source']['ros__parameters']
+        arbitration_params = config['v4_arbitration_shadow']['ros__parameters']
+        self.assertFalse(goal_params['enabled'])
+        self.assertFalse(request_params['enabled'])
+        self.assertFalse(arbitration_params['enabled'])
+        for params, gates in (
+            (goal_params, ('marking_thresholds_validated', 'slot_geometry_validated',
+                           'rear_coverage_validated')),
+            (request_params, ('policy_source_validated', 'stopped_detection_validated',
+                              'attempt_counter_validated')),
+            (arbitration_params, ('integration_reviewed', 'command_contract_validated',
+                                  'stop_preemption_validated', 'timeout_validated',
+                                  'physical_trials_validated')),
+        ):
+            for gate in gates:
+                self.assertFalse(params[gate])
+
 
 if __name__ == '__main__':
     unittest.main()

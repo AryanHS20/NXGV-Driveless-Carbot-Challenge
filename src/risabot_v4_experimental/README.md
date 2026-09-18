@@ -56,6 +56,17 @@ camera coverage. Any hard hold blocks planning. The request contract is in
 `RECOVERY_REQUEST.md`; no live node supplies it, every validation gate remains
 false, and this package still has no motion publisher.
 
+The parking-goal source measures closed bright bay markings in the calibrated
+secondary BEV image. The recovery-request source combines exhausted Stage 4
+candidates, mission state, odometry speed, image time, and an attempt counter.
+Both sources are disabled and their measurement/policy gates ship false.
+
+Stage 7 performs diagnostic source arbitration between forward trajectory,
+parking, recovery, and hard hold. It publishes JSON under
+`/v4_experimental/arbitration/*`; it has no ROS motion-message dependency and
+all integration, timeout, preemption, command-contract, and physical-trial
+gates ship false.
+
 ## Build only this package
 
 ```bash
@@ -124,6 +135,18 @@ ros2 topic echo /v4_experimental/recovery/proposed_path
 
 With checked-in settings it reports calibration, policy-source, road, body,
 rear-coverage, and LiDAR blockers and emits no proposal.
+
+The contract sources and Stage 7 have separate disabled launches:
+
+```bash
+ros2 launch risabot_v4_experimental stage5_goal_source.launch.py enabled:=true
+ros2 launch risabot_v4_experimental stage6_request_source.launch.py enabled:=true
+ros2 launch risabot_v4_experimental stage7_arbitration.launch.py enabled:=true
+ros2 topic echo /v4_experimental/arbitration/status
+```
+
+These launches expose blockers and diagnostic state. Checked-in gates prevent
+them from producing a promotable request.
 
 ## Simulator relationship
 

@@ -35,7 +35,10 @@ setup(
             'pose_shadow = risabot_v4_experimental.pose_shadow:main',
             'trajectory_shadow = risabot_v4_experimental.trajectory_shadow:main',
             'parking_shadow = risabot_v4_experimental.parking_shadow:main',
+            'parking_goal_source = risabot_v4_experimental.parking_goal_source:main',
             'recovery_shadow = risabot_v4_experimental.recovery_shadow:main',
+            'recovery_request_source = risabot_v4_experimental.recovery_request_source:main',
+            'arbitration_shadow = risabot_v4_experimental.arbitration_shadow:main',
         ],
     },
 )

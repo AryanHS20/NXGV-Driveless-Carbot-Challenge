@@ -1,8 +1,10 @@
 # Stage 6 recovery request contract
 
 Stage 6 accepts a JSON diagnostic request on
-`/v4_experimental/recovery/request`. No current mission node publishes this
-contract and the corresponding validation gates ship closed.
+`/v4_experimental/recovery/request`. The experimental
+`recovery_request_source` produces this contract from mission state, odometry,
+road timing, and Stage 4 results. It is disabled and its policy, stopped-state,
+and attempt-counter validation gates ship closed.
 The node also requires a fresh Stage 4 report containing at least one evaluated
 candidate and proving that all forward candidates were rejected.
 
