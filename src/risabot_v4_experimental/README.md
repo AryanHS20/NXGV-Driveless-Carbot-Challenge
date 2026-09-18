@@ -16,6 +16,11 @@ Stage 0 is a read-only shadow monitor. It checks whether the two camera feeds,
 LiDAR and odometry are fresh and publishes JSON on `/v4_experimental/status`.
 UWB can be required later, but is optional by default.
 
+Stage 1 adds independently calibrated, metric bird's-eye transforms for the two
+MIPI cameras. The checked-in profiles are explicit uncalibrated placeholders,
+so the node refuses to publish BEV images until physical measurements are
+entered. See `CALIBRATION.md`.
+
 ## Build only this package
 
 ```bash
@@ -35,6 +40,13 @@ ros2 topic echo /v4_experimental/status
 ```
 
 Stopping the node has no effect on the existing driving stack.
+
+The Stage 1 launch is also disabled by default:
+
+```bash
+ros2 launch risabot_v4_experimental stage1_bev.launch.py enabled:=true
+ros2 topic echo /v4_experimental/bev/status
+```
 
 ## Simulator relationship
 

@@ -18,3 +18,11 @@ v4_shadow_monitor:
     # deliberately two-camera-only; calibration and coverage must be measured.
     require_secondary_camera: true
     require_uwb: false
+
+v4_bev_shadow:
+  ros__parameters:
+    # The separate Stage 1 launch also defaults this to false.
+    enabled: false
+    primary_camera_topic: /camera/color/image_raw
+    secondary_camera_topic: /camera/second/image_raw
+    max_hz: 10.0

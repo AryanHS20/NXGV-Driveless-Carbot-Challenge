@@ -1,0 +1,33 @@
+version: 1
+
+# These are deliberate placeholders, not estimated calibration values.
+# Stage 1 will not publish BEV images until both profiles are measured and
+# calibrated is changed to true with complete intrinsic/ground correspondences.
+profiles:
+  primary:
+    sensor: IMX219
+    topic: /camera/color/image_raw
+    calibrated: false
+    resolution: [960, 544]
+    camera_matrix: []
+    distortion_coefficients: []
+    source_points_px: []
+    ground_points_m: []
+    ground_bounds_m:
+      forward: [0.05, 1.80]
+      left: [-0.90, 0.90]
+    pixels_per_meter: 200.0
+
+  secondary:
+    sensor: OV5647
+    topic: /camera/second/image_raw
+    calibrated: false
+    resolution: [960, 544]
+    camera_matrix: []
+    distortion_coefficients: []
+    source_points_px: []
+    ground_points_m: []
+    ground_bounds_m:
+      forward: [-0.60, 0.80]
+      left: [-0.90, 0.90]
+    pixels_per_meter: 200.0

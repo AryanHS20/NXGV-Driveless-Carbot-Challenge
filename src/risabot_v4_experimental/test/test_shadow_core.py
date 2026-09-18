@@ -27,15 +27,16 @@ class ShadowCoreTests(unittest.TestCase):
         self.assertTrue(report['ready_for_shadow_evaluation'])
         self.assertFalse(report['motion_authority'])
 
-    def test_node_has_no_motion_message_or_command_topic(self):
-        node_source = (
-            Path(__file__).parents[1]
-            / 'risabot_v4_experimental'
-            / 'shadow_monitor.py'
-        ).read_text(encoding='utf-8')
+    def test_package_has_no_motion_message_or_command_topic(self):
+        source_dir = Path(__file__).parents[1] / 'risabot_v4_experimental'
+        node_source = '\n'.join(
+            path.read_text(encoding='utf-8')
+            for path in sorted(source_dir.glob('*.py'))
+        )
         self.assertNotIn('geometry_msgs', node_source)
         self.assertNotIn("'/cmd_vel", node_source)
-        self.assertNotIn("'/cmd_vel_auto", node_source)
+        self.assertNotIn('"/cmd_vel', node_source)
+        self.assertNotIn('AckermannDrive', node_source)
 
 
 if __name__ == '__main__':
