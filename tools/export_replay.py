@@ -84,6 +84,25 @@ def _odom_of(sample):
     return {'x': x, 'y': y, 'yaw': yaw}
 
 
+def _sample_corridor(sample):
+    """Validated embedded corridor from the sample itself (may be [])."""
+    import math
+    raw = sample.get('corridor')
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for point in raw[:200]:
+        try:
+            fwd = float(point['forward_m'])
+            left = float(point['left_m'])
+            width = float(point['width_m'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if all(math.isfinite(v) for v in (fwd, left, width)) and width > 0:
+            out.append({'forward_m': fwd, 'left_m': left, 'width_m': width})
+    return out
+
+
 def export_run(run_path, status_path=None, out_path=None, max_frames=20000,
                merge_tol=0.5):
     """Build a v1 replay doc; write it unless out_path is None.
@@ -100,8 +119,8 @@ def export_run(run_path, status_path=None, out_path=None, max_frames=20000,
             stamp = float(sample.get('t_wall', 0.0))
         except (TypeError, ValueError):
             stamp = 0.0
-        corridor = []
-        if status:
+        corridor = _sample_corridor(sample)
+        if not corridor and status:
             # Monotone nearest-seek: frames are chronological and status is
             # sorted, so the nearest index never moves backwards. Seek purely
             # by closeness first; only then apply the tolerance gate. (Gating

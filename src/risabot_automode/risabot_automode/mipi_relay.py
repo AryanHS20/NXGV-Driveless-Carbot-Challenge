@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""MIPI relay: republish a MIPI camera as /camera/color/image_raw.
+"""MIPI relay: republish side MIPI cameras as /camera/second|third/image_raw.
 
-The mipi_cam driver nodes must run as root (VSE driver requirement) and live
-outside bringup in the risabot-cams systemd service. This node runs as a
-normal user inside bringup and bridges the selected MIPI topic onto the
-stack-standard color topic consumed by lane/signage/dashboard/safety/health.
+Layout: Astra Orbbec faces forward and drives /camera/color/image_raw
+natively (no relay needed). The two MIPI sensors face sideways; the
+mipi_cam driver nodes run as root (VSE driver requirement) outside bringup
+in the risabot-cams systemd service. This node runs as a normal user inside
+bringup and bridges both MIPI topics onto stack-standard side topics
+consumed by recording, V4 shadow stages and the dashboard side views.
 
 Subscribes with SENSOR_DATA QoS (connects to any publisher QoS) and
 republishes depth-10. Messages are forwarded untouched (no decode cost).
-An optional second-camera passthrough feeds visualization/recording.
 """
 
 import time
@@ -21,10 +22,10 @@ from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import Image
 
 from .topics import (
-    CAMERA_IMAGE_TOPIC,
     MIPI_IMX219_TOPIC,
     MIPI_OV5647_TOPIC,
     MIPI_SECONDARY_TOPIC,
+    MIPI_TERTIARY_TOPIC,
 )
 
 
@@ -41,10 +42,10 @@ class MipiRelay(Node):
     def __init__(self):
         super().__init__('mipi_relay')
         self.declare_parameter('source_topic', MIPI_IMX219_TOPIC)
-        self.declare_parameter('target_topic', CAMERA_IMAGE_TOPIC)
+        self.declare_parameter('target_topic', MIPI_SECONDARY_TOPIC)
         self.declare_parameter('second_enabled', True)
         self.declare_parameter('second_source', MIPI_OV5647_TOPIC)
-        self.declare_parameter('second_target', MIPI_SECONDARY_TOPIC)
+        self.declare_parameter('second_target', MIPI_TERTIARY_TOPIC)
         self.declare_parameter('max_hz', 30.0)
         self._param_cache: Dict[str, object] = {}
         self._update_param_cache()

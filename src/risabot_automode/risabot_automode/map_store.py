@@ -16,7 +16,9 @@ Sample schema (all perception fields optional/None-tolerant):
    "tl": str|None, "hill": bool|None, "tunnel": bool|None,
    "uwb": {"x": float|None, "y": float|None, "valid": bool,
            "anchors": [{"id": str, "range_m": float, "age_ms": float}],
-           "age": float}|None}
+           "age": float}|None,
+   "corridor": [{"forward_m": float, "left_m": float, "width_m": float}]
+   (forward-camera V4 corridor, [] when stale/absent)}
 
 UWB interface contract (for the teammate positioning tool): publish the above
 ``uwb`` object, JSON-encoded, as std_msgs/String on /uwb_fix at >= 5 Hz.

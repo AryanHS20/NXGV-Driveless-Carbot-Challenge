@@ -75,6 +75,26 @@ class ExporterTests(unittest.TestCase):
         doc, _ = export_replay.export_run(self.run, None, out, max_frames=1)
         self.assertEqual(len(doc['frames']), 1)
 
+    def test_embedded_corridor_preferred_over_sidecar(self):
+        run = os.path.join(self.tmp, 'emb.jsonl')
+        write_lines(run, [
+            json.dumps({'t_wall': 300.0, 'ox': 0.0, 'oy': 0.0, 'oyaw': 0.0,
+                        'corridor': [{'forward_m': 0.7, 'left_m': 0.0,
+                                      'width_m': 0.3}]}),
+            json.dumps({'t_wall': 301.0, 'ox': 0.1, 'oy': 0.0, 'oyaw': 0.0}),
+        ])
+        status = os.path.join(self.tmp, 'emb_status.jsonl')
+        write_lines(status, [
+            json.dumps({'t_wall': 301.05, 'status': {'corridor': {'primary': [
+                {'forward_m': 9.9, 'left_m': 0.0, 'width_m': 0.3}]}}}),
+        ])
+        out = os.path.join(self.tmp, 'emb.replay.json')
+        doc, _ = export_replay.export_run(run, status, out)
+        # Embedded corridor wins even though the sidecar is also in range.
+        self.assertAlmostEqual(doc['frames'][0]['corridor'][0]['forward_m'], 0.7)
+        # Sample without the key falls back to the sidecar merge.
+        self.assertAlmostEqual(doc['frames'][1]['corridor'][0]['forward_m'], 9.9)
+
     def test_default_out_path(self):
         doc, path = export_replay.export_run(self.run)
         self.assertTrue(path.endswith('.replay.json'))

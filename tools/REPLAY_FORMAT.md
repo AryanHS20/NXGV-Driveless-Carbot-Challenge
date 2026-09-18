@@ -37,9 +37,11 @@ this document grants motion authority; replays are observed data for review.
 ```
 
 Rules: `odom` is `null` when no odometry was recorded for that frame.
-`corridor` is `[]` when no V4 status snapshot matched (forward camera,
-near-to-far samples). Frames are chronological at ≤ the recorder rate
-(5 Hz); long runs are stride-downsampled to ≤ 20000 frames by the exporter.
+`corridor` comes from the sample's embedded V4 corridor when present,
+otherwise from the nearest status sidecar snapshot (forward camera,
+near-to-far samples), otherwise `[]`. Frames are chronological at ≤ the
+recorder rate (5 Hz); long runs are stride-downsampled to ≤ 20000 frames
+by the exporter.
 
 ## Sim loader contract (to implement on the sim side)
 

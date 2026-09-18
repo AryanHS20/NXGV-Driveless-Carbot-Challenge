@@ -9,10 +9,11 @@ what the map must contain. Recording can never affect driving — this node only
 subscribes (plus its own parameter callback).
 """
 
+import json
 import math
 import os
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import rclpy
 from nav_msgs.msg import Odometry
@@ -32,6 +33,30 @@ from .topics import (
 )
 
 CURVATURE_TOPIC = '/lane_curvature'  # same literal the lane node publishes
+ROAD_STATUS_TOPIC = '/v4_experimental/road/status'  # V4-owned; literal like above
+CORRIDOR_MAX_AGE = 2.0  # seconds: older corridor is recorded as []
+CORRIDOR_MAX_POINTS = 200
+
+
+def extract_corridor(payload) -> List[dict]:
+    """Pull validated forward-corridor points from a road/status payload."""
+    try:
+        points = payload.get('corridor', {}).get('primary', [])
+    except AttributeError:
+        return []
+    if not isinstance(points, list):
+        return []
+    out = []
+    for point in points[:CORRIDOR_MAX_POINTS]:
+        try:
+            fwd = float(point['forward_m'])
+            left = float(point['left_m'])
+            width = float(point['width_m'])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if all(math.isfinite(v) for v in (fwd, left, width)) and width > 0:
+            out.append({'forward_m': fwd, 'left_m': left, 'width_m': width})
+    return out
 
 
 def _yaw_from_quaternion(q) -> Optional[float]:
@@ -72,6 +97,8 @@ class MapRecorder(Node):
         self._tunnel = None
         self._uwb = None
         self._uwb_mono = 0.0
+        self._corridor: List[dict] = []
+        self._corridor_mono = 0.0
 
         self.create_subscription(Odometry, ODOM_TOPIC, self._odom_cb, 10)
         self.create_subscription(Float32, LANE_ERROR_TOPIC, self._lane_cb, 10)
@@ -81,6 +108,7 @@ class MapRecorder(Node):
         self.create_subscription(Bool, HILL_SIGN_TOPIC, self._hill_cb, 10)
         self.create_subscription(Bool, TUNNEL_DETECTED_TOPIC, self._tunnel_cb, 10)
         self.create_subscription(String, UWB_FIX_TOPIC, self._uwb_cb, 10)
+        self.create_subscription(String, ROAD_STATUS_TOPIC, self._road_cb, 10)
 
         hz = max(0.5, float(self._param_cache['sample_hz']))
         self._timer = self.create_timer(1.0 / hz, self._tick)
@@ -155,6 +183,17 @@ class MapRecorder(Node):
             self._uwb = fix
             self._uwb_mono = time.monotonic()
 
+    def _road_cb(self, msg: String) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(payload, dict):
+            return
+        # Store even when empty: a fresh "looked, found nothing" beats stale.
+        self._corridor = extract_corridor(payload)
+        self._corridor_mono = time.monotonic()
+
     # ── Sampling ──
     def _tick(self) -> None:
         if not self._param_cache['map_enabled']:
@@ -163,6 +202,10 @@ class MapRecorder(Node):
         uwb = dict(self._uwb) if self._uwb is not None else None
         if uwb is not None:
             uwb['age'] = now_mono - self._uwb_mono
+        if now_mono - self._corridor_mono <= CORRIDOR_MAX_AGE:
+            corridor = list(self._corridor)
+        else:
+            corridor = []
         self._store.record({
             't_wall': time.time(), 't_mono': now_mono,
             'ox': self._ox, 'oy': self._oy, 'oyaw': self._oyaw,
@@ -170,7 +213,7 @@ class MapRecorder(Node):
             'lane_error': self._lane_error, 'curvature': self._curvature,
             'lane_lost': self._lane_lost, 'tl': self._tl,
             'hill': self._hill, 'tunnel': self._tunnel,
-            'uwb': uwb,
+            'uwb': uwb, 'corridor': corridor,
         })
 
     def close(self) -> None:

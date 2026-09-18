@@ -425,16 +425,17 @@ map_recorder:
     map_dir: ""                   # empty = ~/risabot_maps
     sample_hz: 5.0                # samples per second
 
-# --- MIPI Relay (MIPI cameras -> stack-standard color topic) ---
-# source_topic: forward-facing camera (IMX219 recommended; flip to the OV5647
-#   topic if that sensor ends up facing forward).
-# The mipi_cam nodes run as root via the risabot-cams systemd service, not
-# from this launch. max_hz throttles the 30fps MIPI stream before republish.
+# --- MIPI Relay (side MIPI cameras -> stack-standard side topics) ---
+# Layout: Astra faces forward (native /camera/color/image_raw, no relay).
+# IMX219/OV5647 face sideways; flip the two pairs if left/right turn out
+# swapped once mounts are final. The mipi_cam nodes run as root via the
+# risabot-cams systemd service, not from this launch. max_hz throttles the
+# 30fps MIPI streams before republish.
 mipi_relay:
   ros__parameters:
     source_topic: "/cam_imx219/image_raw"
-    target_topic: "/camera/color/image_raw"
+    target_topic: "/camera/second/image_raw"
     second_enabled: true
     second_source: "/cam_ov5647/image_raw"
-    second_target: "/camera/second/image_raw"
+    second_target: "/camera/third/image_raw"
     max_hz: 30.0

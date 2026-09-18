@@ -3,6 +3,7 @@ import json
 import math
 import os
 import tempfile
+import time
 import unittest
 
 import numpy as np
@@ -11,6 +12,7 @@ import ros_stub
 
 ros_stub.install()
 
+from risabot_automode.map_recorder import MapRecorder, extract_corridor
 from risabot_automode.map_store import MapStore, parse_uwb_fix, solve_anchors
 
 
@@ -136,6 +138,79 @@ class SkeletonTests(unittest.TestCase):
         mean_x = sum(c['x'] * c['n'] for c in cells) / 40
         self.assertAlmostEqual(mean_x, np.mean([0.02 * i + 1.0 for i in range(40)]), places=6)
         self.assertEqual(set(skel['anchors']), {'A1', 'A2'})
+
+
+class ExtractCorridorTests(unittest.TestCase):
+    def test_valid_points_kept_bad_dropped(self):
+        payload = {'corridor': {'primary': [
+            {'forward_m': 0.5, 'left_m': 0.02, 'width_m': 0.3},
+            {'forward_m': 1.0, 'left_m': 0.0},  # missing width
+            {'forward_m': float('inf'), 'left_m': 0.0, 'width_m': 0.3},
+            {'forward_m': 1.5, 'left_m': 0.0, 'width_m': -0.1},
+            'junk',
+        ]}}
+        got = extract_corridor(payload)
+        self.assertEqual(len(got), 1)
+        self.assertAlmostEqual(got[0]['forward_m'], 0.5)
+
+    def test_garbage_payloads_yield_empty(self):
+        for bad in (None, [], 'x', {}, {'corridor': None},
+                    {'corridor': {'primary': 'nope'}}):
+            self.assertEqual(extract_corridor(bad), [])
+
+    def test_point_cap(self):
+        payload = {'corridor': {'primary': [
+            {'forward_m': float(i), 'left_m': 0.0, 'width_m': 0.3}
+            for i in range(500)]}}
+        self.assertEqual(len(extract_corridor(payload)), 200)
+
+
+class RecorderCorridorTests(unittest.TestCase):
+    def _node_in_tmp_home(self):
+        home = tempfile.mkdtemp(prefix='fakehome_')
+        saved = {key: os.environ.get(key) for key in ('HOME', 'USERPROFILE')}
+        os.environ['HOME'] = home
+        os.environ['USERPROFILE'] = home
+        self.addCleanup(self._restore_env, saved)
+        node = MapRecorder()
+        self.addCleanup(node.close)
+        return node
+
+    @staticmethod
+    def _restore_env(saved):
+        for key, value in saved.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
+
+    def _last_sample(self, node):
+        node.close()  # flush buffered writes before reading back
+        rows = MapStore.load_run(node._run_path)
+        return rows[-1]
+
+    def test_fresh_corridor_recorded(self):
+        node = self._node_in_tmp_home()
+        node._road_cb(ros_stub.Message(json.dumps({'corridor': {'primary': [
+            {'forward_m': 0.5, 'left_m': 0.02, 'width_m': 0.3}]}})))
+        node._tick()
+        sample = self._last_sample(node)
+        self.assertEqual(len(sample['corridor']), 1)
+        self.assertAlmostEqual(sample['corridor'][0]['width_m'], 0.3)
+
+    def test_stale_corridor_recorded_empty(self):
+        node = self._node_in_tmp_home()
+        node._road_cb(ros_stub.Message(json.dumps({'corridor': {'primary': [
+            {'forward_m': 0.5, 'left_m': 0.02, 'width_m': 0.3}]}})))
+        node._corridor_mono = time.monotonic() - 5.0
+        node._tick()
+        self.assertEqual(self._last_sample(node)['corridor'], [])
+
+    def test_garbage_status_ignored(self):
+        node = self._node_in_tmp_home()
+        node._road_cb(ros_stub.Message('not json'))
+        node._tick()
+        self.assertEqual(self._last_sample(node)['corridor'], [])
 
 
 if __name__ == '__main__':

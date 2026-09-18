@@ -11,6 +11,7 @@ from risabot_automode.topics import (
     MIPI_IMX219_TOPIC,
     MIPI_OV5647_TOPIC,
     MIPI_SECONDARY_TOPIC,
+    MIPI_TERTIARY_TOPIC,
 )
 
 
@@ -33,7 +34,10 @@ class TopicConstantTests(unittest.TestCase):
         self.assertTrue(MIPI_IMX219_TOPIC.endswith('/image_raw'))
         self.assertTrue(MIPI_OV5647_TOPIC.endswith('/image_raw'))
         self.assertNotEqual(MIPI_IMX219_TOPIC, MIPI_OV5647_TOPIC)
+        # Astra owns the forward color topic; the relay bridges sides only.
         self.assertNotEqual(MIPI_SECONDARY_TOPIC, CAMERA_IMAGE_TOPIC)
+        self.assertNotEqual(MIPI_TERTIARY_TOPIC, CAMERA_IMAGE_TOPIC)
+        self.assertNotEqual(MIPI_SECONDARY_TOPIC, MIPI_TERTIARY_TOPIC)
 
 
 class RelayWiringTests(unittest.TestCase):
