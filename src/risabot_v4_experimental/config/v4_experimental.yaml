@@ -1,0 +1,20 @@
+v4_shadow_monitor:
+  ros__parameters:
+    # Must be set true explicitly when launching the isolated monitor.
+    enabled: false
+
+    primary_camera_topic: /camera/color/image_raw
+    secondary_camera_topic: /camera/second/image_raw
+    scan_topic: /scan
+    odom_topic: /odom
+    uwb_topic: /uwb_fix
+
+    camera_timeout_sec: 0.45
+    scan_timeout_sec: 0.50
+    odom_timeout_sec: 0.25
+    uwb_timeout_sec: 1.00
+
+    # The V4 simulator assumes three cameras. The first hardware adaptation is
+    # deliberately two-camera-only; calibration and coverage must be measured.
+    require_secondary_camera: true
+    require_uwb: false
