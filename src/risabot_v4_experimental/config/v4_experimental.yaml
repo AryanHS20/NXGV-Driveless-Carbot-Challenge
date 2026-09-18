@@ -143,3 +143,55 @@ v4_parking_shadow:
     obstacle_margin_m: 0.015
     maximum_gear_changes: 4
     maximum_reverse_distance_m: 1.20
+
+v4_recovery_shadow:
+  ros__parameters:
+    enabled: false
+    request_topic: /v4_experimental/recovery/request
+    road_status_topic: /v4_experimental/road/status
+    trajectory_status_topic: /v4_experimental/trajectory/status
+    road_mask_topic: /v4_experimental/road/secondary/fused
+    rear_coverage_topic: /v4_experimental/bev/secondary/coverage
+    scan_topic: /scan
+    request_timeout_sec: 0.35
+    road_timeout_sec: 0.35
+    trajectory_timeout_sec: 0.35
+    scan_timeout_sec: 0.50
+    sync_tolerance_sec: 0.10
+    maximum_plan_hz: 0.5
+
+    # The planner remains inert until every physical and policy source is proven.
+    recovery_request_source_validated: false
+    hard_hold_source_validated: false
+    forward_status_source_validated: false
+    rear_coverage_validated: false
+    vehicle_geometry_validated: false
+    minimum_turn_radius_validated: false
+    lidar_extrinsics_validated: false
+    road_tolerance_validated: false
+
+    vehicle_length_m: 0.300
+    vehicle_width_m: 0.192
+    wheelbase_m: 0.216
+    rear_overhang_m: 0.042
+    minimum_turn_radius_m: 0.400
+    footprint_padding_m: 0.005
+    lidar_x_m: 0.0
+    lidar_y_m: 0.0
+    lidar_yaw_rad: 0.0
+    minimum_scan_range_m: 0.03
+    maximum_scan_range_m: 2.0
+
+    sample_step_m: 0.006
+    footprint_sample_spacing_m: 0.02
+    minimum_road_support: 0.98
+    obstacle_margin_m: 0.015
+    minimum_reverse_distance_m: 0.03
+    maximum_reverse_distance_m: 0.20
+    maximum_path_length_m: 1.60
+    minimum_rear_evidence_fraction: 0.55
+    road_tolerance_m: 0.05
+    first_goal_distance_m: 0.25
+    goal_spacing_m: 0.15
+    maximum_goal_count: 5
+    maximum_attempts: 3

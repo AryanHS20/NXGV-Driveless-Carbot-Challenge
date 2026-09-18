@@ -15,7 +15,7 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, [
             'package.xml', 'README.md', 'PORTING_PLAN.md', 'CALIBRATION.md',
-            'PARKING_GOAL.md', 'THIRD_PARTY_NOTICES.md'
+            'PARKING_GOAL.md', 'RECOVERY_REQUEST.md', 'THIRD_PARTY_NOTICES.md'
         ]),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
@@ -35,6 +35,7 @@ setup(
             'pose_shadow = risabot_v4_experimental.pose_shadow:main',
             'trajectory_shadow = risabot_v4_experimental.trajectory_shadow:main',
             'parking_shadow = risabot_v4_experimental.parking_shadow:main',
+            'recovery_shadow = risabot_v4_experimental.recovery_shadow:main',
         ],
     },
 )

@@ -41,6 +41,8 @@ class ShadowCoreTests(unittest.TestCase):
         self.assertNotIn('AckermannDrive', node_source)
         self.assertNotIn('/parking_command', node_source)
         self.assertNotIn('/parking_cmd_vel', node_source)
+        self.assertNotIn('/recovery_command', node_source)
+        self.assertNotIn('/recovery_cmd_vel', node_source)
 
     def test_stage4_physical_validation_gates_ship_closed(self):
         config_path = Path(__file__).parents[1] / 'config' / 'v4_experimental.yaml'
@@ -63,6 +65,17 @@ class ShadowCoreTests(unittest.TestCase):
             'minimum_turn_radius_validated', 'lidar_extrinsics_validated',
         ):
             self.assertFalse(parking_params[gate])
+
+        recovery_params = config['v4_recovery_shadow']['ros__parameters']
+        self.assertFalse(recovery_params['enabled'])
+        for gate in (
+            'recovery_request_source_validated', 'hard_hold_source_validated',
+            'forward_status_source_validated',
+            'rear_coverage_validated', 'vehicle_geometry_validated',
+            'minimum_turn_radius_validated', 'lidar_extrinsics_validated',
+            'road_tolerance_validated',
+        ):
+            self.assertFalse(recovery_params[gate])
 
 
 if __name__ == '__main__':

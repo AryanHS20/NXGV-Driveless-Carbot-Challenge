@@ -48,6 +48,14 @@ It requires a measured rear-axle goal described in `PARKING_GOAL.md`. No live
 node supplies that goal yet, all physical gates remain false, and the package
 cannot execute a proposed path.
 
+Stage 6 adds bounded recovery proposals for cases where forward-only planning
+has no valid candidate. A proposal must reverse 3--20 cm, change gear exactly
+once, finish forward on the measured corridor, remain inside the complete
+observed road footprint, avoid fresh LiDAR obstacles, and retain explicit rear
+camera coverage. Any hard hold blocks planning. The request contract is in
+`RECOVERY_REQUEST.md`; no live node supplies it, every validation gate remains
+false, and this package still has no motion publisher.
+
 ## Build only this package
 
 ```bash
@@ -105,6 +113,17 @@ ros2 topic echo /v4_experimental/parking/proposed_path
 
 It reports the missing calibration, geometry, rear-coverage, and goal-source
 evidence instead of inventing a parking target.
+
+Stage 6 is independently disabled as well:
+
+```bash
+ros2 launch risabot_v4_experimental stage6_recovery.launch.py enabled:=true
+ros2 topic echo /v4_experimental/recovery/status
+ros2 topic echo /v4_experimental/recovery/proposed_path
+```
+
+With checked-in settings it reports calibration, policy-source, road, body,
+rear-coverage, and LiDAR blockers and emits no proposal.
 
 ## Simulator relationship
 
