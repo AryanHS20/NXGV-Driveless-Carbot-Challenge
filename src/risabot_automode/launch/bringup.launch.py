@@ -37,6 +37,17 @@ def generate_launch_description():
             AnyLaunchDescriptionSource(camera_launch)
         ),
 
+        # A2. MIPI relay (bridges the root-run mipi_cam topics from the
+        # risabot-cams service onto /camera/color/image_raw; harmless when
+        # the cameras are down — it just forwards nothing)
+        Node(
+            package='risabot_automode',
+            executable='mipi_relay',
+            name='mipi_relay',
+            output='screen',
+            parameters=[params_file]
+        ),
+
         # B. YDLiDAR Tmini Plus
         Node(
             package='ydlidar_ros2_driver',

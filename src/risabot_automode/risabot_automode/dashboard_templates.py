@@ -2102,6 +2102,10 @@ const PARAM_GROUPS = [
   { node: 'map_recorder', label: 'Map Recorder', params: [
     'map_enabled','map_dir','sample_hz'
   ]},
+  { node: 'mipi_relay', label: 'MIPI Relay', params: [
+    'source_topic','target_topic','second_enabled',
+    'second_source','second_target','max_hz'
+  ]},
   { node: 'signage_detector', label: 'Signage Detector (BPU)', params: [
     'model_path','observation_timeout','conf_threshold','iou_threshold',
     'min_parking_sign_width','heartbeat_sec','show_debug',

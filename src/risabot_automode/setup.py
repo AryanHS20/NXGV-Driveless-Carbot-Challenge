@@ -40,6 +40,7 @@ setup(
             'signage_detector = risabot_automode.signage_detector:main',
             'heading_fusion = risabot_automode.heading_fusion:main',
             'map_recorder = risabot_automode.map_recorder:main',
+            'mipi_relay = risabot_automode.mipi_relay:main',
         ],
     },
 )

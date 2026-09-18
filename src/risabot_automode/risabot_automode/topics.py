@@ -54,6 +54,11 @@ IMU_CALIBRATE_TOPIC = '/imu/calibrate'  # publish empty String to trigger hardwa
 CAMERA_IMAGE_TOPIC = '/camera/color/image_raw'
 DEPTH_IMAGE_TOPIC = '/camera/depth/image_raw'
 DEPTH_CAMINFO_TOPIC = '/camera/depth/camera_info'
+# MIPI cameras (mipi_cam nodes run as root via the risabot-cams service;
+# mipi_relay bridges the selected one onto CAMERA_IMAGE_TOPIC).
+MIPI_IMX219_TOPIC = '/cam_imx219/image_raw'
+MIPI_OV5647_TOPIC = '/cam_ov5647/image_raw'
+MIPI_SECONDARY_TOPIC = '/camera/second/image_raw'
 CAMERA_DEBUG_LINE_TOPIC = '/camera/debug/line_follower'
 CAMERA_DEBUG_TL_TOPIC = '/camera/debug/traffic_light'
 CAMERA_DEBUG_OBS_TOPIC = '/camera/debug/obstacle'
