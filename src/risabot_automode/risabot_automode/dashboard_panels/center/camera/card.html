@@ -1,0 +1,21 @@
+CENTER COLUMN — CAMERA ===== -->
+  <div class="col">
+    <div class="card cam-card">
+      <h3>Camera Feed</h3>
+      <button class="cam-toggle" id="camBtn" onclick="toggleCam()">📷 Enable Camera</button>
+      <div class="cam-tabs" id="camTabs" style="display:none;">
+        <div class="cam-tab active" onclick="setCamView('raw', this)">Raw</div>
+        <div class="cam-tab" onclick="setCamView('line_follower', this)">Lane Lines</div>
+        <div class="cam-tab" onclick="setCamView('traffic_light', this)">Traffic Light</div>
+        <div class="cam-tab" onclick="setCamView('obstacle', this)">Obstacle</div>
+        <div class="cam-tab" onclick="setCamView('signage', this)">Signage</div>
+      </div>
+      <div class="cam-container" id="camContainer">
+        <div class="cam-off" id="camOff">
+          <div class="icon">📷</div>
+          Click above to enable
+        </div>
+        <img id="camImg" src="" alt="Camera" style="display:none;">
+      </div>
+    </div>
+
