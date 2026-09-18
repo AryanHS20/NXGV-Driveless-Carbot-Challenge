@@ -31,10 +31,24 @@ def mime_for(filename: str):
     return _MIME.get(os.path.splitext(filename)[1].lower())
 
 
+def _contained(base_dir: str, candidate: str) -> bool:
+    """True when candidate resolves inside base_dir, symlinks included."""
+    try:
+        base = os.path.realpath(base_dir)
+        target = os.path.realpath(candidate)
+    except (OSError, ValueError):
+        return False
+    try:
+        return os.path.commonpath([base, target]) == base
+    except ValueError:
+        return False
+
+
 def safe_static_path(base_dir: str, rel_path: str):
     """Resolve a /sim/<path> request. Returns an abs path or None.
 
-    Rejects traversal, missing files, directories and unknown suffixes.
+    Rejects traversal, missing files, directories, unknown suffixes and
+    symlinks escaping the base directory.
     """
     if not rel_path or not base_dir:
         return None
@@ -46,7 +60,7 @@ def safe_static_path(base_dir: str, rel_path: str):
     if os.path.basename(normalized).rstrip(' .') != os.path.basename(normalized):
         return None
     candidate = os.path.abspath(os.path.join(base_dir, normalized))
-    if not candidate.startswith(os.path.abspath(base_dir) + os.sep):
+    if not _contained(base_dir, candidate):
         return None
     if mime_for(candidate) is None:
         return None
@@ -68,7 +82,7 @@ def safe_replay_path(maps_dir: str, name: str):
     if os.path.basename(name) != name or not name.endswith('.json'):
         return None
     candidate = os.path.abspath(os.path.join(maps_dir, name))
-    if not candidate.startswith(os.path.abspath(maps_dir) + os.sep):
+    if not _contained(maps_dir, candidate):
         return None
     if not os.path.isfile(candidate):
         return None

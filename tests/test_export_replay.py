@@ -81,6 +81,27 @@ class ExporterTests(unittest.TestCase):
         self.assertTrue(os.path.isfile(path))
         self.assertEqual(doc['version'], 1)
 
+    def test_merge_seeks_past_large_gaps(self):
+        # Regression: cursor must not strand behind a gap; nearest wins.
+        run = os.path.join(self.tmp, 'gap.jsonl')
+        write_lines(run, [
+            json.dumps({'t_wall': 0.0, 'ox': 0.0, 'oy': 0.0, 'oyaw': 0.0}),
+            json.dumps({'t_wall': 200.0, 'ox': 1.0, 'oy': 0.0, 'oyaw': 0.0}),
+        ])
+        status = os.path.join(self.tmp, 'gap_status.jsonl')
+        write_lines(status, [
+            json.dumps({'t_wall': 0.05, 'status': {'corridor': {'primary': []}}}),
+            json.dumps({'t_wall': 50.0, 'status': {'corridor': {'primary': []}}}),
+            json.dumps({'t_wall': 200.1, 'status': {'corridor': {'primary': [
+                {'forward_m': 1.0, 'left_m': 0.0, 'width_m': 0.3}]}}}),
+        ])
+        out = os.path.join(self.tmp, 'gap.replay.json')
+        doc, _ = export_replay.export_run(run, status, out)
+        self.assertEqual(len(doc['frames']), 2)
+        self.assertEqual(len(doc['frames'][1]['corridor']), 1)
+        self.assertAlmostEqual(
+            doc['frames'][1]['corridor'][0]['forward_m'], 1.0)
+
 
 class ReplayStoreTests(unittest.TestCase):
     def setUp(self):
@@ -131,6 +152,24 @@ class ReplayStoreTests(unittest.TestCase):
         self.assertIsNone(bad)
         self.assertTrue(err)
         self.assertEqual(summarize_replay({})['frames'], 0)
+
+    def test_symlink_escape_rejected(self):
+        outer = tempfile.mkdtemp(prefix='outside_')
+        with open(os.path.join(outer, 'secret.json'), 'w') as handle:
+            handle.write('{}')
+        with open(os.path.join(outer, 'secret.html'), 'w') as handle:
+            handle.write('<html></html>')
+        for link, target in (
+                (os.path.join(self.tmp, 'link.json'),
+                 os.path.join(outer, 'secret.json')),
+                (os.path.join(self.sim, 'evil.html'),
+                 os.path.join(outer, 'secret.html'))):
+            try:
+                os.symlink(target, link)
+            except (OSError, NotImplementedError):
+                self.skipTest('symlinks unavailable')
+        self.assertIsNone(safe_replay_path(self.tmp, 'link.json'))
+        self.assertIsNone(safe_static_path(self.sim, 'evil.html'))
 
 
 if __name__ == '__main__':

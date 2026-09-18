@@ -102,11 +102,14 @@ def export_run(run_path, status_path=None, out_path=None, max_frames=20000,
             stamp = 0.0
         corridor = []
         if status:
-            while cursor + 1 < len(status) and abs(
-                    status[cursor + 1][0] - stamp) <= merge_tol:
+            # Monotone nearest-seek: frames are chronological and status is
+            # sorted, so the nearest index never moves backwards. Seek purely
+            # by closeness first; only then apply the tolerance gate. (Gating
+            # the seek itself strands the cursor behind large gaps.)
+            while (cursor + 1 < len(status)
+                    and abs(status[cursor + 1][0] - stamp)
+                    < abs(status[cursor][0] - stamp)):
                 cursor += 1
-            while cursor > 0 and abs(status[cursor - 1][0] - stamp) < abs(status[cursor][0] - stamp):
-                cursor -= 1
             if abs(status[cursor][0] - stamp) <= merge_tol:
                 corridor = status[cursor][1]
         frames.append({
