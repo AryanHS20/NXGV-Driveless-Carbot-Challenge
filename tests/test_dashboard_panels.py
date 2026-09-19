@@ -35,13 +35,21 @@ class PanelAssemblyTests(unittest.TestCase):
         self.assertEqual(dashboard_templates.TEACH_HTML,
                          registry.build_teach_html())
 
+    def test_driveviz_plugin_present(self):
+        html = registry.build_dashboard_html()
+        for marker in ('drivevizCanvas', 'toggleDriveviz()', 'drivevizTick',
+                       'EMERGENCY STOP', 'roundRect', '/lidar_data'):
+            self.assertIn(marker, html)
+
     def test_registry_well_formed(self):
-        self.assertEqual(len(registry.ORDER), 29)
-        self.assertEqual(len(set(registry.ORDER)), 29)
+        self.assertEqual(len(registry.ORDER), 31)
+        self.assertEqual(len(set(registry.ORDER)), 31)
         names = registry.plugin_names()
-        self.assertEqual(len(names), 29)
+        self.assertEqual(len(names), 31)
         self.assertIn('v4views', names)
+        self.assertIn('driveviz', names)
         self.assertIn('js_sim', names)
+        self.assertIn('js_driveviz', names)
         for rel_path in registry.ORDER + [registry.TEACH_PAGE]:
             full = os.path.join(os.path.dirname(registry.__file__),
                                 *rel_path.split('/'))
