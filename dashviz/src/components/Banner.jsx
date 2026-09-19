@@ -1,10 +1,11 @@
 import React from 'react';
 
-/** Tesla-style takeover pill; silent when healthy. */
-export default function Banner({data}) {
+/** Tesla-style takeover pill; silent when healthy, animated transitions. */
+export default function Banner({ data }) {
   const stale = [...(data.stale_streams || []), ...(data.health_stale || [])];
   let text = 'Systems nominal';
   let kind = '';
+
   if (data.state === 'EMERGENCY_STOP') {
     text = 'EMERGENCY STOP';
     kind = 'alert';
@@ -15,5 +16,6 @@ export default function Banner({data}) {
     text = 'Lane lost — be ready to take over';
     kind = 'warn';
   }
+
   return <div className={`banner ${kind}`}>{text}</div>;
 }
