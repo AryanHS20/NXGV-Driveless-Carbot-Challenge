@@ -17,7 +17,7 @@ def main():
     digest = hashlib.sha256(path.read_bytes()).hexdigest()
     if digest != manifest['sha256']:
         raise SystemExit('FAIL: model hash differs from the reviewed manifest')
-    print('Model hash matches NXGV YOLO11n manifest')
+    print(f'Model hash matches {manifest["name"]} manifest')
     if args.infer:
         import numpy as np
         try:
@@ -31,7 +31,7 @@ def main():
         for i, output in enumerate(outputs):
             arr = np.squeeze(np.asarray(output.buffer))
             side = 640 // manifest['strides'][i//2]
-            channels = 10 if i % 2 == 0 else 64
+            channels = len(manifest['classes']) if i % 2 == 0 else 64
             if arr.shape not in ((side,side,channels), (channels,side,side)):
                 raise SystemExit(f'FAIL: unexpected {manifest["outputs"][i]} shape {arr.shape}')
             print(manifest['outputs'][i], arr.shape, arr.dtype)

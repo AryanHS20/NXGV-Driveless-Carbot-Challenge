@@ -1,14 +1,16 @@
 {
-  "name": "NXGV YOLO11n",
-  "file": "model_output/nxgv_yolo11n_640x640_nv12.bin",
-  "robot_path": "/home/sunrise/nxgv_yolo11n_640x640_nv12.bin",
-  "sha256": "107fe15d6cff3f78cf010df55fe4973040cd6262e2d1097fe77ec6a9edbfeecf",
+  "name": "NXGV Unified16 YOLO11n",
+  "file": "model_output/unified16_yolo11n_640x640_nv12.bin",
+  "robot_path": "/home/sunrise/unified16_yolo11n_640x640_nv12.bin",
+  "sha256": "e8f873b1b9a680f790e976b8d399dc9328370010534a5b8dcaf516af6e69e1a6",
   "input": "BGR resized to 640x640 then NV12 uint8 (960,640)",
   "outputs": ["cls8", "box8", "cls16", "box16", "cls32", "box32"],
   "strides": [8, 16, 32],
-  "classes": ["end_of_tunnel_sign", "hill_sign", "obstacle_sign", "parallel_parking_sign", "perpendicular_park_sign", "roundabout_sign", "speed_bump_sign", "traffic_light", "traffic_warn_sign", "tunnel_sign"],
+  "classes": ["end_of_tunnel_sign", "hill_sign", "obstacle_sign", "parallel_parking_sign", "perpendicular_park_sign", "roundabout_sign", "speed_bump_sign", "traffic_light", "traffic_warn_sign", "tunnel_sign", "traffic_red", "traffic_yellow", "traffic_green", "boom_closed", "boom_partial", "boom_open"],
   "dfl_bins": 16,
   "decoder": "risabot_automode.signage_detector.SignageDetector",
   "legacy_tooling": ["colab_training_script.py", "risabot_bpu_config.yaml", "compile_model.bat"],
-  "legacy_note": "YOLOv5 examples do not reproduce or replace this six-output YOLO11 model. Retraining/export must preserve this contract and be validated on hardware."
+  "validation_images": ["test_images/boom_open.jpg", "test_images/sign.jpg"],
+  "known_limit": "boom_partial had zero validation recall in the supplied training report; camera boom publishing remains disabled until track validation",
+  "legacy_note": "The 10-class nxgv_yolo11n artifact remains a rollback spare. YOLOv5 examples do not reproduce this six-output YOLO11 model."
 }

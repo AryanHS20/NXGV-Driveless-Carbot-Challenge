@@ -101,7 +101,7 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
 
 
 class SignageDetector(Node):
-    """BPU-accelerated NXGV signage detector (YOLO11n, 10-class)."""
+    """BPU-accelerated NXGV signage detector (YOLO11n, 16-class)."""
 
     def __init__(self):
         super().__init__('signage_detector')

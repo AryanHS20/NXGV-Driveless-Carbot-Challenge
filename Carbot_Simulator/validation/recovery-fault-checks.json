@@ -1,0 +1,9 @@
+{
+  "passed": true,
+  "errors": [],
+  "emergencyDuringRecovery": "PASS",
+  "cameraFailureDuringRecovery": "PASS",
+  "watchdogDuringRecovery": "PASS",
+  "disableRecoveryBrakes": "PASS",
+  "liveAllowanceSlider": "PASS"
+}

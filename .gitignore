@@ -40,6 +40,13 @@ s
 
 scratch/
 
+# Local delivery archives; readable source/artifacts are versioned instead.
+/Carbot_Simulator.zip
+/TagMicroROS.zip
+/UWB/TagMicroROS.rar
+/unified16_rdk_x5_deploy.zip
+/WhatsApp Video 2026-09-17 at 11.38.42 AM.mp4
+
 # Teammate model-drop folders (large binaries + duplicates, stay local)
 nxgv_deploy/
 nxgv_yolo11n_deploy.zip

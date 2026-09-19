@@ -7,8 +7,9 @@ as risabot_automode/signage_detector.py: dnn.load -> models[0] ->
 forward([nv12]) -> o.buffer. No ROS needed.
 
 Usage:
-    python3 tools/smoke_unified16.py --model unified16_yolo11n_640x640_nv12.bin \
-        --image test_boom_open.jpg --expect boom_open
+    python3 tools/smoke_unified16.py \
+        --model tools/bpu_model/model_output/unified16_yolo11n_640x640_nv12.bin \
+        --image tools/bpu_model/test_images/boom_open.jpg --expect boom_open
     python3 tools/smoke_unified16.py --model nxgv_yolo11n_640x640_nv12.bin \
         --image test_0.jpg --expect hill
 
