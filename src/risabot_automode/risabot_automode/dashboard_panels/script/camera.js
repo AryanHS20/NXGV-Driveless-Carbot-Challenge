@@ -2,6 +2,7 @@ function toggleCam() {
   const b = document.getElementById('camBtn');
   const d = document.getElementById('camContainer');
   const t = document.getElementById('camTabs');
+  const s = document.getElementById('camSrcTabs');
   const off = document.getElementById('camOff');
   const img = document.getElementById('camImg');
   if(b.classList.contains('active')) {
@@ -9,6 +10,7 @@ function toggleCam() {
     b.textContent = String.fromCodePoint(0x1F4F7) + ' Enable Camera';
     d.classList.remove('active');
     t.style.display = 'none';
+    s.style.display = 'none';
     off.style.display = 'flex';
     stopCamStream();
     img.style.display = 'none';
@@ -18,10 +20,11 @@ function toggleCam() {
     b.textContent = String.fromCodePoint(0x1F4F7) + ' Disable Camera';
     d.classList.add('active');
     t.style.display = 'flex';
+    s.style.display = 'flex';
     off.style.display = 'none';
     img.style.display = 'block';
     // Trigger auto_toggle_debug on initial enable (default view is 'raw')
-    fetch('/api/set_cam_view?view=raw');
+    fetch('/api/set_cam_view?view=raw&source=' + encodeURIComponent(camSource));
     startCamStream();
   }
 }
@@ -141,10 +144,26 @@ function startCamStream() {
   })();
 }
 
-function setCamView(view, btn) {
-  document.querySelectorAll('.cam-tab').forEach(t => t.classList.remove('active'));
+let camSource = 'forward';
+function setCamSource(source, btn) {
+  document.querySelectorAll('#camSrcTabs .cam-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
-  fetch('/api/set_cam_view?view=' + encodeURIComponent(view)).then(() => {
+  camSource = source;
+  // Side sources are raw-only: reset the view tabs to Raw.
+  document.querySelectorAll('#camTabs .cam-tab').forEach(t => t.classList.remove('active'));
+  document.querySelector('#camTabs .cam-tab').classList.add('active');
+  fetch('/api/set_cam_view?view=raw&source=' + encodeURIComponent(source)).then(() => {
+    const img = document.getElementById('camImg');
+    if (img && img.style.display !== 'none') {
+      startCamStream();
+    }
+  });
+}
+
+function setCamView(view, btn) {
+  document.querySelectorAll('#camTabs .cam-tab').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  fetch('/api/set_cam_view?view=' + encodeURIComponent(view) + '&source=' + encodeURIComponent(camSource)).then(() => {
     // Restart the robust stream reader to pick up the new view immediately
     const img = document.getElementById('camImg');
     if (img && img.style.display !== 'none') {

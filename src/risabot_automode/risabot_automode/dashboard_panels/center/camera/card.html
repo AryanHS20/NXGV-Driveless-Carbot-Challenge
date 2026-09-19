@@ -3,6 +3,11 @@ CENTER COLUMN — CAMERA ===== -->
     <div class="card cam-card">
       <h3>Camera Feed</h3>
       <button class="cam-toggle" id="camBtn" onclick="toggleCam()">📷 Enable Camera</button>
+      <div class="cam-tabs" id="camSrcTabs" style="display:none;">
+        <div class="cam-tab active" onclick="setCamSource('forward', this)">Front</div>
+        <div class="cam-tab" onclick="setCamSource('second', this)">Right-Back</div>
+        <div class="cam-tab" onclick="setCamSource('third', this)">Other Side</div>
+      </div>
       <div class="cam-tabs" id="camTabs" style="display:none;">
         <div class="cam-tab active" onclick="setCamView('raw', this)">Raw</div>
         <div class="cam-tab" onclick="setCamView('line_follower', this)">Lane Lines</div>

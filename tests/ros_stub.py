@@ -79,7 +79,9 @@ def install():
         'std_msgs.msg':dict(Bool=Message,String=Message,Float32=Message),
         'geometry_msgs.msg':dict(Twist=Twist), 'nav_msgs.msg':dict(Odometry=Odometry),
         'sensor_msgs.msg':dict(Image=Message,LaserScan=Message,Joy=Message,Imu=Message),
-        'rcl_interfaces.msg':dict(SetParametersResult=Message),
+        'rcl_interfaces.msg':dict(SetParametersResult=Message, Parameter=Message,
+                                  ParameterType=Message, ParameterValue=Message),
+        'rcl_interfaces.srv':dict(GetParameters=Message, SetParameters=Message),
     }.items():
         module(name.split('.')[0]); module(name,**attrs)
     module('cv_bridge',CvBridge=lambda:None)

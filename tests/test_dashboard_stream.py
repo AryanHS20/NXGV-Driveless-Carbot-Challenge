@@ -52,6 +52,7 @@ def make_node(**overrides):
         data_lock=threading.Lock(), data={},
         tunnel_debug_lock=threading.Lock(), tunnel_debug='',
         active_camera_view='raw',
+        active_camera_source='forward',
     )
     for key, value in overrides.items():
         setattr(node, key, value)

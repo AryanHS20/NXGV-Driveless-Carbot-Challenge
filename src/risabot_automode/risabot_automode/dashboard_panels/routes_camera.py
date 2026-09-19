@@ -60,31 +60,39 @@ def set_view(ctx, path):
     from urllib.parse import urlparse, parse_qs
     qs = parse_qs(urlparse(path).query)
     view = qs.get('view', ['raw'])[0]
+    source = qs.get('source', [None])[0]
     node = ctx.node
     if node:
+        if source in ('forward', 'second', 'third'):
+            node.active_camera_source = source
         node.active_camera_view = view
         with node.jpeg_condition:
             node.latest_jpeg = None
             # Force the condition to wake any blocked clients
             node.frame_id += 1
             node.jpeg_condition.notify_all()
+        effective_source = node.active_camera_source
+    else:
+        effective_source = 'forward'
 
-    # Auto-toggle show_debug for performance
-    def auto_toggle_debug(selected_view):
+    # Auto-toggle show_debug for performance. Side sources are raw-only,
+    # so every debug publisher stays off while one is selected.
+    def auto_toggle_debug(selected_view, selected_source):
         nodes_to_enable = set()
-        if selected_view == 'line_follower':
-            nodes_to_enable.add('line_follower_camera')
-        elif selected_view == 'obstacle':
-            nodes_to_enable.add('obstacle_avoidance_camera')
-        elif selected_view in ('traffic_light', 'signage'):
-            nodes_to_enable.add('signage_detector')
+        if selected_source == 'forward':
+            if selected_view == 'line_follower':
+                nodes_to_enable.add('line_follower_camera')
+            elif selected_view == 'obstacle':
+                nodes_to_enable.add('obstacle_avoidance_camera')
+            elif selected_view in ('traffic_light', 'signage'):
+                nodes_to_enable.add('signage_detector')
 
         all_nodes = {'line_follower_camera', 'obstacle_avoidance_camera', 'signage_detector'}
         for node_name in all_nodes:
             val_str = 'true' if node_name in nodes_to_enable else 'false'
             ctx.set_param(node_name, 'show_debug', val_str)
 
-    threading.Thread(target=auto_toggle_debug, args=(view,), daemon=True).start()
+    threading.Thread(target=auto_toggle_debug, args=(view, effective_source), daemon=True).start()
 
     handler = ctx.h
     handler.send_response(200)

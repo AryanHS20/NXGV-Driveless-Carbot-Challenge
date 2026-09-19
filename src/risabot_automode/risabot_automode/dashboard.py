@@ -38,6 +38,8 @@ from .topics import (
     CAMERA_DEBUG_OBS_TOPIC,
     CAMERA_DEBUG_TL_TOPIC,
     CAMERA_IMAGE_TOPIC,
+    MIPI_SECONDARY_TOPIC,
+    MIPI_TERTIARY_TOPIC,
     CMD_VEL_TOPIC,
     DASH_CTRL_TOPIC,
     DASH_STATE_TOPIC,
@@ -136,6 +138,7 @@ class DashboardNode(Node):
         self._encode_min_interval = 1.0 / max(1.0, float(self.get_parameter('cam_encode_max_hz').value))
         self._last_encode_mono = 0.0
         self.active_camera_view = 'raw'
+        self.active_camera_source = 'forward'  # forward | second | third
         self.initial_joy_axes = None
 
         # LiDAR scan storage for 2D visualization
@@ -264,6 +267,8 @@ class DashboardNode(Node):
         # Single subscription covers both 'signage' and 'traffic_light' dashboard views
         self.create_subscription(Image, SIGNAGE_DEBUG_TOPIC, lambda msg: self._image_cb(msg, 'signage'), qos)
         self.create_subscription(Image, CAMERA_DEBUG_OBS_TOPIC, lambda msg: self._image_cb(msg, 'obstacle'), qos)
+        self.create_subscription(Image, MIPI_SECONDARY_TOPIC, lambda msg: self._image_cb(msg, 'second'), qos)
+        self.create_subscription(Image, MIPI_TERTIARY_TOPIC, lambda msg: self._image_cb(msg, 'third'), qos)
 
         # Parking signboard detection flag
         self.create_subscription(Bool, PARKING_SIGN_TOPIC, self._parking_sign_cb, 10)
@@ -583,10 +588,17 @@ class DashboardNode(Node):
     def _image_cb(self, msg: Image, view_name: str) -> None:
         """Convert ROS Image to JPEG conditionally, tracking active view and clients."""
         active = self.active_camera_view
+        source = self.active_camera_source
         if self.bridge is None:
             return
+        if view_name in ('second', 'third'):
+            # Side cameras are raw-only: shown only when selected with raw view.
+            if source != view_name or active != 'raw':
+                return
+        elif source != 'forward':
+            return
         # 'signage' topic covers both the 'signage' and 'traffic_light' dashboard views
-        if view_name != active and not (view_name == 'signage' and active == 'traffic_light'):
+        elif view_name != active and not (view_name == 'signage' and active == 'traffic_light'):
             return
             
         with self.camera_clients_lock:
