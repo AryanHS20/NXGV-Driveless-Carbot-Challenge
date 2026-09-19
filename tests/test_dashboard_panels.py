@@ -41,15 +41,25 @@ class PanelAssemblyTests(unittest.TestCase):
                        'EMERGENCY STOP', 'roundRect', '/lidar_data'):
             self.assertIn(marker, html)
 
+    def test_workspace_pages_and_v4_status_present(self):
+        html = registry.build_dashboard_html()
+        for marker in ('data-page="drive"', 'data-page="perception"',
+                       'data-page="v4"', 'data-page="calibration"',
+                       'data-page="runs"', 'data-page="system"',
+                       'authorityReason', 'v4StageGrid', 'showPage('):
+            self.assertIn(marker, html)
+
     def test_registry_well_formed(self):
-        self.assertEqual(len(registry.ORDER), 31)
-        self.assertEqual(len(set(registry.ORDER)), 31)
+        self.assertEqual(len(registry.ORDER), 33)
+        self.assertEqual(len(set(registry.ORDER)), 33)
         names = registry.plugin_names()
-        self.assertEqual(len(names), 31)
+        self.assertEqual(len(names), 33)
         self.assertIn('v4views', names)
         self.assertIn('driveviz', names)
         self.assertIn('js_sim', names)
         self.assertIn('js_driveviz', names)
+        self.assertIn('v4status', names)
+        self.assertIn('js_navigation', names)
         for rel_path in registry.ORDER + [registry.TEACH_PAGE]:
             full = os.path.join(os.path.dirname(registry.__file__),
                                 *rel_path.split('/'))

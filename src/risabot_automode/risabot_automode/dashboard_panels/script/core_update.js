@@ -149,6 +149,8 @@ function update() {
       document.getElementById('laneBar').style.width = Math.min(Math.max((d.lane_error+0.5)/1.0*100,0),100)+'%';
       document.getElementById('cmdLinX').textContent = d.cmd_lin_x.toFixed(3);
       document.getElementById('cmdAngZ').textContent = d.cmd_ang_z.toFixed(3);
+      updateAuthority(d);
+      updateV4Status(d);
 
       // Odom
       document.getElementById('odomDist').textContent = d.distance.toFixed(2);

@@ -3,6 +3,7 @@ import threading
 import time
 import types
 import unittest
+import json
 
 import numpy as np
 
@@ -120,6 +121,36 @@ class SetViewRouteTests(unittest.TestCase):
     def test_unknown_source_ignored(self):
         _, node, _ = self.run_route('/api/set_cam_view?view=raw&source=bogus')
         self.assertEqual(node.active_camera_source, 'forward')
+
+
+class DashboardStatusTests(unittest.TestCase):
+    def make_node(self):
+        node = DashboardNode.__new__(DashboardNode)
+        node.data_lock = threading.Lock()
+        node.data = {
+            'v4_status': {},
+            'cmd_safety_estop': False,
+            'cmd_safety_timeout_count': 0,
+            'cmd_safety_autonomy_source': 'unknown',
+        }
+        node.topic_last_update = {'cmd_safety_status': 0.0}
+        return node
+
+    def test_v4_status_callback_retains_payload_and_receive_time(self):
+        node = self.make_node()
+        node._v4_status_cb('control', types.SimpleNamespace(data=json.dumps({
+            'algorithm_stage': 8, 'enabled': True, 'blockers': []})))
+        status = node.data['v4_status']['control']
+        self.assertEqual(status['algorithm_stage'], 8)
+        self.assertGreater(status['_received_mono'], 0.0)
+
+    def test_safety_status_exposes_selected_autonomy_source(self):
+        node = self.make_node()
+        node._cmd_safety_cb(types.SimpleNamespace(data=json.dumps({
+            'estop': True, 'timeout_count': 3, 'autonomy_source': 'v4'})))
+        self.assertTrue(node.data['cmd_safety_estop'])
+        self.assertEqual(node.data['cmd_safety_timeout_count'], 3)
+        self.assertEqual(node.data['cmd_safety_autonomy_source'], 'v4')
 
 
 if __name__ == '__main__':

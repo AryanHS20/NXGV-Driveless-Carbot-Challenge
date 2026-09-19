@@ -188,6 +188,8 @@ class DashboardNode(Node):
             'health_stale': [],
             'cmd_safety_estop': False,
             'cmd_safety_timeout_count': 0,
+            'cmd_safety_autonomy_source': 'unknown',
+            'v4_status': {},
             'loop_stats': {},
             'rp_state': 'IDLE',
             'rp_buffer_size': 0,
@@ -251,6 +253,20 @@ class DashboardNode(Node):
         self.create_subscription(String, HEALTH_STATUS_TOPIC, self._health_cb, 10)
         self.create_subscription(String, CMD_SAFETY_STATUS_TOPIC, self._cmd_safety_cb, 10)
         self.create_subscription(String, LOOP_STATS_TOPIC, self._loop_stats_cb, 10)
+        for component, topic in (
+            ('bev', '/v4_experimental/bev/status'),
+            ('road', '/v4_experimental/road/status'),
+            ('pose', '/v4_experimental/pose/status'),
+            ('uwb', '/v4_experimental/uwb/status'),
+            ('trajectory', '/v4_experimental/trajectory/status'),
+            ('parking', '/v4_experimental/parking/status'),
+            ('recovery', '/v4_experimental/recovery/status'),
+            ('arbitration', '/v4_experimental/arbitration/status'),
+            ('control', '/v4_control/status'),
+        ):
+            self.create_subscription(
+                String, topic,
+                lambda msg, name=component: self._v4_status_cb(name, msg), 10)
         self.create_subscription(Float32, LANE_ERROR_TOPIC, self._lane_cb, qos)
         self.create_subscription(Twist, CMD_VEL_TOPIC, self._cmd_cb, 10)
         self.create_subscription(Odometry, ODOM_TOPIC, self._odom_cb, 10)
@@ -406,9 +422,26 @@ class DashboardNode(Node):
             with self.data_lock:
                 self.data['cmd_safety_estop'] = bool(payload.get('estop', False))
                 self.data['cmd_safety_timeout_count'] = int(payload.get('timeout_count', 0))
+                self.data['cmd_safety_autonomy_source'] = str(
+                    payload.get('autonomy_source', 'unknown'))
                 self.topic_last_update['cmd_safety_status'] = time.monotonic()
         except Exception:
             self._set('cmd_safety_estop', False, 'cmd_safety_status')
+
+    def _v4_status_cb(self, component: str, msg: String) -> None:
+        """Keep the latest status from each V4 stage for the dashboard only."""
+        try:
+            payload = json.loads(msg.data)
+            if not isinstance(payload, dict):
+                raise ValueError('V4 status must be an object')
+            item = dict(payload)
+            item['_received_mono'] = time.monotonic()
+            with self.data_lock:
+                statuses = dict(self.data.get('v4_status', {}))
+                statuses[component] = item
+                self.data['v4_status'] = statuses
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return
 
     def _loop_stats_cb(self, msg: String) -> None:
         """Track latest loop stat payloads by node:loop key."""
@@ -652,6 +685,16 @@ class DashboardNode(Node):
                 stale_streams.append(key)
         d['freshness_sec'] = freshness
         d['stale_streams'] = stale_streams
+
+        # Convert internal receive timestamps to stable, browser-friendly ages.
+        v4_status = {}
+        for component, raw in d.get('v4_status', {}).items():
+            item = dict(raw)
+            received = item.pop('_received_mono', None)
+            item['age_sec'] = (None if received is None
+                               else round(max(0.0, now_mono - received), 3))
+            v4_status[component] = item
+        d['v4_status'] = v4_status
         
         # Ensure odometry types are standard python floats for JSON serialization
         for k in ['distance', 'speed', 'odom_x', 'odom_y', 'odom_yaw']:
