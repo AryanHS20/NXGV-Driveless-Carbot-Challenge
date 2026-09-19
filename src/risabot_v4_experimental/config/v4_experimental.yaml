@@ -7,7 +7,7 @@ v4_shadow_monitor:
     secondary_camera_topic: /camera/second/image_raw
     scan_topic: /scan
     odom_topic: /odom
-    uwb_topic: /uwb_fix
+    uwb_topic: /v4_experimental/uwb/fix
 
     camera_timeout_sec: 0.45
     scan_timeout_sec: 0.50
@@ -60,7 +60,7 @@ v4_pose_shadow:
   ros__parameters:
     enabled: false
     odom_topic: /odom
-    uwb_topic: /uwb_fix
+    uwb_topic: /v4_experimental/uwb/fix
     odom_timeout_sec: 0.25
     uwb_timeout_sec: 1.00
     # Keep closed until the UWB and odometry axes are measured together.

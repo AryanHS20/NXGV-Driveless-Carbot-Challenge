@@ -15,7 +15,8 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, [
             'package.xml', 'README.md', 'PORTING_PLAN.md', 'CALIBRATION.md',
-            'PARKING_GOAL.md', 'RECOVERY_REQUEST.md', 'THIRD_PARTY_NOTICES.md'
+            'PARKING_GOAL.md', 'RECOVERY_REQUEST.md', 'UWB_INTEGRATION.md',
+            'THIRD_PARTY_NOTICES.md'
         ]),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
@@ -33,6 +34,7 @@ setup(
             'calibrate_intrinsics = risabot_v4_experimental.calibrate_intrinsics:main',
             'road_mask_shadow = risabot_v4_experimental.road_mask_shadow:main',
             'pose_shadow = risabot_v4_experimental.pose_shadow:main',
+            'uwb_bridge_shadow = risabot_v4_experimental.uwb_bridge_shadow:main',
             'trajectory_shadow = risabot_v4_experimental.trajectory_shadow:main',
             'parking_shadow = risabot_v4_experimental.parking_shadow:main',
             'parking_goal_source = risabot_v4_experimental.parking_goal_source:main',

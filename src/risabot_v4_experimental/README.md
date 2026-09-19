@@ -28,11 +28,18 @@ travel, and clears on odometry discontinuities. Its thresholds are explicitly
 marked unvalidated and it cannot receive camera data until Stage 1 profiles are
 calibrated.
 
-Stage 3 mirrors `/odom` as the local pose and filters valid `/uwb_fix`
+Stage 3 mirrors `/odom` as the local pose and filters valid
+`/v4_experimental/uwb/fix`
 measurements into a separate coarse-global rigid transform. A UWB update
 cannot rewrite the local pose. Innovation gating rejects gross outliers, and an
 odometry discontinuity clears the coarse offset. UWB fusion remains gated until
 the UWB and odometry frame alignment has been measured.
+
+The separate Stage 3 UWB bridge converts unique `/uwb3/input_json` anchor
+ranges into the `/v4_experimental/uwb/fix` contract. It is disabled by default
+and blocked by anchor geometry, range offset, and antenna height validation
+gates. See `UWB_INTEGRATION.md` for its measurement and board-validation
+procedure.
 
 Stage 4 generates nine short bicycle-model rollouts and checks the complete
 vehicle footprint against the synchronized road mask plus fresh LiDAR points.
@@ -106,6 +113,9 @@ Stages 3 and 4 have separate disabled-by-default launches:
 ```bash
 ros2 launch risabot_v4_experimental stage3_pose.launch.py enabled:=true
 ros2 topic echo /v4_experimental/pose/status
+
+ros2 launch risabot_v4_experimental stage3_uwb_bridge.launch.py enabled:=true
+ros2 topic echo /v4_experimental/uwb/status
 
 ros2 launch risabot_v4_experimental stage4_trajectory.launch.py enabled:=true
 ros2 topic echo /v4_experimental/trajectory/status

@@ -34,6 +34,7 @@ from .topics import (
 
 CURVATURE_TOPIC = '/lane_curvature'  # same literal the lane node publishes
 ROAD_STATUS_TOPIC = '/v4_experimental/road/status'  # V4-owned; literal like above
+V4_UWB_FIX_TOPIC = '/v4_experimental/uwb/fix'  # V4 bridge output; same schema as UWB_FIX_TOPIC
 CORRIDOR_MAX_AGE = 2.0  # seconds: older corridor is recorded as []
 CORRIDOR_MAX_POINTS = 200
 
@@ -108,6 +109,7 @@ class MapRecorder(Node):
         self.create_subscription(Bool, HILL_SIGN_TOPIC, self._hill_cb, 10)
         self.create_subscription(Bool, TUNNEL_DETECTED_TOPIC, self._tunnel_cb, 10)
         self.create_subscription(String, UWB_FIX_TOPIC, self._uwb_cb, 10)
+        self.create_subscription(String, V4_UWB_FIX_TOPIC, self._uwb_cb, 10)
         self.create_subscription(String, ROAD_STATUS_TOPIC, self._road_cb, 10)
 
         hz = max(0.5, float(self._param_cache['sample_hz']))

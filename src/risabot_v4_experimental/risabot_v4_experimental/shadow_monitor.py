@@ -28,7 +28,7 @@ class ShadowMonitor(Node):
         self.declare_parameter('secondary_camera_topic', '/camera/second/image_raw')
         self.declare_parameter('scan_topic', '/scan')
         self.declare_parameter('odom_topic', '/odom')
-        self.declare_parameter('uwb_topic', '/uwb_fix')
+        self.declare_parameter('uwb_topic', '/v4_experimental/uwb/fix')
         self.declare_parameter('camera_timeout_sec', 0.45)
         self.declare_parameter('scan_timeout_sec', 0.50)
         self.declare_parameter('odom_timeout_sec', 0.25)

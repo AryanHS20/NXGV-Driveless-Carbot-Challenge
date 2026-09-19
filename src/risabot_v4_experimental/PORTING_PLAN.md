@@ -8,7 +8,7 @@ existing `risabot_automode` controller stays available throughout.
 | 0 | Sensor freshness monitor and isolated package | JSON diagnostics only | Build, topic audit, disconnected/fresh-input checks |
 | 1 | Two-camera calibration and bird's-eye transforms (software complete; physical profiles pending) | Debug images and calibration report | Reprojection error and coverage measurements |
 | 2 | Road mask, corridor and odometry-fixed recent memory implemented offline; physical threshold tuning pending | Mask, corridor, memory and confidence topics | Recorded track video with stale-frame tests |
-| 3 | Local pose estimator implemented; UWB kept in a coarse global offset | Local/global pose diagnostics | Core noise/outlier tests pass; recorded replay still required |
+| 3 | Local pose estimator plus duplicate-aware raw-range UWB bridge; UWB kept in a coarse global offset | Isolated UWB fix and local/global pose diagnostics | Survey, range/height calibration, frame alignment, recorded replay and physical point checks |
 | 4 | Footprint-aware bicycle rollouts implemented; physical gates remain closed | JSON candidate summaries and rejection reasons | Synthetic geometry tests pass; replay and stationary wheels-up comparison still required |
 | 5 | Reeds-Shepp parking proposals plus gated marking-based goal source | Proposed JSON parking path only | Physical marking thresholds, geometry, replay and repeated slow trials still required |
 | 6 | Bounded reverse-and-rejoin recovery plus gated mission-policy request source | Proposed recovery path only | Rules review, rear coverage and stopped/attempt policy validation |

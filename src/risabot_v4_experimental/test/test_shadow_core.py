@@ -56,6 +56,16 @@ class ShadowCoreTests(unittest.TestCase):
         pose_params = config['v4_pose_shadow']['ros__parameters']
         self.assertFalse(pose_params['enabled'])
         self.assertFalse(pose_params['uwb_frame_alignment_validated'])
+        self.assertEqual(pose_params['uwb_topic'], '/v4_experimental/uwb/fix')
+
+        uwb_config_path = Path(__file__).parents[1] / 'config' / 'uwb.yaml'
+        uwb_config = yaml.safe_load(uwb_config_path.read_text(encoding='utf-8'))
+        uwb_params = uwb_config['v4_uwb_bridge_shadow']['ros__parameters']
+        self.assertFalse(uwb_params['enabled'])
+        self.assertEqual(uwb_params['fix_topic'], '/v4_experimental/uwb/fix')
+        for gate in ('anchor_geometry_validated', 'range_offsets_validated',
+                     'antenna_heights_validated'):
+            self.assertFalse(uwb_params[gate])
 
         parking_params = config['v4_parking_shadow']['ros__parameters']
         self.assertFalse(parking_params['enabled'])

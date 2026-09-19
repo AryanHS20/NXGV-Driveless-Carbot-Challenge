@@ -41,7 +41,7 @@ class PoseShadow(Node):
         super().__init__('v4_pose_shadow')
         self.declare_parameter('enabled', False)
         self.declare_parameter('odom_topic', '/odom')
-        self.declare_parameter('uwb_topic', '/uwb_fix')
+        self.declare_parameter('uwb_topic', '/v4_experimental/uwb/fix')
         self.declare_parameter('odom_timeout_sec', 0.25)
         self.declare_parameter('uwb_timeout_sec', 1.0)
         self.declare_parameter('uwb_frame_alignment_validated', False)

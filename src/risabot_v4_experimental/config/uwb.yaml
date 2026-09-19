@@ -1,0 +1,35 @@
+v4_uwb_bridge_shadow:
+  ros__parameters:
+    enabled: false
+    raw_topic: /uwb3/input_json
+    fix_topic: /v4_experimental/uwb/fix
+    status_topic: /v4_experimental/uwb/status
+    status_hz: 5.0
+    fix_timeout_sec: 1.0
+    maximum_range_age_sec: 0.40
+    minimum_anchor_count: 3
+    minimum_anchor_area_m2: 0.25
+    maximum_residual_m: 0.30
+    maximum_geometry_condition: 100.0
+    minimum_sigma_m: 0.03
+
+    # Measured venue frame: origin 1782, +x toward 1786, +y toward 1783.
+    anchor_ids: ['1782', '1783', '1786']
+    anchor_1782_x_m: 0.0
+    anchor_1782_y_m: 0.0
+    anchor_1782_z_m: 0.0
+    anchor_1782_range_offset_m: 0.0
+    anchor_1783_x_m: 7.50
+    anchor_1783_y_m: 4.83
+    anchor_1783_z_m: 0.0
+    anchor_1783_range_offset_m: 0.0
+    anchor_1786_x_m: 7.50
+    anchor_1786_y_m: 0.0
+    anchor_1786_z_m: 0.0
+    anchor_1786_range_offset_m: 0.0
+    tag_z_m: 0.0
+
+    # Open each gate only after physical measurement and repeat-point validation.
+    anchor_geometry_validated: false
+    range_offsets_validated: false
+    antenna_heights_validated: false

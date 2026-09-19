@@ -212,6 +212,24 @@ class RecorderCorridorTests(unittest.TestCase):
         node._tick()
         self.assertEqual(self._last_sample(node)['corridor'], [])
 
+    def test_subscribes_both_uwb_topics(self):
+        node = self._node_in_tmp_home()
+        self.assertIn('/uwb_fix', node.subs)
+        self.assertIn('/v4_experimental/uwb/fix', node.subs)
+
+    def test_bridge_shaped_fix_accepted(self):
+        node = self._node_in_tmp_home()
+        node._uwb_cb(ros_stub.Message(json.dumps({
+            'valid': True, 'x': 4.0, 'y': 1.5, 'age': 0.05,
+            'sigma_m': 0.06, 'boot_id': 'boot-a', 'seq': 20,
+            'anchors': [{'id': '1782', 'range_m': 4.27, 'age_ms': 30.0,
+                         'sample_seq': 10}]})))
+        node._tick()
+        sample = self._last_sample(node)
+        self.assertTrue(sample['uwb']['valid'])
+        self.assertAlmostEqual(sample['uwb']['x'], 4.0)
+        self.assertEqual(sample['uwb']['anchors'][0]['id'], '1782')
+
 
 if __name__ == '__main__':
     unittest.main()
