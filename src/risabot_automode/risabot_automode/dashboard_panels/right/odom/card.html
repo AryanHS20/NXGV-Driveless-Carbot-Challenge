@@ -1,0 +1,10 @@
+    <!-- Odometry -->
+    <div class="card" data-pages="drive,v4,calibration" data-panel="odometry">
+      <h3>Odometry</h3>
+      <div class="s-row"><span class="s-label">Total Dist</span><span class="s-val" style="font-weight:bold;"><span id="odomDist">0.00</span> m</span></div>
+      <div class="s-row"><span class="s-label">Speed</span><span class="s-val" id="odomSpeed">0.000 m/s</span></div>
+      <div class="s-row"><span class="s-label">Pos X</span><span class="s-val" id="odomX">0.00 m</span></div>
+      <div class="s-row"><span class="s-label">Pos Y</span><span class="s-val" id="odomY">0.00 m</span></div>
+      <div class="s-row"><span class="s-label">Heading</span><span class="s-val" id="odomYaw">0°</span></div>
+      <button onclick="fetch('/api/reset_odom',{method:'POST'}).then(update)" style="margin-top:10px;width:100%;padding:6px;background:#333;color:#fff;border:1px solid #555;border-radius:4px;cursor:pointer;">Reset Display Odometry</button>
+    </div>

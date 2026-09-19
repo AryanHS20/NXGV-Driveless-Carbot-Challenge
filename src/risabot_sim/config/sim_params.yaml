@@ -3,3 +3,21 @@
     # Overrides for Gazebo simulation
     # e.g. forward_speed: 0.1
     use_sim_time: true
+
+# Physical scanner is rotated; simulated laser_frame faces forward.
+obstacle_avoidance_node:
+  ros__parameters:
+    lidar_angle_offset: 0.0
+obstruction_avoidance:
+  ros__parameters:
+    lidar_angle_offset: 0.0
+tunnel_wall_follower:
+  ros__parameters:
+    lidar_angle_offset: 0.0
+parking_controller:
+  ros__parameters:
+    lidar_angle_offset: 0.0
+cmd_safety_controller:
+  ros__parameters:
+    lidar_angle_offset: 0.0
+    require_signage: false # Simulation only: use recorded sign topics for mission tests.

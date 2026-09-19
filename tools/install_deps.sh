@@ -7,7 +7,15 @@
 
 set -e  # Exit on any error
 
-WS_DIR="$HOME/risabotcar_ws"
+WS_DIR="${RISABOT_WORKSPACE:-$HOME/risabotcar_ws}"
+REPO_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# Preserve an existing robot-side camera checkout. Do not delete or replace it.
+SOURCE_PATHS=("$REPO_DIR/src")
+CAMERA_DIR="$REPO_DIR/src/ros2_astra_camera"
+if [ ! -f "$CAMERA_DIR/astra_camera/package.xml" ]; then
+    CAMERA_DIR="$REPO_DIR/ros2_astra_camera"
+    SOURCE_PATHS+=("$CAMERA_DIR")
+fi
 echo "=============================================="
 echo " RISA-bot Dependency Installer"
 echo " Workspace: $WS_DIR"
@@ -60,9 +68,10 @@ sudo apt install -y \
     libgoogle-glog-dev
 
 # Pull git-lfs files (like libOpenNI2 binaries)
-cd "$WS_DIR"
+cd "$REPO_DIR"
 git lfs install
 git lfs pull
+python3 "$REPO_DIR/tools/preflight.py"
 
 # Init rosdep (skip if already initialized)
 if [ ! -f /etc/ros/rosdep/sources.list.d/20-default.list ]; then
@@ -75,8 +84,8 @@ rosdep update
 # ------------------------------------------------------------------------------
 echo ""
 echo "[3/7] Building and installing YDLidar SDK..."
-if [ -d "$WS_DIR/src/YDLidar-SDK" ]; then
-    cd "$WS_DIR/src/YDLidar-SDK"
+if [ -d "$REPO_DIR/src/YDLidar-SDK" ]; then
+    cd "$REPO_DIR/src/YDLidar-SDK"
     mkdir -p build && cd build
     cmake ..
     make -j$(nproc)
@@ -125,8 +134,8 @@ echo "  magic_enum installed successfully."
 # ------------------------------------------------------------------------------
 echo ""
 echo "[5/7] Installing Rosmaster_Lib..."
-if [ -d "$WS_DIR/tools/rosmaster_lib" ]; then
-    cd "$WS_DIR/tools/rosmaster_lib"
+if [ -d "$REPO_DIR/tools/rosmaster_lib" ]; then
+    cd "$REPO_DIR/tools/rosmaster_lib"
     pip3 install -e . --quiet
     echo "  Rosmaster_Lib installed successfully."
 else
@@ -138,7 +147,7 @@ fi
 # ------------------------------------------------------------------------------
 echo ""
 echo "[6/7] Installing Astra camera USB rules and rosdep packages..."
-ASTRA_SCRIPTS="$WS_DIR/src/ros2_astra_camera/astra_camera/scripts"
+ASTRA_SCRIPTS="$CAMERA_DIR/astra_camera/scripts"
 if [ -f "$ASTRA_SCRIPTS/install.sh" ]; then
     sudo bash "$ASTRA_SCRIPTS/install.sh"
 fi
@@ -161,7 +170,7 @@ echo "  Udev rules installed. Replug USB devices to activate symlinks."
 
 
 cd "$WS_DIR"
-rosdep install --from-paths src --ignore-src -r -y
+rosdep install --from-paths "${SOURCE_PATHS[@]}" --ignore-src -r -y
 
 # ------------------------------------------------------------------------------
 # 7. Build workspace
@@ -169,7 +178,7 @@ rosdep install --from-paths src --ignore-src -r -y
 echo ""
 echo "[7/7] Building workspace (this may take a few minutes)..."
 cd "$WS_DIR"
-colcon build --symlink-install
+colcon build --base-paths "${SOURCE_PATHS[@]}" --symlink-install
 
 # Add workspace source to .bashrc
 if ! grep -q "source $WS_DIR/install/setup.bash" ~/.bashrc; then
@@ -178,7 +187,7 @@ fi
 
 # Disable FastRTPS shared memory (prevents DDS errors on Sunrise OS)
 if ! grep -q "FASTRTPS_DEFAULT_PROFILES_FILE" ~/.bashrc; then
-    echo "export FASTRTPS_DEFAULT_PROFILES_FILE=$WS_DIR/src/risabot_automode/config/disable_shm.xml" >> ~/.bashrc
+    echo "export FASTRTPS_DEFAULT_PROFILES_FILE=$REPO_DIR/src/risabot_automode/config/disable_shm.xml" >> ~/.bashrc
 fi
 
 # ------------------------------------------------------------------------------

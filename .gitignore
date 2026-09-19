@@ -6,6 +6,7 @@ log/
 __pycache__/
 *.egg-info/
 dist/
+dashviz/node_modules/
 .eggs/
 *.DS_Store
 FYP2_README.md

@@ -2,6 +2,7 @@
 """Runtime regression validator for bag replay or live competition runs."""
 
 import json
+import math
 import sys
 import threading
 import time
@@ -64,6 +65,10 @@ class BagRegressionValidator(Node):
         self.last_health_stale: List[str] = []
         self.cmd_safety_timeout_count = 0
         self.cmd_safety_estop_count = 0
+        self.sample_counts = {'cmd': 0, 'odom': 0, 'safety': 0}
+        self.sample_stamps = {}
+        self.counter_baseline = None
+        self.invalid_samples = 0
 
         self.create_subscription(String, LOOP_STATS_TOPIC, self._loop_cb, 50)
         self.create_subscription(String, HEALTH_STATUS_TOPIC, self._health_cb, 10)
@@ -83,6 +88,13 @@ class BagRegressionValidator(Node):
             node = str(payload.get('node', 'unknown'))
             loop = str(payload.get('loop', 'unknown'))
             key = f'{node}:{loop}'
+            self.sample_stamps[key] = time.monotonic()
+            previous = self.loop_latest.get(key)
+            if previous:
+                # Retain worst rate and cumulative overruns for the whole window.
+                payload['avg_hz'] = min(float(previous.get('avg_hz', 0)), float(payload.get('avg_hz', 0)))
+                payload['overruns'] = int(previous.get('overruns', 0)) + int(payload.get('overruns', 0))
+                payload['samples'] = int(previous.get('samples', 0)) + int(payload.get('samples', 0))
             self.loop_latest[key] = payload
             self.loop_seen_count[key] = self.loop_seen_count.get(key, 0) + 1
         except Exception:
@@ -91,6 +103,7 @@ class BagRegressionValidator(Node):
     def _health_cb(self, msg: String) -> None:
         """Track health status failures."""
         self.health_msgs += 1
+        self.sample_stamps['health'] = time.monotonic()
         try:
             payload = json.loads(msg.data)
             if not bool(payload.get('ok', False)):
@@ -103,24 +116,39 @@ class BagRegressionValidator(Node):
         """Track command safety counters."""
         try:
             payload = json.loads(msg.data)
+            self.sample_counts['safety'] += 1
+            self.sample_stamps['safety'] = time.monotonic()
+            counters = (int(payload.get('timeout_count', 0)), int(payload.get('estop_count', 0)))
+            if self.counter_baseline is None:
+                self.counter_baseline = counters
             self.cmd_safety_timeout_count = max(
                 self.cmd_safety_timeout_count,
-                int(payload.get('timeout_count', 0)),
+                max(0, counters[0] - self.counter_baseline[0]),
             )
             self.cmd_safety_estop_count = max(
                 self.cmd_safety_estop_count,
-                int(payload.get('estop_count', 0)),
+                max(0, counters[1] - self.counter_baseline[1]),
             )
         except Exception:
             return
 
     def _cmd_cb(self, msg: Twist) -> None:
         """Track worst-case command magnitudes."""
+        self.sample_counts['cmd'] += 1
+        self.sample_stamps['cmd'] = time.monotonic()
+        if not all(math.isfinite(v) for v in (msg.linear.x, msg.angular.z)):
+            self.invalid_samples += 1
+            return
         self.max_cmd_linear_seen = max(self.max_cmd_linear_seen, abs(float(msg.linear.x)))
         self.max_cmd_angular_seen = max(self.max_cmd_angular_seen, abs(float(msg.angular.z)))
 
     def _odom_cb(self, msg: Odometry) -> None:
         """Track worst-case odometry linear speed."""
+        self.sample_counts['odom'] += 1
+        self.sample_stamps['odom'] = time.monotonic()
+        if not math.isfinite(msg.twist.twist.linear.x):
+            self.invalid_samples += 1
+            return
         self.max_odom_speed_seen = max(
             self.max_odom_speed_seen,
             abs(float(msg.twist.twist.linear.x)),
@@ -146,6 +174,16 @@ class BagRegressionValidator(Node):
         required_loops = [str(v) for v in list(self.get_parameter('require_loop_topics').value)]
 
         failures: List[str] = []
+        for source, count in self.sample_counts.items():
+            if count == 0:
+                failures.append('missing_samples:' + source)
+        if require_health_ok and self.health_msgs == 0:
+            failures.append('missing_samples:health')
+        if self.invalid_samples:
+            failures.append('nonfinite_samples')
+        for source, stamp in self.sample_stamps.items():
+            if time.monotonic() - stamp > 2.0:
+                failures.append('stale_at_end:' + source)
         loop_evaluation: Dict[str, Dict[str, object]] = {}
 
         for loop_key, payload in self.loop_latest.items():

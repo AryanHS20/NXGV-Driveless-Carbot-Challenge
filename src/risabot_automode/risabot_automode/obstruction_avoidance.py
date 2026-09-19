@@ -11,6 +11,7 @@ Publishes:
 """
 
 import math
+import time
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
@@ -21,7 +22,9 @@ from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import LaserScan
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
+from nav_msgs.msg import Odometry
+from .control_contract import fresh, valid_scan
 
 from .topics import OBSTRUCTION_ACTIVE_TOPIC, OBSTRUCTION_CMD_TOPIC
 
@@ -52,6 +55,10 @@ class ObstructionAvoidance(Node):
         self.declare_parameter('max_timeout_sec', 6.0)        # s — bounded timeout safety fallback
 
         self._param_cache: Dict[str, object] = {}
+        self.declare_parameter('wheelbase', 0.14)
+        self.declare_parameter('steering_max_deg', 50.0)
+        self.declare_parameter('lookahead_m', 0.15)
+        self.declare_parameter('sensor_timeout', 0.5)
         self._update_param_cache()
         self.add_on_set_parameters_callback(self._on_params)
 
@@ -74,6 +81,15 @@ class ObstructionAvoidance(Node):
         self.last_loop_time = self.get_clock().now().nanoseconds / 1e9
         self.lateral_obstacle_present = False
         self.min_forward_dist = 999.0
+        self.scan_stamp = self.odom_stamp = 0.0
+        self.scan_valid = False
+        self.odom_x = self.odom_y = self.odom_yaw = 0.0
+        self.start_pose = (0.0, 0.0, 0.0)
+        self.selected = False
+        self.selected_stamp = 0.0
+        self.fault = False
+        self.create_subscription(Odometry, '/odom', self._odom_cb, 10)
+        self.create_subscription(String, '/dashboard_state', self._state_cb, 10)
 
         # Timer
         self.timer = self.create_timer(0.05, self.control_loop)  # 20 Hz
@@ -105,6 +121,10 @@ class ObstructionAvoidance(Node):
         detect_dist = float(self._param_cache['detect_dist'])
         min_safe = float(self._param_cache['min_safe_dist'])
         side_clear = float(self._param_cache['side_clear_dist'])
+        self.scan_stamp = time.monotonic()
+        self.scan_valid = valid_scan(msg)
+        if not self.scan_valid:
+            return
 
         # Build 1D polar histogram: 20 bins across [-50°, +50°]
         n_bins = 20
@@ -158,6 +178,8 @@ class ObstructionAvoidance(Node):
 
         # State transition trigger from CLEAR
         if self.state == AvoidState.CLEAR:
+            if not self.selected and not fresh(self.odom_stamp, time.monotonic(), 0.5):
+                return
             if min_fwd < min_safe:
                 # Degenerate: too close to curve safely
                 self.get_logger().warn(f"Obstacle critically close ({min_fwd:.2f}m) -> Emergency Yield")
@@ -180,6 +202,28 @@ class ObstructionAvoidance(Node):
         self.state = new_state
         self.dodge_start_time = self.get_clock().now().nanoseconds / 1e9
         self.dist_progress = 0.0
+        self.start_pose = (self.odom_x, self.odom_y, self.odom_yaw)
+
+    def _state_cb(self, msg):
+        self.selected = msg.data.split('|')[0] == 'OBSTRUCTION'
+        self.selected_stamp = time.monotonic()
+        if msg.data.split('|')[0] == 'MANUAL':
+            self.fault = False
+            self.state = AvoidState.CLEAR
+
+    def _odom_cb(self, msg):
+        x, y = msg.pose.pose.position.x, msg.pose.pose.position.y
+        q = msg.pose.pose.orientation
+        if not all(math.isfinite(v) for v in (x, y, q.x, q.y, q.z, q.w)):
+            self.odom_stamp = 0.0
+            return
+        if self.selected and self.odom_stamp > 0:
+            delta = math.hypot(x - self.odom_x, y - self.odom_y)
+            if delta < 0.1:
+                self.dist_progress += delta
+        self.odom_x, self.odom_y = x, y
+        self.odom_yaw = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
+        self.odom_stamp = time.monotonic()
 
     def _eval_bezier(self, t: float, lat_m: float, len_m: float) -> Tuple[float, float, float]:
         """
@@ -211,49 +255,46 @@ class ObstructionAvoidance(Node):
         return x, y, tangent_angle
 
     def control_loop(self) -> None:
-        """Execute trajectory tracking and clearance monitoring."""
+        """Track a local curve using measured pose and continuously check clearance."""
         now = self.get_clock().now().nanoseconds / 1e9
-        dt = max(0.001, min(0.1, now - self.last_loop_time))
-        self.last_loop_time = now
-
         cmd = Twist()
-        is_active = (self.state != AvoidState.CLEAR)
-        elapsed = now - self.dodge_start_time
-        max_timeout = float(self._param_cache['max_timeout_sec'])
-
+        active = self.state != AvoidState.CLEAR
+        ttl = float(self.get_parameter('sensor_timeout').value)
+        observations_ok = (self.scan_valid and fresh(self.scan_stamp, time.monotonic(), ttl)
+                           and fresh(self.odom_stamp, time.monotonic(), ttl))
+        if active and not observations_ok:
+            self.fault = True
+        if active and now - self.dodge_start_time > self._param_cache['max_timeout_sec']:
+            self.fault = True
+        if active and self.min_forward_dist <= self._param_cache['min_safe_dist']:
+            self.fault = True
         if self.state == AvoidState.STOP_TOO_CLOSE:
-            # Yield/stop briefly until clearance opens up
-            cmd.linear.x = 0.0
-            cmd.angular.z = 0.0
-            if self.min_forward_dist > float(self._param_cache['min_safe_dist']) or elapsed > 2.0:
-                self._start_state(AvoidState.CLEAR)
-
-        elif self.state == AvoidState.SPLINE_DODGE:
-            speed = float(self._param_cache['forward_speed'])
-            cmd.linear.x = speed
-            self.dist_progress += speed * dt
-
-            spline_len = float(self._param_cache['spline_length_m'])
-            lat_offset = self.avoid_dir * float(self._param_cache['lateral_offset_m'])
-            t = self.dist_progress / max(0.1, spline_len)
-
-            _, _, target_tangent = self._eval_bezier(t, lat_offset, spline_len)
-
-            # Steering command proportional to tangent heading
-            max_ang = float(self._param_cache['max_angular'])
-            cmd.angular.z = float(np.clip(target_tangent * 2.5, -max_ang, max_ang))
-
-            # Bounded Timeout Fallback or dynamic exit verification
-            if t >= 0.95 or elapsed > max_timeout:
-                if not self.lateral_obstacle_present or elapsed > max_timeout:
-                    self.get_logger().info("Bezier Dodge Completed -> Resuming Lane Follow")
+            # No automatic timed release from an obstacle stop.
+            self.fault = True
+        if active and not self.fault and observations_ok:
+            # Do not command or advance a maneuver while another behavior owns motion.
+            if self.selected and fresh(self.selected_stamp, time.monotonic(), 0.6):
+                length = self._param_cache['spline_length_m']
+                lookahead = float(self.get_parameter('lookahead_m').value)
+                t = min(1.0, (self.dist_progress + lookahead) / max(0.1, length))
+                lateral, forward, _ = self._eval_bezier(t, self.avoid_dir * self._param_cache['lateral_offset_m'], length)
+                sx, sy, yaw = self.start_pose
+                gx = sx + forward*math.cos(yaw) - lateral*math.sin(yaw)
+                gy = sy + forward*math.sin(yaw) + lateral*math.cos(yaw)
+                dx, dy = gx-self.odom_x, gy-self.odom_y
+                local_x = dx*math.cos(self.odom_yaw) + dy*math.sin(self.odom_yaw)
+                local_y = -dx*math.sin(self.odom_yaw) + dy*math.cos(self.odom_yaw)
+                curvature = 2*local_y / max(0.01, local_x*local_x + local_y*local_y)
+                angle = math.atan(float(self.get_parameter('wheelbase').value)*curvature)
+                cmd.angular.z = max(-1., min(1., -angle/math.radians(float(self.get_parameter('steering_max_deg').value))))
+                cmd.linear.x = self._param_cache['forward_speed']
+                endpoint_distance = math.hypot(self.odom_x-(sx+length*math.cos(yaw)), self.odom_y-(sy+length*math.sin(yaw)))
+                if self.dist_progress >= length*.9 and endpoint_distance < 0.08 and not self.lateral_obstacle_present:
                     self.state = AvoidState.CLEAR
-                    self.avoid_dir = 0
-                    is_active = False
-
-        # Publish
+                    active = False
+                    cmd = Twist()
         self.cmd_vel_pub.publish(cmd)
-        self.active_pub.publish(Bool(data=is_active))
+        self.active_pub.publish(Bool(data=active))
 
 
 def main(args=None):

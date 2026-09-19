@@ -1,3 +1,18 @@
+# Current runtime: NXGV YOLO11n
+
+Use `model_manifest.json` as the model/decoder contract. Run
+`python tools/bpu_model/verify_bpu.py` locally for artifact verification. On the
+RDK X5, add `--model /home/sunrise/nxgv_yolo11n_640x640_nv12.bin --infer`.
+`verify_live.py` imports the production detector rather than a second decoder.
+Do not launch it alongside another BPU inference process on a resource-constrained robot.
+
+The following material is a **legacy YOLOv5 example**, not the training/export
+recipe for the current YOLO11 artifact. Its output is incompatible with the
+current six-tensor decoder. Keep new exports separate until class order,
+preprocessing, output shapes, accuracy, and robot inference have been verified.
+
+---
+
 # RISAbot YOLOv5s BPU Model Training & Compilation Guide
 
 This guide covers training your object detection model on Google Colab, compiling it for the RDK X5 BPU on Windows, and launching the ROS2 inference node.

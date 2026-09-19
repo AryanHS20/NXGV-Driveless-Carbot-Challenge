@@ -23,6 +23,7 @@ import cv2
 import rclpy
 from cv_bridge import CvBridge
 from rclpy.node import Node
+from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import Image
 
 
@@ -34,7 +35,7 @@ class DatasetCaptureNode(Node):
             Image,
             '/camera/color/image_raw',
             self.image_callback,
-            10
+            QoSPresetProfiles.SENSOR_DATA.value
         )
 
         self.bridge = CvBridge()
@@ -60,7 +61,8 @@ class DatasetCaptureNode(Node):
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
             filename = os.path.join(self.output_dir, f"{timestamp}.jpg")
-            cv2.imwrite(filename, cv_image)
+            if not cv2.imwrite(filename, cv_image):
+                raise IOError('Image write failed: ' + filename)
             self.saved += 1
             self.last_capture_time = current_time
             self.get_logger().info(f"[{self.saved}/{self.target}] {filename}")

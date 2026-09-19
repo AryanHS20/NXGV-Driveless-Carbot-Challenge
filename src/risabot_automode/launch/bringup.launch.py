@@ -7,7 +7,9 @@ Launches ALL nodes in one command — no separate terminals needed.
 import os
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction, SetEnvironmentVariable
+from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
+                            TimerAction, SetEnvironmentVariable)
+from launch.substitutions import LaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource, AnyLaunchDescriptionSource
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -17,6 +19,7 @@ def generate_launch_description():
     astra_pkg = get_package_share_directory('astra_camera')
     risabot_pkg = get_package_share_directory('risabot_automode')
     params_file = os.path.join(risabot_pkg, 'config', 'params.yaml')
+    camera_launch = os.path.join(risabot_pkg, 'launch', 'camera.launch.py')
 
     # --- Disable FastRTPS shared memory to prevent /dev/shm corruption ---
     shm_xml = os.path.join(risabot_pkg, 'config', 'disable_shm.xml')
@@ -26,6 +29,10 @@ def generate_launch_description():
 
     return LaunchDescription([
 
+        DeclareLaunchArgument(
+            'autonomy_source', default_value='legacy',
+            description='Raw autonomous command source: legacy or v4'),
+
         # Disable shared memory transport (prevents DDS communication failures)
         SetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE', shm_xml),
 
@@ -33,9 +40,18 @@ def generate_launch_description():
 
         # A. Astra Mini Camera
         IncludeLaunchDescription(
-            PythonLaunchDescriptionSource(
-                os.path.join(astra_pkg, 'launch', 'astra_mini.launch.py')
-            )
+            AnyLaunchDescriptionSource(camera_launch)
+        ),
+
+        # A2. MIPI relay (bridges the root-run mipi_cam topics from the
+        # risabot-cams service onto /camera/color/image_raw; harmless when
+        # the cameras are down — it just forwards nothing)
+        Node(
+            package='risabot_automode',
+            executable='mipi_relay',
+            name='mipi_relay',
+            output='screen',
+            parameters=[params_file]
         ),
 
         # B. YDLiDAR Tmini Plus
@@ -112,6 +128,11 @@ def generate_launch_description():
             ),
         ]),
 
+
+        TimerAction(period=3.0, actions=[
+            Node(package='risabot_automode', executable='boom_gate_detector',
+                 name='boom_gate_detector', output='screen', parameters=[params_file]),
+        ]),
 
         # G2. Tunnel wall follower
         TimerAction(period=3.0, actions=[
@@ -190,7 +211,9 @@ def generate_launch_description():
             executable='cmd_safety_controller',
             name='cmd_safety_controller',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, {
+                'autonomy_source': LaunchConfiguration('autonomy_source'),
+            }]
         ),
 
         # J. Joystick driver
@@ -224,7 +247,16 @@ def generate_launch_description():
             parameters=[params_file]
         ),
 
-        # M. Dashboard (web UI at http://<robot_ip>:8080)
+        # M. Map recorder (every run appends to ~/risabot_maps; record-only)
+        Node(
+            package='risabot_automode',
+            executable='map_recorder',
+            name='map_recorder',
+            output='screen',
+            parameters=[params_file]
+        ),
+
+        # N. Dashboard (web UI at http://<robot_ip>:8080)
         Node(
             package='risabot_automode',
             executable='dashboard',

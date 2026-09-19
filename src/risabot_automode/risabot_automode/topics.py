@@ -3,6 +3,7 @@
 # Command and control
 AUTO_CMD_VEL_TOPIC = '/cmd_vel_auto'
 AUTO_CMD_VEL_RAW_TOPIC = '/cmd_vel_auto_raw'
+V4_CMD_VEL_RAW_TOPIC = '/cmd_vel_v4_raw'
 CMD_VEL_TOPIC = '/cmd_vel'
 AUTO_MODE_TOPIC = '/auto_mode'
 SET_CHALLENGE_TOPIC = '/set_challenge'
@@ -19,6 +20,7 @@ LANE_ERROR_TOPIC = '/lane_error'
 LANE_LOST_TOPIC = '/lane_lost'
 OBSTACLE_LIDAR_TOPIC = '/obstacle_front'
 OBSTACLE_CAMERA_TOPIC = '/obstacle_detected_camera'
+OBSTACLE_SIGN_TOPIC = '/obstacle_sign_detected'
 OBSTACLE_FUSED_TOPIC = '/obstacle_detected_fused'
 TRAFFIC_LIGHT_TOPIC = '/traffic_light_state'
 TRAFFIC_LIGHT_CONF_TOPIC = '/traffic_light_confidence'
@@ -51,6 +53,14 @@ IMU_PITCH_TOPIC = '/imu/pitch'
 IMU_DATA_TOPIC = '/imu/rpy'          # JSON: {"roll":0.0,"pitch":0.0,"yaw":0.0}
 IMU_CALIBRATE_TOPIC = '/imu/calibrate'  # publish empty String to trigger hardware calibration
 CAMERA_IMAGE_TOPIC = '/camera/color/image_raw'
+DEPTH_IMAGE_TOPIC = '/camera/depth/image_raw'
+DEPTH_CAMINFO_TOPIC = '/camera/depth/camera_info'
+# MIPI cameras (mipi_cam nodes run as root via the risabot-cams service;
+# mipi_relay bridges the selected one onto CAMERA_IMAGE_TOPIC).
+MIPI_IMX219_TOPIC = '/cam_imx219/image_raw'
+MIPI_OV5647_TOPIC = '/cam_ov5647/image_raw'
+MIPI_SECONDARY_TOPIC = '/camera/second/image_raw'
+MIPI_TERTIARY_TOPIC = '/camera/third/image_raw'
 CAMERA_DEBUG_LINE_TOPIC = '/camera/debug/line_follower'
 CAMERA_DEBUG_TL_TOPIC = '/camera/debug/traffic_light'
 CAMERA_DEBUG_OBS_TOPIC = '/camera/debug/obstacle'
@@ -59,6 +69,11 @@ SIGNAGE_DEBUG_TOPIC = '/camera/debug/signage'
 # Record & Playback
 RECORD_PLAYBACK_STATE_TOPIC = '/record_playback_state'
 RECORD_PLAYBACK_CMD_TOPIC = '/record_playback_cmd'
+
+# UWB positioning feed (teammate tool; JSON String, see map_store.UWB_FIX_SCHEMA).
+# {"t": wall s, "x": m|None, "y": m|None, "valid": bool,
+#  "anchors": [{"id": str, "range_m": float, "age_ms": float}]}
+UWB_FIX_TOPIC = '/uwb_fix'
 
 # Frames
 ODOM_FRAME = 'odom'

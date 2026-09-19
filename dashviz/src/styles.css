@@ -1,0 +1,291 @@
+/* ── Premium Glassmorphism FSD-Grade UI ─────────── */
+:root {
+  --bg: transparent;
+  --text: #1a2332;
+  --dim: #5c697b;
+  --blue: #2f7cf6;
+  --green: #22a355;
+  --amber: #d97706;
+  --red: #dc2626;
+  --cyan: #0d9488;
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.85);
+  --glass-shadow: 0 12px 32px rgba(15, 25, 40, 0.12);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: Inter, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────── */
+.dash {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  max-height: 100%;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #f0f3f7; /* Fallback if canvas fails */
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.05);
+  display: flex;
+  flex-direction: column;
+}
+
+.hero {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.scene {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Floating Overlay Container */
+.hud {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  padding: 16px 12px;
+  pointer-events: none; /* Let clicks pass through if needed later */
+}
+
+/* ── Speed Cluster (Top) ────────────────────────────────────────────── */
+.cluster {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 18px;
+  padding: 16px 20px;
+  box-shadow: var(--glass-shadow);
+  position: relative;
+}
+
+.speed {
+  display: flex;
+  flex-direction: column;
+}
+
+.speedNum {
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: -2.5px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+  text-shadow: 0 1px 2px rgba(255,255,255,0.8);
+}
+
+.speedUnit {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--dim);
+  letter-spacing: 2.5px;
+  margin-top: 2px;
+}
+
+.clusterMid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.roundel {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 3px solid rgba(47, 124, 246, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 12px rgba(47, 124, 246, 0.15), inset 0 2px 8px rgba(255,255,255,0.8);
+}
+
+.roundel b {
+  font-size: 17px;
+  color: #0f172a;
+}
+
+.roundel span {
+  font-size: 7px;
+  letter-spacing: 1.5px;
+  color: var(--blue);
+  font-weight: 700;
+}
+
+.steeringWheel {
+  width: 32px;
+  height: 32px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  opacity: 0.8;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
+}
+
+.mode {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 2.5px;
+  padding: 4px 14px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--dim);
+  border: 1px solid rgba(255, 255, 255, 0.9);
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.mode.auto {
+  background: rgba(34, 163, 85, 0.15);
+  color: #15803d;
+  border-color: rgba(34, 163, 85, 0.4);
+}
+
+.lampbox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+}
+
+.lamp {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(200, 210, 225, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  transition: all 0.3s ease;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.lampname {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--dim);
+}
+
+.stateLabel {
+  position: absolute;
+  bottom: 8px;
+  right: 20px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--dim);
+  opacity: 0.7;
+}
+
+/* ── Bottom HUD Elements ────────────────────────────────────────────── */
+.bottomHUD {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Banner ─────────────────────────────────────────────────────────── */
+.banner {
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  color: var(--dim);
+  box-shadow: var(--glass-shadow);
+  transition: all 0.35s ease;
+}
+
+.banner.alert {
+  color: #fff;
+  background: rgba(220, 38, 38, 0.9);
+  border-color: #ef4444;
+  box-shadow: 0 8px 24px rgba(220, 38, 38, 0.35);
+}
+
+.banner.warn {
+  color: #78350f;
+  background: rgba(253, 230, 138, 0.9);
+  border-color: #f59e0b;
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.25);
+}
+
+/* ── Telemetry Plots ────────────────────────────────────────────────── */
+.plots {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+
+.plot {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  padding: 10px 12px 8px;
+  box-shadow: var(--glass-shadow);
+}
+
+.plotHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+
+.plotLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--dim);
+}
+
+.plotValue {
+  font-size: 11px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.spark {
+  width: 100%;
+  height: 48px;
+}
+
+/* ── Source Label ────────────────────────────────────────────────────── */
+.src {
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: 2.5px;
+  color: rgba(30, 40, 60, 0.6);
+  font-weight: 700;
+  padding-bottom: 4px;
+  text-shadow: 0 1px 2px rgba(255,255,255,0.8);
+}

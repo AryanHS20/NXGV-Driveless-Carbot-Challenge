@@ -16,6 +16,7 @@ import threading
 import time
 import os
 import yaml
+from .parameter_values import coerce_parameter_value
 
 import cv2
 import rclpy
@@ -37,6 +38,8 @@ from .topics import (
     CAMERA_DEBUG_OBS_TOPIC,
     CAMERA_DEBUG_TL_TOPIC,
     CAMERA_IMAGE_TOPIC,
+    MIPI_SECONDARY_TOPIC,
+    MIPI_TERTIARY_TOPIC,
     CMD_VEL_TOPIC,
     DASH_CTRL_TOPIC,
     DASH_STATE_TOPIC,
@@ -65,6 +68,8 @@ try:
     from cv_bridge import CvBridge
 except ImportError:
     CvBridge = None
+
+from .dashboard_panels import registry
 
 # ======================== HTML Dashboard ========================
 
@@ -133,6 +138,7 @@ class DashboardNode(Node):
         self._encode_min_interval = 1.0 / max(1.0, float(self.get_parameter('cam_encode_max_hz').value))
         self._last_encode_mono = 0.0
         self.active_camera_view = 'raw'
+        self.active_camera_source = 'forward'  # forward | second | third
         self.initial_joy_axes = None
 
         # LiDAR scan storage for 2D visualization
@@ -182,6 +188,8 @@ class DashboardNode(Node):
             'health_stale': [],
             'cmd_safety_estop': False,
             'cmd_safety_timeout_count': 0,
+            'cmd_safety_autonomy_source': 'unknown',
+            'v4_status': {},
             'loop_stats': {},
             'rp_state': 'IDLE',
             'rp_buffer_size': 0,
@@ -245,6 +253,20 @@ class DashboardNode(Node):
         self.create_subscription(String, HEALTH_STATUS_TOPIC, self._health_cb, 10)
         self.create_subscription(String, CMD_SAFETY_STATUS_TOPIC, self._cmd_safety_cb, 10)
         self.create_subscription(String, LOOP_STATS_TOPIC, self._loop_stats_cb, 10)
+        for component, topic in (
+            ('bev', '/v4_experimental/bev/status'),
+            ('road', '/v4_experimental/road/status'),
+            ('pose', '/v4_experimental/pose/status'),
+            ('uwb', '/v4_experimental/uwb/status'),
+            ('trajectory', '/v4_experimental/trajectory/status'),
+            ('parking', '/v4_experimental/parking/status'),
+            ('recovery', '/v4_experimental/recovery/status'),
+            ('arbitration', '/v4_experimental/arbitration/status'),
+            ('control', '/v4_control/status'),
+        ):
+            self.create_subscription(
+                String, topic,
+                lambda msg, name=component: self._v4_status_cb(name, msg), 10)
         self.create_subscription(Float32, LANE_ERROR_TOPIC, self._lane_cb, qos)
         self.create_subscription(Twist, CMD_VEL_TOPIC, self._cmd_cb, 10)
         self.create_subscription(Odometry, ODOM_TOPIC, self._odom_cb, 10)
@@ -261,6 +283,8 @@ class DashboardNode(Node):
         # Single subscription covers both 'signage' and 'traffic_light' dashboard views
         self.create_subscription(Image, SIGNAGE_DEBUG_TOPIC, lambda msg: self._image_cb(msg, 'signage'), qos)
         self.create_subscription(Image, CAMERA_DEBUG_OBS_TOPIC, lambda msg: self._image_cb(msg, 'obstacle'), qos)
+        self.create_subscription(Image, MIPI_SECONDARY_TOPIC, lambda msg: self._image_cb(msg, 'second'), qos)
+        self.create_subscription(Image, MIPI_TERTIARY_TOPIC, lambda msg: self._image_cb(msg, 'third'), qos)
 
         # Parking signboard detection flag
         self.create_subscription(Bool, PARKING_SIGN_TOPIC, self._parking_sign_cb, 10)
@@ -398,9 +422,26 @@ class DashboardNode(Node):
             with self.data_lock:
                 self.data['cmd_safety_estop'] = bool(payload.get('estop', False))
                 self.data['cmd_safety_timeout_count'] = int(payload.get('timeout_count', 0))
+                self.data['cmd_safety_autonomy_source'] = str(
+                    payload.get('autonomy_source', 'unknown'))
                 self.topic_last_update['cmd_safety_status'] = time.monotonic()
         except Exception:
             self._set('cmd_safety_estop', False, 'cmd_safety_status')
+
+    def _v4_status_cb(self, component: str, msg: String) -> None:
+        """Keep the latest status from each V4 stage for the dashboard only."""
+        try:
+            payload = json.loads(msg.data)
+            if not isinstance(payload, dict):
+                raise ValueError('V4 status must be an object')
+            item = dict(payload)
+            item['_received_mono'] = time.monotonic()
+            with self.data_lock:
+                statuses = dict(self.data.get('v4_status', {}))
+                statuses[component] = item
+                self.data['v4_status'] = statuses
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return
 
     def _loop_stats_cb(self, msg: String) -> None:
         """Track latest loop stat payloads by node:loop key."""
@@ -580,10 +621,17 @@ class DashboardNode(Node):
     def _image_cb(self, msg: Image, view_name: str) -> None:
         """Convert ROS Image to JPEG conditionally, tracking active view and clients."""
         active = self.active_camera_view
+        source = self.active_camera_source
         if self.bridge is None:
             return
+        if view_name in ('second', 'third'):
+            # Side cameras are raw-only: shown only when selected with raw view.
+            if source != view_name or active != 'raw':
+                return
+        elif source != 'forward':
+            return
         # 'signage' topic covers both the 'signage' and 'traffic_light' dashboard views
-        if view_name != active and not (view_name == 'signage' and active == 'traffic_light'):
+        elif view_name != active and not (view_name == 'signage' and active == 'traffic_light'):
             return
             
         with self.camera_clients_lock:
@@ -621,8 +669,11 @@ class DashboardNode(Node):
         stale_sec = float(self.get_parameter('freshness_stale_sec').value)
         freshness = {}
         stale_streams = []
-        event_driven_topics = {'boom_gate', 'parking_complete', 'auto_mode', 'set_challenge', 'record_playback_state', 'joy'}
+        event_driven_topics = {'boom_gate', 'parking_complete', 'auto_mode', 'set_challenge', 'record_playback_state', 'joy', 'obstacle_fused'}
+        inactive_odom = 'odom_sim' if self.get_parameter('use_hw_odom').value else 'odom'
         for key, last_t in updates.items():
+            if key == inactive_odom:
+                continue
             if last_t <= 0.0:
                 freshness[key] = None
                 if key not in event_driven_topics:
@@ -634,6 +685,16 @@ class DashboardNode(Node):
                 stale_streams.append(key)
         d['freshness_sec'] = freshness
         d['stale_streams'] = stale_streams
+
+        # Convert internal receive timestamps to stable, browser-friendly ages.
+        v4_status = {}
+        for component, raw in d.get('v4_status', {}).items():
+            item = dict(raw)
+            received = item.pop('_received_mono', None)
+            item['age_sec'] = (None if received is None
+                               else round(max(0.0, now_mono - received), 3))
+            v4_status[component] = item
+        d['v4_status'] = v4_status
         
         # Ensure odometry types are standard python floats for JSON serialization
         for k in ['distance', 'speed', 'odom_x', 'odom_y', 'odom_yaw']:
@@ -728,45 +789,27 @@ def _ros_set_param(node_name, param_name, value_str):
         param.name = param_name
         pv = ParameterValue()
         
-        # Support setting array values
-        if value_str.startswith('[') and value_str.endswith(']'):
-            try:
-                arr = json.loads(value_str)
-                if isinstance(arr, list):
-                    if all(isinstance(x, bool) for x in arr):
-                        pv.type = ParameterType.PARAMETER_BOOL_ARRAY
-                        pv.bool_array_value = arr
-                    elif all(isinstance(x, int) for x in arr):
-                        pv.type = ParameterType.PARAMETER_INTEGER_ARRAY
-                        pv.integer_array_value = arr
-                    elif all(isinstance(x, (int, float)) for x in arr):
-                        pv.type = ParameterType.PARAMETER_DOUBLE_ARRAY
-                        pv.double_array_value = [float(x) for x in arr]
-                    elif all(isinstance(x, str) for x in arr):
-                        pv.type = ParameterType.PARAMETER_STRING_ARRAY
-                        pv.string_array_value = arr
-                    else:
-                        raise ValueError("Unsupported array element type")
-                else:
-                    raise ValueError("Not a list")
-            except Exception:
-                pv.type = ParameterType.PARAMETER_STRING
-                pv.string_value = value_str
-        elif value_str.lower() in ('true', 'false'):
-            pv.type = ParameterType.PARAMETER_BOOL
-            pv.bool_value = value_str.lower() == 'true'
-        else:
-            try:
-                # Check if it's a pure integer (no decimal point)
-                if '.' not in value_str:
-                    pv.type = ParameterType.PARAMETER_INTEGER
-                    pv.integer_value = int(value_str)
-                else:
-                    pv.type = ParameterType.PARAMETER_DOUBLE
-                    pv.double_value = float(value_str)
-            except ValueError:
-                pv.type = ParameterType.PARAMETER_STRING
-                pv.string_value = value_str
+        # Read the declared type instead of guessing from decimal punctuation.
+        get_client = _get_client(node_name, 'get')
+        if not get_client.wait_for_service(timeout_sec=0.15):
+            return False, 'Parameter service unavailable'
+        get_req = GetParameters.Request()
+        get_req.names = [param_name]
+        get_future = get_client.call_async(get_req)
+        deadline = time.monotonic() + 2.0
+        while not get_future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not get_future.done():
+            return False, 'Parameter type lookup timed out'
+        current = get_future.result()
+        if not current or not current.values:
+            return False, 'Parameter not declared'
+        pv.type = current.values[0].type
+        value = coerce_parameter_value(value_str, pv.type)
+        fields = {1:'bool_value', 2:'integer_value', 3:'double_value', 4:'string_value',
+                  5:'byte_array_value', 6:'bool_array_value', 7:'integer_array_value',
+                  8:'double_array_value', 9:'string_array_value'}
+        setattr(pv, fields[pv.type], value)
         param.value = pv
         req = SetParameters.Request()
         req.parameters = [param]
@@ -868,285 +911,28 @@ _node_ref = None
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
     """HTTP handler for dashboard HTML, JSON, and MJPEG streams."""
     def do_GET(self):
-        """Serve dashboard HTML, JSON data, MJPEG camera stream, and LiDAR data."""
-        if self.path == '/data':
-            data = _node_ref.get_json() if _node_ref else '{}'
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(data.encode())
-        elif self.path == '/lidar_data':
-            pts = []
-            tunnel = False
-            if _node_ref:
-                with _node_ref.lidar_lock:
-                    pts = list(_node_ref.lidar_points)
-                with _node_ref.data_lock:
-                    tunnel = bool(_node_ref.data.get('tunnel_detected', False))
-            payload = {'points': pts, 'tunnel': tunnel}
-            # Add tunnel debug info if available (JSON format)
-            if _node_ref:
-                with _node_ref.tunnel_debug_lock:
-                    dbg = _node_ref.tunnel_debug
-                if dbg:
-                    try:
-                        d = json.loads(dbg)
-                        payload['left_dist'] = d.get('l', 0)
-                        payload['right_dist'] = d.get('r', 0)
-                        payload['dist_error'] = d.get('lat', 0)
-                        payload['angular_z'] = d.get('w', 0)
-                        payload['centerline'] = d.get('cl', [])
-                    except Exception:
-                        pass
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(payload).encode())
-        elif self.path.startswith('/camera_feed'):
-            self.send_response(200)
-            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
-            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0')
-            self.send_header('Connection', 'close')
-            self.send_header('Pragma', 'no-cache')
-            self.end_headers()
-            
-            if not _node_ref:
-                return
-                
-            with _node_ref.camera_clients_lock:
-                _node_ref.num_camera_clients += 1
-                
-            try:
-                last_frame_id = -1
-                while True:
-                    jpeg_bytes = None
-                    with _node_ref.jpeg_condition:
-                        # Wait until a new frame has been generated (up to 1s to keep conn alive)
-                        if _node_ref.frame_id == last_frame_id:
-                            _node_ref.jpeg_condition.wait(timeout=1.0)
-                        
-                        if _node_ref.frame_id != last_frame_id and _node_ref.latest_jpeg:
-                            last_frame_id = _node_ref.frame_id
-                            jpeg_bytes = _node_ref.latest_jpeg
-                            
-                    if jpeg_bytes:
-                        frame = (b'--frame\r\n'
-                                 b'Content-Type: image/jpeg\r\n'
-                                 b'Content-Length: ' + str(len(jpeg_bytes)).encode() + b'\r\n'
-                                 b'\r\n' + jpeg_bytes + b'\r\n')
-                        self.wfile.write(frame)
-                    else:
-                        # Timeout fired but no new frame
-                        pass
-            except Exception:
-                pass
-            finally:
-                with _node_ref.camera_clients_lock:
-                    _node_ref.num_camera_clients = max(0, _node_ref.num_camera_clients - 1)
-        elif self.path.startswith('/api/set_cam_view'):
-            from urllib.parse import urlparse, parse_qs
-            import threading
-            qs = parse_qs(urlparse(self.path).query)
-            view = qs.get('view', ['raw'])[0]
-            if _node_ref:
-                _node_ref.active_camera_view = view
-                with _node_ref.jpeg_condition:
-                    _node_ref.latest_jpeg = None
-                    # Force the condition to wake any blocked clients
-                    _node_ref.frame_id += 1
-                    _node_ref.jpeg_condition.notify_all()
-            
-            # Auto-toggle show_debug for performance 
-            def auto_toggle_debug(selected_view):
-                nodes_to_enable = set()
-                if selected_view == 'line_follower':
-                    nodes_to_enable.add('line_follower_camera')
-                elif selected_view == 'obstacle':
-                    nodes_to_enable.add('obstacle_avoidance_camera')
-                elif selected_view in ('traffic_light', 'signage'):
-                    nodes_to_enable.add('signage_detector')
-                
-                all_nodes = {'line_follower_camera', 'obstacle_avoidance_camera', 'signage_detector'}
-                for node_name in all_nodes:
-                    val_str = 'true' if node_name in nodes_to_enable else 'false'
-                    _ros_set_param(node_name, 'show_debug', val_str)
-                    
-            threading.Thread(target=auto_toggle_debug, args=(view,), daemon=True).start()
-
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(b'{"ok":true}')
-        elif self.path.startswith('/api/get_param'):
-            from urllib.parse import urlparse, parse_qs
-            qs = parse_qs(urlparse(self.path).query)
-            node = qs.get('node', [''])[0]
-            param = qs.get('param', [''])[0]
-            result = {'ok': False}
-            if node and param:
-                value, err = _ros_get_param(node, param)
-                if err is None:
-                    result = {'ok': True, 'value': value}
-                    if node in _DEFAULT_PARAMS and param in _DEFAULT_PARAMS[node]:
-                        result['default'] = _DEFAULT_PARAMS[node][param]
-                else:
-                    result = {'ok': False, 'error': err}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
-        elif self.path.startswith('/api/recording_data'):
-            from urllib.parse import urlparse, parse_qs
-            qs = parse_qs(urlparse(self.path).query)
-            name = qs.get('name', [''])[0]
-            result = {'ok': False, 'error': 'No name specified'}
-            if name:
-                recordings_dir = os.path.expanduser('~/risabot_recordings')
-                fpath = os.path.join(recordings_dir, f'{name}.json')
-                if os.path.exists(fpath):
-                    try:
-                        with open(fpath, 'r') as f:
-                            data = json.load(f)
-                        result = {'ok': True, 'data': data}
-                    except Exception as e:
-                        result = {'ok': False, 'error': str(e)}
-                else:
-                    result = {'ok': False, 'error': 'Recording not found'}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
-        elif self.path.startswith('/teach'):
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Cache-Control', 'no-cache')
-            self.end_headers()
-            self.wfile.write(TEACH_HTML.encode())
-        else:
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Cache-Control', 'no-cache')
-            self.end_headers()
-            self.wfile.write(DASHBOARD_HTML.encode())
+        """Serve dashboard pages, JSON data, MJPEG stream, and sim assets."""
+        ctx = registry.make_context(self, _node_ref, {
+            'get_param': _ros_get_param,
+            'set_param': _ros_set_param,
+            'save_defaults': _save_params_to_yaml,
+            'param_defaults': _DEFAULT_PARAMS,
+            'dashboard_html': DASHBOARD_HTML,
+            'teach_html': TEACH_HTML,
+        })
+        registry.dispatch(ctx, 'GET', self.path)
 
     def do_POST(self):
         """Handle dashboard API POST requests."""
-        if self.path == '/api/reset_odom':
-            # Reset odometry counters
-            global _node_ref
-            if _node_ref:
-                with _node_ref.data_lock:
-                    _node_ref.data['distance'] = 0.0
-                    _node_ref.data['odom_x'] = 0.0
-                    _node_ref.data['odom_y'] = 0.0
-                    _node_ref.data['odom_yaw'] = 0.0
-                    _node_ref.data['speed'] = 0.0
-            resp = {'ok': True, 'msg': 'Odometry reset'}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/set_param':
-            content_len = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_len)
-            try:
-                data = json.loads(body)
-                node = data['node']
-                param = data['param']
-                value = str(data['value'])
-                ok, msg = _ros_set_param(node, param, value)
-                if ok:
-                    resp = {'ok': True, 'msg': msg}
-                else:
-                    resp = {'ok': False, 'error': msg}
-            except Exception as e:
-                resp = {'ok': False, 'error': str(e)}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/save_defaults':
-            resp = _save_params_to_yaml()
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/record_playback':
-            # Handle Record/Playback commands from dashboard
-            content_len = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_len)
-            try:
-                data = json.loads(body)
-                action = data.get('action', '')
-                name = data.get('name', '')
-                # Build the command string for servo_controller
-                valid_simple = ('record', 'stop', 'playback', 'save', 'list')
-                valid_named = ('save', 'load', 'delete', 'set_active')
-                if action in valid_simple and not name:
-                    cmd_str = action
-                elif action in valid_named and name:
-                    cmd_str = f'{action}:{name}'
-                else:
-                    cmd_str = ''
-                if cmd_str and _node_ref:
-                    _node_ref.rp_cmd_pub.publish(String(data=cmd_str))
-                    resp = {'ok': True, 'msg': f'Sent: {cmd_str}'}
-                else:
-                    resp = {'ok': False, 'error': f'Invalid action: {action}'}
-            except Exception as e:
-                resp = {'ok': False, 'error': str(e)}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/reset_competition':
-            content_len = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_len) if content_len > 0 else b'{}'
-            try:
-                data = json.loads(body) if body else {}
-                cmd = data.get('command', 'reset').upper()
-                if cmd in ('RESET', 'LAP1', 'LAP2') and _node_ref:
-                    msg = String()
-                    msg.data = cmd
-                    _node_ref.challenge_pub.publish(msg)
-                    resp = {'ok': True, 'msg': f'Sent competition command: {cmd}'}
-                else:
-                    resp = {'ok': False, 'error': f'Invalid command: {cmd}'}
-            except Exception as e:
-                resp = {'ok': False, 'error': str(e)}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/calibrate_imu':
-            # Forward JSON payload to hardware IMU calibration via servo_controller
-            content_len = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_len) if content_len > 0 else b'{}'
-            try:
-                if _node_ref:
-                    _node_ref.imu_cal_pub.publish(String(data=body.decode('utf-8')))
-                    resp = {'ok': True, 'msg': 'Calibration command sent'}
-                else:
-                    resp = {'ok': False, 'error': 'Dashboard node not ready'}
-            except Exception as e:
-                resp = {'ok': False, 'error': str(e)}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
+        ctx = registry.make_context(self, _node_ref, {
+            'get_param': _ros_get_param,
+            'set_param': _ros_set_param,
+            'save_defaults': _save_params_to_yaml,
+            'param_defaults': _DEFAULT_PARAMS,
+            'dashboard_html': DASHBOARD_HTML,
+            'teach_html': TEACH_HTML,
+        })
+        registry.dispatch(ctx, 'POST', self.path)
 
     def log_message(self, format, *args):
         """Suppress default HTTP logging."""
@@ -1164,6 +950,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
 def main(args=None) -> None:
     global _node_ref
+    cv2.setNumThreads(1)
     rclpy.init(args=args)
     load_default_params()
     node = DashboardNode()
@@ -1172,7 +959,7 @@ def main(args=None) -> None:
     # ── Dedicated param helper node (isolated from camera/subscription load) ──
     global _param_helper_node, _param_executor
     from rclpy.executors import SingleThreadedExecutor
-    _param_helper_node = rclpy.create_node('dashboard_param_helper')
+    _param_helper_node = rclpy.create_node('dashboard_param_helper', use_global_arguments=False)
     _param_executor = SingleThreadedExecutor()
     _param_executor.add_node(_param_helper_node)
 
@@ -1209,8 +996,10 @@ def main(args=None) -> None:
     node.get_logger().info(f'  → http://{hostname}.local:8080')
     node.get_logger().info(f'  → http://{ip}:8080')
 
-    from rclpy.executors import MultiThreadedExecutor
-    executor = MultiThreadedExecutor()
+    # All dashboard callbacks share the default mutually exclusive group.
+    # Additional executor workers only add contention; HTTP and parameter
+    # requests already have their own threads.
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
     try:
         executor.spin()
