@@ -17,17 +17,25 @@ export default function App() {
 
   return (
     <div className="dash">
-      <SpeedCluster data={data} />
+      {/* Background Canvas Layer */}
       <div className="hero">
         <RoadScene data={data} lidar={lidar} speed={+data.speed || 0} />
       </div>
-      <Banner data={data} />
-      <TelePlots
-        speedHist={hist.current.speed}
-        yawHist={hist.current.yaw}
-        errHist={hist.current.err}
-      />
-      <div className="src">{live ? 'LIVE ROBOT DATA' : 'MOCK TELEMETRY'} · display only</div>
+      
+      {/* Floating HUD Layer */}
+      <div className="hud">
+        <SpeedCluster data={data} />
+        
+        <div className="bottomHUD">
+          <Banner data={data} />
+          <TelePlots
+            speedHist={hist.current.speed}
+            yawHist={hist.current.yaw}
+            errHist={hist.current.err}
+          />
+          <div className="src">{live ? 'LIVE ROBOT DATA' : 'MOCK TELEMETRY'} · display only</div>
+        </div>
+      </div>
     </div>
   );
 }

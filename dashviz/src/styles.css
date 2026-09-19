@@ -1,17 +1,16 @@
-/* ── Tesla-White Design System (Catppuccin Latte compatible) ─────────── */
+/* ── Premium Glassmorphism FSD-Grade UI ─────────── */
 :root {
-  --bg: #f0f2f5;
-  --card: #ffffff;
-  --line: #dde3ec;
+  --bg: transparent;
   --text: #1a2332;
-  --dim: #6b7a90;
+  --dim: #5c697b;
   --blue: #2f7cf6;
   --green: #22a355;
-  --amber: #e3a008;
-  --red: #e5484d;
-  --cyan: #22a3a8;
-  --shadow: rgba(20, 30, 45, 0.07);
-  --shadow-lg: rgba(20, 30, 45, 0.10);
+  --amber: #d97706;
+  --red: #dc2626;
+  --cyan: #0d9488;
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-border: rgba(255, 255, 255, 0.85);
+  --glass-shadow: 0 12px 32px rgba(15, 25, 40, 0.12);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -22,29 +21,65 @@ body {
   font-family: Inter, -apple-system, 'Segoe UI', Roboto, sans-serif;
   display: flex;
   justify-content: center;
-  padding: 18px 10px;
+  align-items: center;
+  min-height: 100vh;
   -webkit-font-smoothing: antialiased;
 }
 
 /* ── Layout ─────────────────────────────────────────────────────────── */
 .dash {
-  width: 430px;
-  max-width: 96vw;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  max-height: 100%;
+  overflow: hidden;
+  border-radius: 20px;
+  background: #f0f3f7; /* Fallback if canvas fails */
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.05);
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
 
-/* ── Speed Cluster ──────────────────────────────────────────────────── */
+.hero {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 0;
+}
+
+.scene {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Floating Overlay Container */
+.hud {
+  position: relative;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 100%;
+  padding: 16px 12px;
+  pointer-events: none; /* Let clicks pass through if needed later */
+}
+
+/* ── Speed Cluster (Top) ────────────────────────────────────────────── */
 .cluster {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--card);
-  border: 1px solid var(--line);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
   border-radius: 18px;
   padding: 16px 20px;
-  box-shadow: 0 8px 24px var(--shadow);
+  box-shadow: var(--glass-shadow);
   position: relative;
 }
 
@@ -54,12 +89,13 @@ body {
 }
 
 .speedNum {
-  font-size: 52px;
+  font-size: 56px;
   font-weight: 800;
-  letter-spacing: -2px;
+  letter-spacing: -2.5px;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: var(--text);
+  color: #0f172a;
+  text-shadow: 0 1px 2px rgba(255,255,255,0.8);
 }
 
 .speedUnit {
@@ -81,18 +117,18 @@ body {
   width: 52px;
   height: 52px;
   border-radius: 50%;
-  border: 3px solid var(--blue);
+  border: 3px solid rgba(47, 124, 246, 0.8);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: rgba(47, 124, 246, 0.06);
-  box-shadow: 0 0 12px rgba(47, 124, 246, 0.15);
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 4px 12px rgba(47, 124, 246, 0.15), inset 0 2px 8px rgba(255,255,255,0.8);
 }
 
 .roundel b {
   font-size: 17px;
-  color: var(--text);
+  color: #0f172a;
 }
 
 .roundel span {
@@ -106,7 +142,8 @@ body {
   width: 32px;
   height: 32px;
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  opacity: 0.7;
+  opacity: 0.8;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,0.1));
 }
 
 .mode {
@@ -115,16 +152,17 @@ body {
   letter-spacing: 2.5px;
   padding: 4px 14px;
   border-radius: 20px;
-  background: #eef1f6;
+  background: rgba(255, 255, 255, 0.6);
   color: var(--dim);
-  border: 1px solid var(--line);
+  border: 1px solid rgba(255, 255, 255, 0.9);
   transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
 }
 
 .mode.auto {
-  background: rgba(34, 163, 85, 0.10);
-  color: var(--green);
-  border-color: rgba(34, 163, 85, 0.35);
+  background: rgba(34, 163, 85, 0.15);
+  color: #15803d;
+  border-color: rgba(34, 163, 85, 0.4);
 }
 
 .lampbox {
@@ -138,9 +176,10 @@ body {
   width: 30px;
   height: 30px;
   border-radius: 50%;
-  background: #d4dae3;
-  border: 1px solid var(--line);
+  background: rgba(200, 210, 225, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.8);
   transition: all 0.3s ease;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
 }
 
 .lampname {
@@ -152,70 +191,67 @@ body {
 
 .stateLabel {
   position: absolute;
-  bottom: 6px;
-  right: 14px;
+  bottom: 8px;
+  right: 20px;
   font-size: 8px;
   font-weight: 700;
   letter-spacing: 1.5px;
   color: var(--dim);
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
-/* ── Hero Scene ─────────────────────────────────────────────────────── */
-.hero {
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: 0 12px 36px var(--shadow-lg);
-}
-
-.scene {
-  display: block;
-  width: 100%;
+/* ── Bottom HUD Elements ────────────────────────────────────────────── */
+.bottomHUD {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 /* ── Banner ─────────────────────────────────────────────────────────── */
 .banner {
-  padding: 11px 14px;
+  padding: 12px 14px;
   border-radius: 14px;
   font-size: 13px;
   font-weight: 600;
   text-align: center;
-  background: var(--card);
-  border: 1px solid var(--line);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
   color: var(--dim);
-  box-shadow: 0 4px 12px var(--shadow);
+  box-shadow: var(--glass-shadow);
   transition: all 0.35s ease;
 }
 
 .banner.alert {
   color: #fff;
-  background: #c81e2b;
-  border-color: #c81e2b;
-  box-shadow: 0 4px 20px rgba(200, 30, 43, 0.25);
+  background: rgba(220, 38, 38, 0.9);
+  border-color: #ef4444;
+  box-shadow: 0 8px 24px rgba(220, 38, 38, 0.35);
 }
 
 .banner.warn {
-  color: #5c4306;
-  background: #fdf0d3;
-  border-color: var(--amber);
-  box-shadow: 0 4px 16px rgba(227, 160, 8, 0.15);
+  color: #78350f;
+  background: rgba(253, 230, 138, 0.9);
+  border-color: #f59e0b;
+  box-shadow: 0 8px 24px rgba(245, 158, 11, 0.25);
 }
 
 /* ── Telemetry Plots ────────────────────────────────────────────────── */
 .plots {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-  gap: 10px;
+  gap: 8px;
 }
 
 .plot {
-  background: var(--card);
-  border: 1px solid var(--line);
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
   border-radius: 14px;
   padding: 10px 12px 8px;
-  box-shadow: 0 4px 12px var(--shadow);
+  box-shadow: var(--glass-shadow);
 }
 
 .plotHeader {
@@ -233,7 +269,7 @@ body {
 }
 
 .plotValue {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -248,16 +284,8 @@ body {
   text-align: center;
   font-size: 9px;
   letter-spacing: 2.5px;
-  color: #9aa3b2;
-  font-weight: 600;
-  padding: 4px 0;
-}
-
-/* ── Utilities ──────────────────────────────────────────────────────── */
-.tick { display: none; }
-
-/* ── Responsive ─────────────────────────────────────────────────────── */
-@media (max-width: 460px) {
-  .plots { grid-template-columns: 1fr 1fr; }
-  .speedNum { font-size: 42px; }
+  color: rgba(30, 40, 60, 0.6);
+  font-weight: 700;
+  padding-bottom: 4px;
+  text-shadow: 0 1px 2px rgba(255,255,255,0.8);
 }
