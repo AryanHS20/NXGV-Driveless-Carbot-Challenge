@@ -72,6 +72,10 @@ class ContractSourceTests(unittest.TestCase):
         self.assertEqual(select_diagnostic_intent(
             'LANE_FOLLOW|1', True, forward, parking, recovery).source, 'trajectory')
         self.assertEqual(select_diagnostic_intent(
+            'ROUNDABOUT|1', True, forward, parking, recovery).source, 'trajectory')
+        self.assertEqual(select_diagnostic_intent(
+            'HILL|1', True, forward, parking, recovery).source, 'trajectory')
+        self.assertEqual(select_diagnostic_intent(
             'PARALLEL_PARK|2', True, forward, parking, recovery).source, 'parking')
         self.assertEqual(select_diagnostic_intent(
             'LANE_RECOVERY|1', True, {}, parking, recovery).source, 'recovery')

@@ -74,6 +74,13 @@ parking, recovery, and hard hold. It publishes JSON under
 all integration, timeout, preemption, command-contract, and physical-trial
 gates ship false.
 
+Stage 8 is intentionally implemented in the separate `risabot_v4_control`
+package so this package retains its no-motion contract. The executor converts
+reviewed Stage 7 proposals into `/cmd_vel_v4_raw`; the production command
+safety controller must explicitly select that source and still applies sensor,
+e-stop, timeout, rate, speed, and swept-footprint checks. See the control
+package README for the validation and launch procedure.
+
 ## Build only this package
 
 ```bash

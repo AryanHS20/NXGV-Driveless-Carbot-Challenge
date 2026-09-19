@@ -224,6 +224,21 @@ class SafetyTests(unittest.TestCase):
         c=self.safe(); cmd=Twist(); cmd.linear.x=float('nan'); c._raw_cmd_cb(cmd); c._control_loop()
         self.assertEqual(c.output_cmd.linear.x,0)
 
+    def test_v4_source_uses_only_fresh_v4_command(self):
+        c=self.safe(); c._param_cache['autonomy_source']='v4'
+        c.v4_last_input_t=100.; c.v4_target_cmd.linear.x=.08
+        c.target_cmd.linear.x=.25
+        c._control_loop()
+        self.assertGreater(c.output_cmd.linear.x,0)
+        self.assertLessEqual(c.output_cmd.linear.x,.08)
+
+    def test_stale_v4_source_does_not_fall_back_to_legacy(self):
+        c=self.safe(); c._param_cache['autonomy_source']='v4'
+        c.v4_last_input_t=98.; c.target_cmd.linear.x=.25
+        c._control_loop()
+        self.assertEqual(c.output_cmd.linear.x,0)
+        self.assertFalse(c.permit_pub.messages[-1].data)
+
     def test_signage_invalid_removes_permit(self):
         c=self.safe(); c.signage_valid=False; c._control_loop()
         self.assertFalse(c.permit_pub.messages[-1].data)

@@ -7,7 +7,9 @@ Launches ALL nodes in one command — no separate terminals needed.
 import os
 
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction, SetEnvironmentVariable
+from launch.actions import (DeclareLaunchArgument, IncludeLaunchDescription,
+                            TimerAction, SetEnvironmentVariable)
+from launch.substitutions import LaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource, AnyLaunchDescriptionSource
 from launch_ros.actions import Node
 from ament_index_python.packages import get_package_share_directory
@@ -26,6 +28,10 @@ def generate_launch_description():
     lidar_port = '/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0'
 
     return LaunchDescription([
+
+        DeclareLaunchArgument(
+            'autonomy_source', default_value='legacy',
+            description='Raw autonomous command source: legacy or v4'),
 
         # Disable shared memory transport (prevents DDS communication failures)
         SetEnvironmentVariable('FASTRTPS_DEFAULT_PROFILES_FILE', shm_xml),
@@ -205,7 +211,9 @@ def generate_launch_description():
             executable='cmd_safety_controller',
             name='cmd_safety_controller',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, {
+                'autonomy_source': LaunchConfiguration('autonomy_source'),
+            }]
         ),
 
         # J. Joystick driver

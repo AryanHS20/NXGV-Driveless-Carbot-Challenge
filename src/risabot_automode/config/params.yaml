@@ -64,6 +64,7 @@ auto_driver:
 # --- Command Safety Controller ---
 cmd_safety_controller:
   ros__parameters:
+    autonomy_source: legacy       # set to v4 only after Stage 8 wheels-up validation
     publish_hz: 50.0
     cmd_timeout: 0.35
     sensor_timeout: 0.5

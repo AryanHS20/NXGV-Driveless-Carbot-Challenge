@@ -13,6 +13,7 @@ existing `risabot_automode` controller stays available throughout.
 | 5 | Reeds-Shepp parking proposals plus gated marking-based goal source | Proposed JSON parking path only | Physical marking thresholds, geometry, replay and repeated slow trials still required |
 | 6 | Bounded reverse-and-rejoin recovery plus gated mission-policy request source | Proposed recovery path only | Rules review, rear coverage and stopped/attempt policy validation |
 | 7 | Diagnostic command arbitration implemented; all promotion gates closed | JSON proposal only | Full safety review and explicit physical validation before any motion interface |
+| 8 | Guarded executor in separate `risabot_v4_control` package plus explicit safety-controller source selection | `/cmd_vel_v4_raw`, still behind the production safety envelope | Injected-proposal tests, stop/timeout fault injection, wheels-up validation, then supervised low-speed trials |
 
 The simulator assumes three cameras. The physical adaptation begins with the two
 available MIPI cameras; blind regions must be measured before later stages.

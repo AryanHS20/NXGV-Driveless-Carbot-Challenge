@@ -22,6 +22,7 @@ from .topics import (
     CMD_SAFETY_STATUS_TOPIC,
     E_STOP_TOPIC,
     LOOP_STATS_TOPIC,
+    V4_CMD_VEL_RAW_TOPIC,
 )
 
 
@@ -43,6 +44,9 @@ class CmdSafetyController(Node):
         self.declare_parameter('sensor_timeout', 0.5)
         self.declare_parameter('min_scan_points', 20)
         self.declare_parameter('require_signage', True)
+        # Explicit command authority. It ships as legacy and may only be
+        # changed to v4 after Stage 8 is running and its physical gates pass.
+        self.declare_parameter('autonomy_source', 'legacy')
         self.declare_parameter('lidar_angle_offset', math.pi)
         self.declare_parameter('footprint_half_width', .12)
         self.declare_parameter('footprint_front', .22)
@@ -57,6 +61,7 @@ class CmdSafetyController(Node):
         self.loop_stats_pub = self.create_publisher(String, LOOP_STATS_TOPIC, 10)
 
         self.create_subscription(Twist, AUTO_CMD_VEL_RAW_TOPIC, self._raw_cmd_cb, 10)
+        self.create_subscription(Twist, V4_CMD_VEL_RAW_TOPIC, self._v4_cmd_cb, 10)
         self.create_subscription(Twist, '/playback_cmd_vel_raw', self._playback_cmd_cb, 10)
         self.create_subscription(String, '/record_playback_state', self._playback_state_cb, 10)
         self.playback_active = False
@@ -79,6 +84,8 @@ class CmdSafetyController(Node):
         self.create_subscription(Bool, '/signage_valid', self._signage_cb, 10)
 
         self.target_cmd = Twist()
+        self.v4_target_cmd = Twist()
+        self.v4_last_input_t = 0.0
         self.output_cmd = Twist()
         self.estop = False
         self.last_input_t = 0.0
@@ -97,6 +104,9 @@ class CmdSafetyController(Node):
 
     def _update_param_cache(self) -> None:
         """Cache frequently used parameters to avoid per-loop lookups."""
+        autonomy_source = str(self.get_parameter('autonomy_source').value)
+        if autonomy_source not in ('legacy', 'v4'):
+            raise ValueError('autonomy_source must be legacy or v4')
         self._param_cache = {
             'publish_hz': float(self.get_parameter('publish_hz').value),
             'cmd_timeout': float(self.get_parameter('cmd_timeout').value),
@@ -110,10 +120,15 @@ class CmdSafetyController(Node):
             'sensor_timeout': float(self.get_parameter('sensor_timeout').value),
             'min_scan_points': int(self.get_parameter('min_scan_points').value),
             'require_signage': bool(self.get_parameter('require_signage').value),
+            'autonomy_source': autonomy_source,
         }
 
     def _on_params(self, params) -> SetParametersResult:
         """Update cache for dynamic params."""
+        for p in params:
+            if p.name == 'autonomy_source' and str(p.value) not in ('legacy', 'v4'):
+                return SetParametersResult(
+                    successful=False, reason='autonomy_source must be legacy or v4')
         for p in params:
             if isinstance(p.value, (int, float)) and not isinstance(p.value, bool):
                 signed_allowed = p.name == 'lidar_angle_offset'
@@ -136,6 +151,15 @@ class CmdSafetyController(Node):
             return
         self.target_cmd = msg
         self.last_input_t = time.monotonic()
+
+    def _v4_cmd_cb(self, msg: Twist) -> None:
+        """Store Stage 8 commands separately; never silently fall back."""
+        if not all(math.isfinite(x) for x in (msg.linear.x, msg.angular.z)):
+            self.v4_target_cmd = Twist()
+            self.v4_last_input_t = 0.0
+            return
+        self.v4_target_cmd = msg
+        self.v4_last_input_t = time.monotonic()
 
     def _image_cb(self, msg):
         age = observation_age(msg, self.get_clock().now().nanoseconds / 1e9)
@@ -202,8 +226,10 @@ class CmdSafetyController(Node):
         self.last_loop_t = now
 
         cmd_timeout = float(self._param_cache['cmd_timeout'])
-        stale = (now - self.last_input_t) > cmd_timeout
-        selected_cmd = self.target_cmd
+        source = str(self._param_cache['autonomy_source'])
+        input_stamp = self.v4_last_input_t if source == 'v4' else self.last_input_t
+        selected_cmd = self.v4_target_cmd if source == 'v4' else self.target_cmd
+        stale = not fresh(input_stamp, now, cmd_timeout)
         if self.playback_active:
             selected_cmd = self.playback_cmd
             stale = stale or not fresh(self.playback_state_stamp, now, cmd_timeout)
@@ -273,6 +299,7 @@ class CmdSafetyController(Node):
             'timeout_count': self.timeout_count,
             'estop_count': self.estop_count,
             'limit_count': self.limit_count,
+            'autonomy_source': self._param_cache['autonomy_source'],
             'stamp_sec': round(time.time(), 3),
         }
         self.status_pub.publish(String(data=json.dumps(payload, separators=(',', ':'))))

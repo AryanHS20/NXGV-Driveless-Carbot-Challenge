@@ -3,6 +3,7 @@
 # Command and control
 AUTO_CMD_VEL_TOPIC = '/cmd_vel_auto'
 AUTO_CMD_VEL_RAW_TOPIC = '/cmd_vel_auto_raw'
+V4_CMD_VEL_RAW_TOPIC = '/cmd_vel_v4_raw'
 CMD_VEL_TOPIC = '/cmd_vel'
 AUTO_MODE_TOPIC = '/auto_mode'
 SET_CHALLENGE_TOPIC = '/set_challenge'

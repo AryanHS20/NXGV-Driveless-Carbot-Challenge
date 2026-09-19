@@ -51,14 +51,16 @@ class ArbitrationShadow(Node):
         except (json.JSONDecodeError, TypeError, ValueError) as exc:
             self._last_error = str(exc)
 
-    def _blockers(self):
+    def _blockers(self, include_physical_trials=True):
         now = time.monotonic()
         labels = {'integration_reviewed': 'integration review is incomplete',
                   'command_contract_validated': 'command contract is not validated',
                   'stop_preemption_validated': 'stop preemption is not validated',
                   'timeout_validated': 'timeout handling is not validated',
                   'physical_trials_validated': 'physical trials are incomplete'}
-        blockers = [label for gate, label in labels.items() if not self._gates[gate]]
+        blockers = [label for gate, label in labels.items()
+                    if not self._gates[gate]
+                    and (include_physical_trials or gate != 'physical_trials_validated')]
         blockers.extend(f'{name} input is stale' for name, stamp in self._seen.items()
                         if not stamp or now - stamp > self._timeout)
         return blockers
@@ -69,7 +71,9 @@ class ArbitrationShadow(Node):
         self._decision = select_diagnostic_intent(
             self._values['state'], self._values['permit'], self._values['trajectory'],
             self._values['parking'], self._values['recovery'])
-        blockers = self._blockers()
+        # A diagnostic proposal is required to perform the physical trial.
+        # It remains non-executable here; Stage 8 owns explicit motion authority.
+        blockers = self._blockers(include_physical_trials=False)
         payload = {'algorithm_stage': 7, 'diagnostic_only': True,
                    'can_execute': False, 'source': self._decision.source,
                    'action': self._decision.action, 'reason': self._decision.reason,
