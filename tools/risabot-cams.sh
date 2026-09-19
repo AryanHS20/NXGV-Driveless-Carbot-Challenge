@@ -37,8 +37,11 @@ fi
 /opt/tros/humble/lib/mipi_cam/mipi_cam \
     --ros-args -r __ns:=/cam_imx219 \
     -p channel:=0 -p image_width:=960 -p image_height:=544 \
+    -p rotation:=180.0 \
     --log-level warn &
 IMX_PID=$!
+# NOTE: IMX219 (right-back) is mounted upside-down; rotation 180 corrects it.
+# Remove the -p rotation line if the mount is ever fixed.
 
 # If either camera exits, clean up the other. systemd restarts the pair.
 wait -n "$OV_PID" "$IMX_PID"
