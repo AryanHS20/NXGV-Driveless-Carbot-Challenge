@@ -57,7 +57,6 @@ export default function RoadScene({data, lidar}) {
 
       <rect x="0" y="0" width={W} height={H} fill="#eef1f6" />
       <polygon points={`0,${H} 0,${HORIZON} ${W},${HORIZON} ${W},${H}`} fill="url(#road)" />
-      <line x1="0" y1={HORIZON} x2={W} y2={HORIZON} stroke="#c7cfdb" strokeWidth="1.5" />
 
       {/* corridor ribbon */}
       <polygon points={ribbon.map(p => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')}
@@ -67,20 +66,25 @@ export default function RoadScene({data, lidar}) {
         strokeLinecap="round" opacity="0.9" />
       <path d={toPath(right)} fill="none" stroke={laneCol} strokeWidth="5"
         strokeLinecap="round" opacity="0.9" />
-      {/* yellow left edge */}
-      <path d={toPath(lanePoints(-1.9, latShift))} fill="none" stroke="#e3b008"
-        strokeWidth="3" strokeLinecap="round" opacity="0.8" />
+      {/* yellow road edges, both sides */}
+      {[-1.9, 1.9].map(side => (
+        <path key={side} d={toPath(lanePoints(side, latShift))} fill="none" stroke="#e3b008"
+          strokeWidth="2.5" strokeLinecap="round" opacity="0.55" />
+      ))}
 
-      {/* traffic signal poles */}
+      {/* traffic signal poles with 3-lamp heads */}
       {[-1, 1].map(side => {
         const s = project(5.5, side * 2.2, latShift);
+        const lamps = ['red', 'yellow', 'green'];
         return (
           <g key={side}>
-            <line x1={s.x} y1={s.y} x2={s.x} y2={s.y - 42} stroke="#9aa3b2" strokeWidth="3" />
-            <rect x={s.x - 7} y={s.y - 58} width="14" height="18" rx="3" fill="#2b3442" />
-            <circle cx={s.x} cy={s.y - 49} r="4.5"
-              fill={lampCol || '#5b6472'}
-              filter={lampCol ? 'url(#soft)' : undefined} />
+            <line x1={s.x} y1={s.y} x2={s.x} y2={s.y - 52} stroke="#8b95a5" strokeWidth="4" />
+            <rect x={s.x - 9} y={s.y - 78} width="18" height="30" rx="5" fill="#232c3a" />
+            {lamps.map((name, i) => (
+              <circle key={name} cx={s.x} cy={s.y - 70 + i * 9} r="3.4"
+                fill={lamp === name ? lampCol : '#4a5465'}
+                opacity={lamp === name ? 1 : 0.85} />
+            ))}
           </g>
         );
       })}
@@ -107,8 +111,8 @@ export default function RoadScene({data, lidar}) {
           stroke="#ffffff" strokeWidth="1.5" />
         <rect x={CX - 22} y={ROAD_BOT - 80} width="44" height="38" rx="10" fill="#101c2c" />
         <rect x={CX - 18} y={ROAD_BOT - 76} width="36" height="12" rx="6" fill="rgba(140,200,255,0.35)" />
-        {[[-38, -88], [26, -88], [-38, -6], [26, -6]].map(([dx, dy], i) => (
-          <rect key={i} x={CX + dx} y={ROAD_BOT + dy} width="12" height="16" rx="4" fill="#141a24" />
+        {[[-35, -88], [25, -88], [-35, -6], [25, -6]].map(([dx, dy], i) => (
+          <rect key={i} x={CX + dx} y={ROAD_BOT + dy} width="10" height="16" rx="4" fill="#141a24" />
         ))}
         <rect x={CX - 20} y={ROAD_BOT + 1} width="40" height="4" rx="2" fill="#bfe1ff" />
       </g>

@@ -10,14 +10,10 @@ const EMPTY = {
 let mockT = 0;
 function mockFrame() {
   mockT += 0.5;
-  const lidar = [];
-  for (let i = 0; i < 36; i++) {
-    const a = (i / 36) * Math.PI * 2;
-    const r = 1.5 + (i % 4) * 0.6;
-    lidar.push([Math.cos(a) * r + 2.4, Math.sin(a) * r]);
-  }
-  lidar.push([0.38, -0.35]);
-  lidar.push([2.2, 0.9]);
+  const lidar = [
+    [3.4, -1.1], [3.5, -1.0], [3.4, -0.9], [2.8, 1.2], [2.9, 1.3],
+    [4.6, 0.4], [4.7, 0.5], [1.6, -1.8], [0.38, -0.35],
+  ];
   return {
     data: {
       ...EMPTY,
