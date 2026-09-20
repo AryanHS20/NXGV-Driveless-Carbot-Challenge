@@ -8,6 +8,7 @@ export HOME=/root
 
 source /opt/tros/humble/setup.bash
 source /home/sunrise/risabotcar_ws/install/setup.bash
+export FASTRTPS_DEFAULT_PROFILES_FILE=/home/sunrise/risabotcar_ws/install/risabot_automode/share/risabot_automode/config/disable_shm.xml
 
 # The manager starts no MIPI/VSE pipeline until the dashboard requests a side
 # view or validated V4 control declares motion authority.
