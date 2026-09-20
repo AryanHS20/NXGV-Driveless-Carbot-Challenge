@@ -427,11 +427,10 @@ map_recorder:
 
 # --- MIPI Relay (side MIPI cameras -> stack-standard side topics) ---
 # Layout: Astra faces forward (native /camera/color/image_raw, no relay).
-# IMX219 = RIGHT-BACK (verified 2026-09-19: its footage currently appears
-#   on the dashboard via a temporary mipi_relay_fwd instance because the
-#   forward Astra is absent; remove that instance once Astra returns).
-# OV5647 = other side (left/right TBD at mounting).
-# If left/right turn out swapped, flip the two pairs below.
+# IMX219 = RIGHT-BACK (rotation 180: mounted upside-down) -> /camera/second.
+# OV5647 = LEFT-BACK -> /camera/third.
+# (Temporary mipi_relay_fwd instance borrows IMX219 for /camera/color until
+# the forward Astra is streaming; remove it once Astra returns.)
 # The mipi_cam nodes run as root via the risabot-cams systemd service, not
 # from this launch. max_hz throttles the 30fps MIPI streams before republish.
 mipi_relay:
