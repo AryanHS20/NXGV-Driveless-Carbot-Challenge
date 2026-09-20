@@ -307,7 +307,7 @@ dashboard:
     sim_odom_scale: 1.55
     hw_odom_scale: 1.0
     hw_odom_yaw_scale: 1.0
-    cam_encode_max_hz: 10.0   # MJPEG encode cap — lower if dashboard video stutters
+    cam_encode_max_hz: 5.0    # display only; control nodes still receive the forward source directly
     dashboard_port: 8080      # HTTP port (takes effect on restart; 8081 if the carbot GUI owns 8080)
 
 # --- Health Monitor ---
@@ -440,7 +440,7 @@ mipi_relay:
     second_enabled: true
     second_source: "/cam_ov5647/image_raw"
     second_target: "/camera/third/image_raw"
-    max_hz: 30.0
+    max_hz: 5.0               # side delivery cap; root manager stops unused sensors entirely
 
 # --- V4 Telemetry Bridge (read-only 5 Hz display payload) ---
 # Subscribes V4 shadow topics + /scan; publishes /v4_telemetry for the

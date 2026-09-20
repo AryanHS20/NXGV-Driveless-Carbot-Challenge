@@ -40,6 +40,7 @@ from .topics import (
     CAMERA_IMAGE_TOPIC,
     MIPI_SECONDARY_TOPIC,
     MIPI_TERTIARY_TOPIC,
+    SIDE_CAMERA_REQUEST_TOPIC,
     CMD_VEL_TOPIC,
     DASH_CTRL_TOPIC,
     DASH_STATE_TOPIC,
@@ -128,7 +129,7 @@ class DashboardNode(Node):
         self.declare_parameter('sim_odom_scale', 1.55)
         self.declare_parameter('hw_odom_scale', 1.0)
         self.declare_parameter('hw_odom_yaw_scale', 1.0)
-        self.declare_parameter('cam_encode_max_hz', 10.0)  # MJPEG encode cap (CPU saver)
+        self.declare_parameter('cam_encode_max_hz', 5.0)  # MJPEG encode cap (CPU saver)
         self.declare_parameter('dashboard_port', 8080)  # HTTP port (8081 when the carbot GUI owns 8080)
 
         # CV Bridge for camera
@@ -237,6 +238,8 @@ class DashboardNode(Node):
         self.rp_cmd_pub = self.create_publisher(String, RECORD_PLAYBACK_CMD_TOPIC, 10)
         self.challenge_pub = self.create_publisher(String, SET_CHALLENGE_TOPIC, 10)
         self.imu_cal_pub = self.create_publisher(String, IMU_CALIBRATE_TOPIC, 10)
+        self.side_camera_request_pub = self.create_publisher(
+            String, SIDE_CAMERA_REQUEST_TOPIC, 10)
 
         # State tracking
         self._state_entry_time = time.time()
@@ -309,8 +312,18 @@ class DashboardNode(Node):
 
         # Simulate odometry since hardware might not publish
         self.create_timer(0.05, self._simulate_odom_loop)
+        # Renewable lease: the root manager shuts the optional MIPI pipelines
+        # down if the dashboard disappears or no side-view client remains.
+        self.create_timer(2.0, self._side_camera_lease_loop)
 
         self.get_logger().info('Dashboard subscriptions ready')
+
+    def _side_camera_lease_loop(self) -> None:
+        with self.camera_clients_lock:
+            has_viewer = self.num_camera_clients > 0
+        source = self.active_camera_source if has_viewer else 'forward'
+        mode = 'right' if source == 'second' else 'left' if source == 'third' else 'off'
+        self.side_camera_request_pub.publish(String(data=mode))
 
     def _simulate_odom_loop(self) -> None:
         """Simulates odometry position based on commanded velocities.

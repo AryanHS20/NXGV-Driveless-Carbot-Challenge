@@ -54,6 +54,7 @@ setup(
             'heading_fusion = risabot_automode.heading_fusion:main',
             'map_recorder = risabot_automode.map_recorder:main',
             'mipi_relay = risabot_automode.mipi_relay:main',
+            'side_camera_manager = risabot_automode.side_camera_manager:main',
             'v4_telemetry_bridge = risabot_automode.v4_telemetry_bridge:main',
         ],
     },

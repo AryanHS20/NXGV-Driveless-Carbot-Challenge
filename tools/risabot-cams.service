@@ -1,0 +1,20 @@
+[Unit]
+Description=RISA-bot demand-controlled side MIPI cameras
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=HOME=/root
+Environment=ROS_LOG_DIR=/var/log/risabot-cams
+Environment=ROS_DOMAIN_ID=1
+Environment=ROS_LOCALHOST_ONLY=0
+ExecStartPre=/usr/bin/mkdir -p /var/log/risabot-cams
+ExecStart=/usr/local/bin/risabot-cams.sh
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=8
+
+[Install]
+WantedBy=multi-user.target

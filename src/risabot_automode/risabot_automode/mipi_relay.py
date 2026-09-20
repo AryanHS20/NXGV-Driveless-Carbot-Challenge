@@ -46,7 +46,7 @@ class MipiRelay(Node):
         self.declare_parameter('second_enabled', True)
         self.declare_parameter('second_source', MIPI_OV5647_TOPIC)
         self.declare_parameter('second_target', MIPI_TERTIARY_TOPIC)
-        self.declare_parameter('max_hz', 30.0)
+        self.declare_parameter('max_hz', 5.0)
         self._param_cache: Dict[str, object] = {}
         self._update_param_cache()
         self.add_on_set_parameters_callback(self._on_params)

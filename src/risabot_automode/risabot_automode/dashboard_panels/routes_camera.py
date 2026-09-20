@@ -75,6 +75,12 @@ def set_view(ctx, path):
     else:
         effective_source = 'forward'
 
+    if node and hasattr(node, 'side_camera_request_pub'):
+        from std_msgs.msg import String
+        mode = ('right' if effective_source == 'second'
+                else 'left' if effective_source == 'third' else 'off')
+        node.side_camera_request_pub.publish(String(data=mode))
+
     # Auto-toggle show_debug for performance. Side sources are raw-only,
     # so every debug publisher stays off while one is selected.
     def auto_toggle_debug(selected_view, selected_source):
