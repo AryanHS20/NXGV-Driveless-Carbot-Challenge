@@ -321,7 +321,12 @@ class DashboardNode(Node):
     def _side_camera_lease_loop(self) -> None:
         with self.camera_clients_lock:
             has_viewer = self.num_camera_clients > 0
-        source = self.active_camera_source if has_viewer else 'forward'
+        # Silence is how an idle requester releases its lease.  Publishing
+        # repeated "off" messages here would fight independent requesters
+        # such as the V4 parking/BEV pipeline.
+        if not has_viewer:
+            return
+        source = self.active_camera_source
         mode = 'right' if source == 'second' else 'left' if source == 'third' else 'off'
         self.side_camera_request_pub.publish(String(data=mode))
 

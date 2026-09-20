@@ -64,6 +64,23 @@ class ImageRoutingTests(unittest.TestCase):
         node._image_cb(object(), 'raw')
         self.assertIsNone(node.latest_jpeg)
 
+    def test_idle_dashboard_does_not_override_other_camera_requesters(self):
+        node = make_dashboard('raw', 'second')
+        node.num_camera_clients = 0
+        published = []
+        node.side_camera_request_pub = types.SimpleNamespace(
+            publish=lambda msg: published.append(msg.data))
+        node._side_camera_lease_loop()
+        self.assertEqual(published, [])
+
+    def test_side_viewer_renews_camera_lease(self):
+        node = make_dashboard('raw', 'second')
+        published = []
+        node.side_camera_request_pub = types.SimpleNamespace(
+            publish=lambda msg: published.append(msg.data))
+        node._side_camera_lease_loop()
+        self.assertEqual(published, ['right'])
+
 
 class FakeHandler:
     def __init__(self, path):
