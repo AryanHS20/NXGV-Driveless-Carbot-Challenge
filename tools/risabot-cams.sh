@@ -8,6 +8,10 @@
 
 source /opt/tros/humble/setup.bash
 
+# All consumers (carbot stack, UWB bridge) run on domain 1.
+export ROS_DOMAIN_ID=1
+export ROS_LOCALHOST_ONLY=0
+
 OV_PID=''
 IMX_PID=''
 
