@@ -7,12 +7,13 @@ if [ "$(id -u)" -ne 0 ]; then
     exit 2
 fi
 
+repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 workspace=/home/sunrise/risabotcar_ws
-test -x "$workspace/tools/risabot-cams.sh"
+test -x "$repo_dir/tools/risabot-cams.sh"
 test -f "$workspace/install/risabot_automode/setup.bash"
 
-install -m 0755 "$workspace/tools/risabot-cams.sh" /usr/local/bin/risabot-cams.sh
-install -m 0644 "$workspace/tools/risabot-cams.service" /etc/systemd/system/risabot-cams.service
+install -m 0755 "$repo_dir/tools/risabot-cams.sh" /usr/local/bin/risabot-cams.sh
+install -m 0644 "$repo_dir/tools/risabot-cams.service" /etc/systemd/system/risabot-cams.service
 systemctl daemon-reload
 systemctl enable risabot-cams.service
 systemctl restart risabot-cams.service
