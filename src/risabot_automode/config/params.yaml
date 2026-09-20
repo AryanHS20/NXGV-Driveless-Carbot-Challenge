@@ -389,7 +389,7 @@ servo_controller:
 #   min_parking_sign_width : pixel width gate — ignore tiny parking detections
 signage_detector:
   ros__parameters:
-    model_path: "/home/sunrise/unified16_yolo11n_640x640_nv12.bin"
+    model_path: "/home/sunrise/unified14_yolo11n_640x640_nv12.bin"
     observation_timeout: 0.5
     traffic_confirm_frames: 5         # consecutive lamp frames before red/green/unresolved
     conf_threshold: 0.25          # global fallback (per-class thresholds below take priority)
@@ -408,15 +408,13 @@ signage_detector:
     thresh_perpendp: 0.50         # class 4
     thresh_roundabout: 0.35       # class 5
     thresh_speedbump: 0.50        # class 6 (small/far)
-    thresh_tl_lamp: 0.30          # class 7 (HSV decides red/green)
-    thresh_tl_warn: 0.40          # class 8
-    thresh_tunnel: 0.40           # class 9
-    thresh_traffic_red: 0.25      # class 10 (direct colour)
-    thresh_traffic_yellow: 0.25   # class 11
-    thresh_traffic_green: 0.25    # class 12
-    thresh_boom_closed: 0.35      # class 13
-    thresh_boom_partial: 0.35     # class 14 (zero recall: counts as blocked)
-    thresh_boom_open: 0.35        # class 15
+    thresh_tl_warn: 0.40          # class 7
+    thresh_tunnel: 0.40           # class 8
+    thresh_traffic_red: 0.25      # class 9 (direct colour)
+    thresh_traffic_yellow: 0.25   # class 10
+    thresh_traffic_green: 0.25    # class 11
+    thresh_boom_closed: 0.35      # class 12
+    thresh_boom_open: 0.35        # class 13
 
 # --- Map Recorder (persistent run mapping) ---
 # Records every run to <map_dir>/run_<UTC>.jsonl. Phase 1 is record-only:

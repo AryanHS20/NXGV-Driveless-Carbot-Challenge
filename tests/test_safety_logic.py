@@ -111,13 +111,13 @@ class SafetyTests(unittest.TestCase):
 
     def test_warning_and_uncertain_lamp_have_distinct_outputs(self):
         s = SignageDetector()
-        s._update_states(np.zeros((1, 4)), np.array([8]))
+        s._update_states(np.zeros((1, 4)), np.array([7]))
         self.assertEqual(s.traffic_light_active, 'unknown')
-        for _ in range(5):
-            s._update_states(np.zeros((1, 4)), np.array([7]), ['unknown'])
+        for cid in (9, 11, 9, 11, 9):
+            s._update_states(np.zeros((1, 4)), np.array([cid]))
         self.assertEqual(s.traffic_light_active, 'unresolved')
         for _ in range(5):
-            s._update_states(np.zeros((1, 4)), np.array([7]), ['green'])
+            s._update_states(np.zeros((1, 4)), np.array([11]))
         self.assertEqual(s.traffic_light_active, 'green')
         s._update_states(np.empty((0, 4)), np.array([], dtype=int))
         self.assertEqual(s.traffic_light_active, 'unknown')
@@ -125,26 +125,26 @@ class SafetyTests(unittest.TestCase):
     def test_direct_colour_classes_vote_without_hsv(self):
         s = SignageDetector()
         for _ in range(5):
-            s._update_states(np.zeros((1, 4)), np.array([10]))
+            s._update_states(np.zeros((1, 4)), np.array([9]))
         self.assertEqual(s.traffic_light_active, 'red')
         for _ in range(5):
-            s._update_states(np.zeros((1, 4)), np.array([12]))
+            s._update_states(np.zeros((1, 4)), np.array([11]))
         self.assertEqual(s.traffic_light_active, 'green')
 
     def test_direct_yellow_class_reports_yellow(self):
         s = SignageDetector()
         for _ in range(5):
-            s._update_states(np.zeros((1, 4)), np.array([11]))
+            s._update_states(np.zeros((1, 4)), np.array([10]))
         self.assertEqual(s.traffic_light_active, 'yellow')
 
     def test_boom_vision_tracks_state_but_stays_unpublished_by_default(self):
         s = SignageDetector()
         self.assertFalse(s._param_cache['publish_boom_state'])
         for _ in range(5):
-            s._update_states(np.zeros((1, 4)), np.array([15]))
+            s._update_states(np.zeros((1, 4)), np.array([13]))
         self.assertTrue(s.boom_gate_open)
         for _ in range(5):
-            s._update_states(np.zeros((1, 4)), np.array([13]))
+            s._update_states(np.zeros((1, 4)), np.array([12]))
         self.assertFalse(s.boom_gate_open)
 
     def test_yellow_latches_stop_until_green(self):

@@ -1,0 +1,15 @@
+{
+  "name": "NXGV YOLO11n unified14",
+  "file": "model_output/unified14_yolo11n_640x640_nv12.bin",
+  "robot_path": "/home/sunrise/unified14_yolo11n_640x640_nv12.bin",
+  "sha256": "e1cc941f8bb320fb221c9422bef2a7daf86c1b7259fca466a49d667a2d394b6e",
+  "input": "BGR resized to 640x640 then NV12 uint8 (960,640)",
+  "outputs": ["cls8", "box8", "cls16", "box16", "cls32", "box32"],
+  "strides": [8, 16, 32],
+  "classes": ["end_of_tunnel_sign", "hill_sign", "obstacle_sign", "parallel_parking_sign", "perpendicular_park_sign", "roundabout_sign", "speed_bump_sign", "traffic_warn_sign", "tunnel_sign", "traffic_red", "traffic_yellow", "traffic_green", "boom_closed", "boom_open"],
+  "dropped_from_unified16": ["traffic_light lamp (HSV path removed; direct colours only)", "boom_partial (zero validation recall)"],
+  "dfl_bins": 16,
+  "decoder": "risabot_automode.signage_detector.SignageDetector",
+  "training": "yolo11n_unified14_clean_v1",
+  "boom_note": "Boom validation has 0 images (31 closed / 19 open in train). Keep publish_boom_state false; LiDAR owns boom until real footage is validated."
+}
