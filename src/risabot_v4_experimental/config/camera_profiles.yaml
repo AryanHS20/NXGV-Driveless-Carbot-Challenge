@@ -1,14 +1,16 @@
 version: 1
 
 # These are deliberate placeholders, not estimated calibration values.
-# Stage 1 will not publish BEV images until both profiles are measured and
-# calibrated is changed to true with complete intrinsic/ground correspondences.
+# Primary is the forward Astra (320x240 color); secondary is the right-back
+# IMX219 (rotation-corrected at the driver). Stage 1 will not publish BEV
+# images until both profiles are measured and calibrated is changed to
+# true with complete intrinsic/ground correspondences.
 profiles:
   primary:
-    sensor: IMX219
+    sensor: Astra
     topic: /camera/color/image_raw
     calibrated: false
-    resolution: [960, 544]
+    resolution: [320, 240]
     camera_matrix: []
     distortion_coefficients: []
     source_points_px: []
@@ -19,7 +21,7 @@ profiles:
     pixels_per_meter: 200.0
 
   secondary:
-    sensor: OV5647
+    sensor: IMX219
     topic: /camera/second/image_raw
     calibrated: false
     resolution: [960, 544]

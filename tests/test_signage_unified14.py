@@ -13,7 +13,7 @@ ros_stub.install()
 from risabot_automode.signage_detector import CLASS_NAMES, SignageDetector
 
 ROOT = os.path.join(os.path.dirname(__file__), '..')
-MANIFEST = os.path.join(ROOT, 'tools', 'bpu_model', 'model_manifest_unified14.json')
+MANIFEST = os.path.join(ROOT, 'tools', 'bpu_model', 'model_manifest.json')
 PARAMS = os.path.join(ROOT, 'src', 'risabot_automode', 'config', 'params.yaml')
 
 
