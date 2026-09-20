@@ -11,6 +11,7 @@ Or via launch:   included in competition.launch.py
 import http.server
 import json
 import math
+import re
 import socketserver
 import threading
 import time
@@ -77,33 +78,64 @@ from .dashboard_panels import registry
 from .dashboard_templates import DASHBOARD_HTML, TEACH_HTML
 
 _DEFAULT_PARAMS = {}
-_PARAMS_SOURCE_PATH = ''  # Path to the SOURCE params.yaml (for writing back)
+_PARAMS_SOURCE_PATH = ''  # Legacy compatibility: automode source params path.
+_PARAMS_SOURCE_PATHS = []
+
+_PARAM_CONFIGS = (
+    ('risabot_automode', 'params.yaml', os.path.join('..', 'config', 'params.yaml')),
+    ('risabot_v4_experimental', 'v4_experimental.yaml',
+     os.path.join('..', '..', 'risabot_v4_experimental', 'config', 'v4_experimental.yaml')),
+    ('risabot_v4_control', 'v4_control.yaml',
+     os.path.join('..', '..', 'risabot_v4_control', 'config', 'v4_control.yaml')),
+)
+
+_V4_DASHBOARD_SAFE_PARAMS = {
+    'v4_bev_shadow': {'max_hz'},
+    'v4_road_mask_shadow': {
+        'value_min', 'value_max', 'saturation_max', 'morph_open_px',
+        'morph_close_px', 'min_component_px', 'seed_radius_m',
+        'min_corridor_width_m', 'max_corridor_width_m',
+        'corridor_row_step_px', 'memory_planning_age_sec',
+        'memory_planning_distance_m', 'memory_reset_jump_m',
+        'memory_reset_yaw_rad',
+    },
+    'v4_trajectory_shadow': {
+        'horizon_m', 'step_m', 'lookahead_m', 'rollout_speed_mps',
+        'steering_lag_sec', 'steering_rate_rad_sec',
+        'footprint_sample_spacing_m', 'minimum_road_support',
+        'obstacle_margin_m',
+    },
+    'v4_motion_executor': {
+        'forward_speed_mps', 'path_forward_speed_mps',
+        'path_reverse_speed_mps', 'minimum_speed_scale',
+        'hill_max_speed_mps',
+    },
+}
 
 def load_default_params():
-    global _DEFAULT_PARAMS, _PARAMS_SOURCE_PATH
+    global _DEFAULT_PARAMS, _PARAMS_SOURCE_PATH, _PARAMS_SOURCE_PATHS
+    _DEFAULT_PARAMS = {}
+    _PARAMS_SOURCE_PATH = ''
+    _PARAMS_SOURCE_PATHS = []
     try:
         from ament_index_python.packages import get_package_share_directory
-        try:
-            share_dir = get_package_share_directory('risabot_automode')
-            params_file = os.path.join(share_dir, 'config', 'params.yaml')
-        except Exception:
-            params_file = ''
-            
-        if not os.path.exists(params_file):
-            this_dir = os.path.dirname(os.path.abspath(__file__))
-            params_file = os.path.abspath(os.path.join(this_dir, '..', '..', 'config', 'params.yaml'))
-
-        if os.path.exists(params_file):
-            # Resolve the SOURCE file path (inside src/) for writing back
-            # The share/ copy is read-only after colcon build, so we find the src/ original
-            this_dir = os.path.dirname(os.path.abspath(__file__))
-            source_params = os.path.abspath(os.path.join(this_dir, '..', 'config', 'params.yaml'))
-            if os.path.exists(source_params):
-                _PARAMS_SOURCE_PATH = source_params
-            else:
-                _PARAMS_SOURCE_PATH = params_file  # fallback to whatever we found
-
-            with open(params_file, 'r') as f:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        for package, filename, source_relative in _PARAM_CONFIGS:
+            source_params = os.path.abspath(os.path.join(this_dir, source_relative))
+            try:
+                share_dir = get_package_share_directory(package)
+                installed_params = os.path.join(share_dir, 'config', filename)
+            except Exception:
+                installed_params = ''
+            params_file = source_params if os.path.exists(source_params) else installed_params
+            if not params_file or not os.path.exists(params_file):
+                print(f'Parameter config not found for {package}: {filename}')
+                continue
+            write_path = source_params if os.path.exists(source_params) else os.path.realpath(params_file)
+            _PARAMS_SOURCE_PATHS.append(write_path)
+            if package == 'risabot_automode':
+                _PARAMS_SOURCE_PATH = write_path
+            with open(params_file, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f)
                 if data:
                     for node_name, node_data in data.items():
@@ -111,8 +143,8 @@ def load_default_params():
                             if node_name not in _DEFAULT_PARAMS:
                                 _DEFAULT_PARAMS[node_name] = {}
                             _DEFAULT_PARAMS[node_name].update(node_data['ros__parameters'])
-            print(f"Loaded default params from {params_file}")
-            print(f"Source params path for saving: {_PARAMS_SOURCE_PATH}")
+            print(f'Loaded default params from {params_file}')
+            print(f'Parameter save path: {write_path}')
     except Exception as e:
         print(f"Failed to load default params: {e}")
 
@@ -867,76 +899,99 @@ def _ros_set_param(node_name, param_name, value_str):
 
 
 def _save_params_to_yaml():
-    """Read current runtime params from all nodes and write them to the source params.yaml."""
-    global _PARAMS_SOURCE_PATH, _DEFAULT_PARAMS
-    if not _PARAMS_SOURCE_PATH:
-        return {'ok': False, 'error': 'No params.yaml path resolved'}
-    if not os.path.exists(_PARAMS_SOURCE_PATH):
-        return {'ok': False, 'error': f'File not found: {_PARAMS_SOURCE_PATH}'}
+    """Persist live legacy and V4 parameters to their source YAML files."""
+    global _PARAMS_SOURCE_PATHS, _DEFAULT_PARAMS
+    paths = [path for path in _PARAMS_SOURCE_PATHS if os.path.exists(path)]
+    if not paths:
+        return {'ok': False, 'error': 'No parameter YAML paths resolved'}
+
+    def yaml_scalar(value):
+        rendered = yaml.safe_dump(
+            value, default_flow_style=True, allow_unicode=True, width=120,
+        ).strip()
+        if rendered.endswith('\n...'):
+            rendered = rendered[:-4].rstrip()
+        return rendered
+
+    def replace_values(raw_text, updates):
+        current_node = None
+        result = []
+        node_pattern = re.compile(r'^([A-Za-z0-9_]+):\s*(?:#.*)?$')
+        param_pattern = re.compile(
+            r'^(\s{4})([A-Za-z0-9_]+):(\s*)(.*?)(\s+#.*)?$'
+        )
+        for line in raw_text.splitlines(keepends=True):
+            newline = '\r\n' if line.endswith('\r\n') else ('\n' if line.endswith('\n') else '')
+            body = line[:-len(newline)] if newline else line
+            node_match = node_pattern.match(body)
+            if node_match:
+                current_node = node_match.group(1)
+            param_match = param_pattern.match(body)
+            key = None if not param_match else (current_node, param_match.group(2))
+            if key in updates:
+                comment = param_match.group(5) or ''
+                body = (
+                    f'{param_match.group(1)}{param_match.group(2)}:'
+                    f'{param_match.group(3)}{yaml_scalar(updates[key])}{comment}'
+                )
+            result.append(body + newline)
+        return ''.join(result)
 
     try:
-        # Read the existing file to preserve comments structure
-        # We read it as raw text lines to do targeted value replacement
-        with open(_PARAMS_SOURCE_PATH, 'r') as f:
-            yaml_data = yaml.safe_load(f)
-        if not yaml_data:
-            return {'ok': False, 'error': 'Empty params.yaml'}
-
-        # For each node section in the YAML, fetch current runtime values
         updated_count = 0
-        errors = []
-        for node_name, node_data in yaml_data.items():
-            if not isinstance(node_data, dict) or 'ros__parameters' not in node_data:
+        saved_paths = []
+        for path in paths:
+            with open(path, 'r', encoding='utf-8', newline='') as handle:
+                raw_text = handle.read()
+            yaml_data = yaml.safe_load(raw_text)
+            if not yaml_data:
                 continue
-            params = node_data['ros__parameters']
-            for param_name in list(params.keys()):
-                value, err = _ros_get_param(node_name, param_name)
-                if err is not None:
-                    # Node not running or param not found — keep existing default
+            file_updates = {}
+            for node_name, node_data in yaml_data.items():
+                if not isinstance(node_data, dict) or 'ros__parameters' not in node_data:
                     continue
-                # Convert string value back to the correct Python type
-                old_val = params[param_name]
-                try:
-                    if isinstance(old_val, bool):
-                        new_val = value.lower() == 'true'
-                    elif isinstance(old_val, int):
-                        # Handle float strings like "8.0" → int 8
-                        new_val = int(float(value))
-                    elif isinstance(old_val, float):
-                        new_val = float(value)
-                    elif isinstance(old_val, list):
-                        new_val = value
-                    else:
-                        new_val = value
-                except (ValueError, TypeError):
-                    new_val = value
+                params = node_data['ros__parameters']
+                for param_name in list(params.keys()):
+                    safe_v4 = _V4_DASHBOARD_SAFE_PARAMS.get(node_name)
+                    if node_name.startswith('v4_') and (
+                        safe_v4 is None or param_name not in safe_v4
+                    ):
+                        continue
+                    value, err = _ros_get_param(node_name, param_name)
+                    if err is not None:
+                        continue
+                    old_val = params[param_name]
+                    try:
+                        if isinstance(old_val, bool):
+                            new_val = value.lower() == 'true'
+                        elif isinstance(old_val, int):
+                            new_val = int(float(value))
+                        elif isinstance(old_val, float):
+                            new_val = float(value)
+                        elif isinstance(old_val, list):
+                            parsed = yaml.safe_load(value)
+                            new_val = parsed if isinstance(parsed, list) else old_val
+                        else:
+                            new_val = value
+                    except (ValueError, TypeError, yaml.YAMLError):
+                        continue
+                    if old_val != new_val:
+                        params[param_name] = new_val
+                        file_updates[(node_name, param_name)] = new_val
+                        updated_count += 1
+                _DEFAULT_PARAMS.setdefault(node_name, {}).update(params)
+            if file_updates:
+                updated_text = replace_values(raw_text, file_updates)
+                with open(path, 'w', encoding='utf-8', newline='') as handle:
+                    handle.write(updated_text)
+            saved_paths.append(path)
 
-                if params[param_name] != new_val:
-                    params[param_name] = new_val
-                    updated_count += 1
-
-        # Write updated YAML back
-        # Use a custom representer to avoid YAML anchors and get clean output
-        class CleanDumper(yaml.SafeDumper):
-            pass
-
-        def _repr_str(dumper, data):
-            return dumper.represent_scalar('tag:yaml.org,2002:str', data)
-        CleanDumper.add_representer(str, _repr_str)
-
-        with open(_PARAMS_SOURCE_PATH, 'w') as f:
-            yaml.dump(yaml_data, f, Dumper=CleanDumper, default_flow_style=False,
-                      sort_keys=False, allow_unicode=True, width=120)
-
-        # Also update the in-memory defaults
-        for node_name, node_data in yaml_data.items():
-            if isinstance(node_data, dict) and 'ros__parameters' in node_data:
-                if node_name not in _DEFAULT_PARAMS:
-                    _DEFAULT_PARAMS[node_name] = {}
-                _DEFAULT_PARAMS[node_name].update(node_data['ros__parameters'])
-
-        return {'ok': True, 'msg': f'Saved {updated_count} changed params to {_PARAMS_SOURCE_PATH}',
-                'updated': updated_count, 'path': _PARAMS_SOURCE_PATH}
+        return {
+            'ok': True,
+            'msg': f'Saved {updated_count} changed params across {len(saved_paths)} YAML files',
+            'updated': updated_count,
+            'paths': saved_paths,
+        }
     except Exception as e:
         return {'ok': False, 'error': str(e)}
 

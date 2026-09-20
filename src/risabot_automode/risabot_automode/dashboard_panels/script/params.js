@@ -122,7 +122,22 @@ const PARAM_TIPS = {
   thresh_perpendp:'Class 4 perpendicular parking threshold', thresh_roundabout:'Class 5 roundabout threshold',
   thresh_speedbump:'Class 6 speed bump threshold',
   thresh_tl_warn:'Class 7 warning sign threshold', thresh_tunnel:'Class 8 tunnel sign threshold',
-  tunnel_publish_enabled:'Publish the advisory tunnel sign hint'
+  tunnel_publish_enabled:'Publish the advisory tunnel sign hint',
+  // V4 lane-only tuning (validation gates and physical geometry stay locked)
+  value_min:'V4 road brightness lower bound (0-255)', value_max:'V4 road brightness upper bound (0-255)',
+  saturation_max:'V4 maximum road saturation (0-255)', morph_open_px:'V4 noise-removal kernel (0 or odd)',
+  morph_close_px:'V4 gap-closing kernel (0 or odd)', min_component_px:'V4 minimum connected road area in pixels',
+  seed_radius_m:'V4 road seed radius in metres', min_corridor_width_m:'V4 minimum accepted corridor width',
+  max_corridor_width_m:'V4 maximum accepted corridor width', corridor_row_step_px:'V4 corridor sampling row step',
+  memory_planning_age_sec:'Maximum age of local road memory', memory_planning_distance_m:'Maximum travel distance for road memory',
+  memory_reset_jump_m:'Clear road memory after this odometry jump', memory_reset_yaw_rad:'Clear road memory after this yaw jump',
+  horizon_m:'V4 trajectory planning horizon', step_m:'V4 trajectory integration step',
+  lookahead_m:'V4 steering lookahead distance', rollout_speed_mps:'Speed assumed by V4 rollout simulation',
+  steering_lag_sec:'Measured steering response lag', steering_rate_rad_sec:'Maximum steering response rate',
+  footprint_sample_spacing_m:'Spacing of collision footprint samples', minimum_road_support:'Minimum footprint fraction on road',
+  obstacle_margin_m:'Extra obstacle clearance around the footprint', forward_speed_mps:'V4 lane-follow speed',
+  path_forward_speed_mps:'V4 forward parking/recovery path speed', path_reverse_speed_mps:'V4 reverse path speed',
+  minimum_speed_scale:'Lowest V4 curve speed fraction', hill_max_speed_mps:'Maximum V4 hill speed'
 };
 const PARAM_GROUPS = [
   { node: 'line_follower_camera', label: 'Line Follower', params: [
@@ -213,6 +228,24 @@ const PARAM_GROUPS = [
     'thresh_traffic_red','thresh_traffic_yellow','thresh_traffic_green',
     'thresh_boom_closed','thresh_boom_open',
     'tunnel_publish_enabled','publish_boom_state'
+  ]},
+  { node: 'v4_bev_shadow', label: 'V4 Lane · BEV', params: [
+    'max_hz'
+  ]},
+  { node: 'v4_road_mask_shadow', label: 'V4 Lane · Road Mask', params: [
+    'value_min','value_max','saturation_max','morph_open_px','morph_close_px',
+    'min_component_px','seed_radius_m','min_corridor_width_m','max_corridor_width_m',
+    'corridor_row_step_px','memory_planning_age_sec','memory_planning_distance_m',
+    'memory_reset_jump_m','memory_reset_yaw_rad'
+  ]},
+  { node: 'v4_trajectory_shadow', label: 'V4 Lane · Trajectory', params: [
+    'horizon_m','step_m','lookahead_m','rollout_speed_mps','steering_lag_sec',
+    'steering_rate_rad_sec','footprint_sample_spacing_m','minimum_road_support',
+    'obstacle_margin_m'
+  ]},
+  { node: 'v4_motion_executor', label: 'V4 Lane · Speed (locked while driving)', params: [
+    'forward_speed_mps','path_forward_speed_mps','path_reverse_speed_mps',
+    'minimum_speed_scale','hill_max_speed_mps'
   ]},
 ];
 
@@ -308,7 +341,7 @@ async function setParam(node, param) {
 }
 
 async function saveDefaults() {
-  if (!confirm('Save ALL current runtime parameters as the new defaults in params.yaml?\n\nThis will overwrite the file on disk. You will need to rebuild (colcon build) for the changes to take effect on next launch.')) {
+  if (!confirm('Save ALL current runtime parameters as defaults in the legacy and V4 YAML files?\n\nThis will overwrite those files on disk. Rebuild (colcon build) before the next launch.')) {
     return;
   }
   const btn = document.getElementById('saveDefaultsBtn');

@@ -8,6 +8,7 @@ from typing import Dict, Optional, Tuple
 import rclpy
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
@@ -79,6 +80,7 @@ class MotionExecutor(Node):
             'minimum_speed_scale', 'completion_distance_m', 'hill_max_speed_mps',
         )}
         self._validate_parameters()
+        self.add_on_set_parameters_callback(self._on_parameters)
 
         self._state = ''
         self._state_stamp = 0.0
@@ -127,6 +129,43 @@ class MotionExecutor(Node):
             raise ControlContractError('Stage 8 positive parameters must be finite and positive')
         if not 0.0 < self._p['minimum_speed_scale'] <= 1.0:
             raise ControlContractError('minimum_speed_scale must be in (0, 1]')
+
+    def _on_parameters(self, parameters) -> SetParametersResult:
+        safe = {
+            'forward_speed_mps', 'path_forward_speed_mps',
+            'path_reverse_speed_mps', 'minimum_speed_scale',
+            'hill_max_speed_mps',
+        }
+        protected = set(self._gate_names) | {
+            'enabled', 'allow_legacy_challenge_passthrough', 'publish_hz',
+            'proposal_timeout_sec', 'path_timeout_sec', 'path_max_age_sec',
+            'odom_timeout_sec', 'state_timeout_sec', 'legacy_timeout_sec',
+            'wheelbase_m', 'maximum_steer_deg', 'completion_distance_m',
+        }
+        changes = {}
+        for parameter in parameters:
+            if parameter.name in protected:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'{parameter.name} requires a node restart',
+                )
+            if parameter.name in safe:
+                changes[parameter.name] = parameter.value
+        if not changes:
+            return SetParametersResult(successful=True)
+        if not self._gate_blockers():
+            return SetParametersResult(
+                successful=False,
+                reason='speed tuning is locked while V4 motion authority is open',
+            )
+        previous = dict(self._p)
+        try:
+            self._p.update({name: float(value) for name, value in changes.items()})
+            self._validate_parameters()
+        except (ControlContractError, TypeError, ValueError) as exc:
+            self._p = previous
+            return SetParametersResult(successful=False, reason=str(exc))
+        return SetParametersResult(successful=True)
 
     @staticmethod
     def _fresh(stamp: float, now: float, timeout: float) -> bool:

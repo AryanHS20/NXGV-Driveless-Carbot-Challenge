@@ -13,6 +13,7 @@ from cv_bridge import CvBridge, CvBridgeError
 from nav_msgs.msg import Odometry
 import numpy as np
 import rclpy
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
@@ -108,6 +109,7 @@ class RoadMaskShadow(Node):
             min_component_px=int(self.get_parameter('min_component_px').value),
         )
         self._config.validate()
+        self.add_on_set_parameters_callback(self._on_parameters)
 
         self._profiles = {}
         self._profile_error = ''
@@ -189,6 +191,86 @@ class RoadMaskShadow(Node):
             f'V4 road-mask shadow is {state}; thresholds_validated='
             f'{self._thresholds_validated}; motion authority is permanently false'
         )
+
+    def _on_parameters(self, parameters) -> SetParametersResult:
+        safe = {
+            'value_min', 'value_max', 'saturation_max', 'morph_open_px',
+            'morph_close_px', 'min_component_px', 'seed_radius_m',
+            'min_corridor_width_m', 'max_corridor_width_m',
+            'corridor_row_step_px', 'memory_planning_age_sec',
+            'memory_planning_distance_m', 'memory_reset_jump_m',
+            'memory_reset_yaw_rad',
+        }
+        restart_only = {
+            'enabled', 'profile_path', 'thresholds_validated',
+            'process_secondary', 'primary_bev_topic',
+            'primary_coverage_topic', 'secondary_bev_topic',
+            'secondary_coverage_topic', 'sync_tolerance_sec', 'odom_topic',
+            'odom_timeout_sec', 'memory_cell_size_m', 'memory_retention_sec',
+        }
+        proposed = {
+            'value_min': self._config.value_min,
+            'value_max': self._config.value_max,
+            'saturation_max': self._config.saturation_max,
+            'morph_open_px': self._config.morph_open_px,
+            'morph_close_px': self._config.morph_close_px,
+            'min_component_px': self._config.min_component_px,
+            'seed_radius_m': self._seed_radius_m,
+            'min_corridor_width_m': self._min_width_m,
+            'max_corridor_width_m': self._max_width_m,
+            'corridor_row_step_px': self._row_step,
+            'memory_planning_age_sec': self._memory_age,
+            'memory_planning_distance_m': self._memory_distance,
+            'memory_reset_jump_m': self._reset_jump,
+            'memory_reset_yaw_rad': self._reset_yaw,
+        }
+        for parameter in parameters:
+            if parameter.name in restart_only:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'{parameter.name} requires a node restart',
+                )
+            if parameter.name in safe:
+                proposed[parameter.name] = parameter.value
+        try:
+            config = RoadMaskConfig(
+                value_min=int(proposed['value_min']),
+                value_max=int(proposed['value_max']),
+                saturation_max=int(proposed['saturation_max']),
+                morph_open_px=int(proposed['morph_open_px']),
+                morph_close_px=int(proposed['morph_close_px']),
+                min_component_px=int(proposed['min_component_px']),
+            )
+            config.validate()
+            seed = float(proposed['seed_radius_m'])
+            min_width = float(proposed['min_corridor_width_m'])
+            max_width = float(proposed['max_corridor_width_m'])
+            row_step = int(proposed['corridor_row_step_px'])
+            memory_age = float(proposed['memory_planning_age_sec'])
+            memory_distance = float(proposed['memory_planning_distance_m'])
+            reset_jump = float(proposed['memory_reset_jump_m'])
+            reset_yaw = float(proposed['memory_reset_yaw_rad'])
+            values = (seed, min_width, max_width, memory_age, memory_distance,
+                      reset_jump, reset_yaw)
+            if not all(math.isfinite(value) for value in values):
+                raise ValueError('live tuning values must be finite')
+            if seed <= 0.0 or min_width <= 0.0 or max_width < min_width:
+                raise ValueError('seed and corridor widths are invalid')
+            if row_step <= 0 or min(memory_age, memory_distance, reset_jump, reset_yaw) < 0.0:
+                raise ValueError('memory limits and row step are invalid')
+        except (RoadMaskError, TypeError, ValueError) as exc:
+            return SetParametersResult(successful=False, reason=str(exc))
+
+        self._config = config
+        self._seed_radius_m = seed
+        self._min_width_m = min_width
+        self._max_width_m = max_width
+        self._row_step = row_step
+        self._memory_age = memory_age
+        self._memory_distance = memory_distance
+        self._reset_jump = reset_jump
+        self._reset_yaw = reset_yaw
+        return SetParametersResult(successful=True)
 
     def _odom_callback(self, msg: Odometry) -> None:
         position = msg.pose.pose.position

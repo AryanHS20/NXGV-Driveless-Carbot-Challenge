@@ -5,11 +5,13 @@ This node imports no motion message and owns no command publisher.
 """
 
 import json
+import math
 import time
 from typing import Dict
 
 from cv_bridge import CvBridge, CvBridgeError
 import rclpy
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
@@ -42,6 +44,7 @@ class BevShadow(Node):
             else ('primary',)
         )
         self._max_hz = max(0.1, float(self.get_parameter('max_hz').value))
+        self.add_on_set_parameters_callback(self._on_parameters)
         self._bridge = CvBridge()
         self._profiles = {}
         self._profile_error = ''
@@ -88,6 +91,33 @@ class BevShadow(Node):
             f'V4 BEV shadow is {state}; outputs are diagnostics only and '
             'motion authority is permanently false'
         )
+
+    def _on_parameters(self, parameters) -> SetParametersResult:
+        for parameter in parameters:
+            if parameter.name == 'max_hz':
+                try:
+                    value = float(parameter.value)
+                except (TypeError, ValueError):
+                    return SetParametersResult(
+                        successful=False, reason='max_hz must be numeric'
+                    )
+                if not math.isfinite(value) or not 0.1 <= value <= 30.0:
+                    return SetParametersResult(
+                        successful=False,
+                        reason='max_hz must be finite and in [0.1, 30]',
+                    )
+            elif parameter.name in {
+                'enabled', 'profile_path', 'primary_camera_topic',
+                'secondary_camera_topic', 'process_secondary',
+            }:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'{parameter.name} requires a node restart',
+                )
+        for parameter in parameters:
+            if parameter.name == 'max_hz':
+                self._max_hz = float(parameter.value)
+        return SetParametersResult(successful=True)
 
     def _image_callback(self, name: str, msg: Image) -> None:
         if not self._enabled or name not in self._profiles:

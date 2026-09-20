@@ -70,11 +70,18 @@ def module(name, **attrs):
     obj=types.ModuleType(name); obj.__dict__.update(attrs); sys.modules[name]=obj; return obj
 
 def install():
-    for package in ('risabot_automode','control_servo','obstacle_avoidance','obstacle_avoidance_camera','risabot_sim'):
+    for package in (
+        'risabot_automode', 'control_servo', 'obstacle_avoidance',
+        'obstacle_avoidance_camera', 'risabot_sim',
+        'risabot_v4_experimental', 'risabot_v4_control',
+    ):
         sys.path.insert(0,str(ROOT/'src'/package))
     qos=types.SimpleNamespace(SENSOR_DATA=types.SimpleNamespace(value=0))
     module('rclpy', Parameter=Parameter)
-    module('rclpy.node',Node=Node); module('rclpy.qos',QoSPresetProfiles=qos)
+    module('rclpy.node',Node=Node); module(
+        'rclpy.qos', QoSPresetProfiles=qos,
+        qos_profile_sensor_data=types.SimpleNamespace(value=0),
+    )
     for name, attrs in {
         'std_msgs.msg':dict(Bool=Message,String=Message,Float32=Message),
         'geometry_msgs.msg':dict(Twist=Twist), 'nav_msgs.msg':dict(Odometry=Odometry),
@@ -84,5 +91,5 @@ def install():
         'rcl_interfaces.srv':dict(GetParameters=Message, SetParameters=Message),
     }.items():
         module(name.split('.')[0]); module(name,**attrs)
-    module('cv_bridge',CvBridge=lambda:None)
+    module('cv_bridge', CvBridge=lambda:None, CvBridgeError=Exception)
     module('Rosmaster_Lib',Rosmaster=Bot)

@@ -49,6 +49,21 @@ class PanelAssemblyTests(unittest.TestCase):
                        'authorityReason', 'v4StageGrid', 'showPage('):
             self.assertIn(marker, html)
 
+    def test_v4_live_tuning_exposes_safe_controls_only(self):
+        html = registry.build_dashboard_html()
+        for marker in (
+            "node: 'v4_bev_shadow'", "node: 'v4_road_mask_shadow'",
+            "node: 'v4_trajectory_shadow'", "node: 'v4_motion_executor'",
+            "'minimum_road_support'", "'forward_speed_mps'",
+        ):
+            self.assertIn(marker, html)
+        v4_controls = html[html.index("node: 'v4_bev_shadow'"):]
+        for protected in (
+            "'operator_motion_authorized'", "'command_contract_validated'",
+            "'vehicle_geometry_validated'", "'lidar_extrinsics_validated'",
+        ):
+            self.assertNotIn(protected, v4_controls)
+
     def test_registry_well_formed(self):
         self.assertEqual(len(registry.ORDER), 35)
         self.assertEqual(len(set(registry.ORDER)), 35)

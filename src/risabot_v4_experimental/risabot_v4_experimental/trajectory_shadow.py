@@ -11,6 +11,7 @@ from typing import Dict, List, Optional, Tuple
 
 from cv_bridge import CvBridge, CvBridgeError
 import rclpy
+from rcl_interfaces.msg import SetParametersResult
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -55,6 +56,15 @@ class TrajectoryShadow(Node):
         self.declare_parameter('lidar_yaw_rad', 0.0)
         self.declare_parameter('minimum_scan_range_m', 0.03)
         self.declare_parameter('maximum_scan_range_m', 2.0)
+        for name, value in (
+            ('horizon_m', 0.55), ('step_m', 0.01),
+            ('lookahead_m', 0.095), ('rollout_speed_mps', 0.08),
+            ('steering_lag_sec', 0.12),
+            ('steering_rate_rad_sec', math.pi),
+            ('footprint_sample_spacing_m', 0.02),
+            ('minimum_road_support', 0.98), ('obstacle_margin_m', 0.015),
+        ):
+            self.declare_parameter(name, value)
 
         self._enabled = bool(self.get_parameter('enabled').value)
         self._geometry_validated = bool(
@@ -95,9 +105,10 @@ class TrajectoryShadow(Node):
             minimum_turn_radius_m=float(self.get_parameter('minimum_turn_radius_m').value),
             footprint_padding_m=float(self.get_parameter('footprint_padding_m').value),
         )
-        self._config = TrajectoryConfig()
+        self._config = self._trajectory_config_from_parameters()
         self._geometry.validate()
         self._config.validate()
+        self.add_on_set_parameters_callback(self._on_parameters)
 
         self._profiles = {}
         self._profile_error = ''
@@ -145,6 +156,59 @@ class TrajectoryShadow(Node):
             f'V4 trajectory shadow is {state}; candidate reports only; '
             'motion authority is permanently false'
         )
+
+    def _trajectory_config_from_parameters(self, overrides=None) -> TrajectoryConfig:
+        overrides = overrides or {}
+        names = (
+            'horizon_m', 'step_m', 'lookahead_m', 'rollout_speed_mps',
+            'steering_lag_sec', 'steering_rate_rad_sec',
+            'footprint_sample_spacing_m', 'minimum_road_support',
+            'obstacle_margin_m',
+        )
+        values = {
+            name: float(overrides.get(name, self.get_parameter(name).value))
+            for name in names
+        }
+        return TrajectoryConfig(**values)
+
+    def _on_parameters(self, parameters) -> SetParametersResult:
+        safe = {
+            'horizon_m', 'step_m', 'lookahead_m', 'rollout_speed_mps',
+            'steering_lag_sec', 'steering_rate_rad_sec',
+            'footprint_sample_spacing_m', 'minimum_road_support',
+            'obstacle_margin_m',
+        }
+        protected = {
+            'enabled', 'profile_path', 'vehicle_geometry_validated',
+            'minimum_turn_radius_validated', 'lidar_extrinsics_validated',
+            'vehicle_length_m', 'vehicle_width_m', 'wheelbase_m',
+            'rear_overhang_m', 'minimum_turn_radius_m',
+            'footprint_padding_m', 'lidar_x_m', 'lidar_y_m',
+            'lidar_yaw_rad', 'minimum_scan_range_m', 'maximum_scan_range_m',
+            'road_status_topic', 'road_mask_topic', 'scan_topic',
+            'road_timeout_sec', 'scan_timeout_sec',
+            'road_mask_sync_tolerance_sec',
+        }
+        overrides = {}
+        for parameter in parameters:
+            if parameter.name in protected:
+                return SetParametersResult(
+                    successful=False,
+                    reason=f'{parameter.name} requires a node restart',
+                )
+            if parameter.name in safe:
+                overrides[parameter.name] = parameter.value
+        if not overrides:
+            return SetParametersResult(successful=True)
+        try:
+            current = {name: getattr(self._config, name) for name in safe}
+            current.update({name: float(value) for name, value in overrides.items()})
+            config = TrajectoryConfig(**current)
+            config.validate()
+        except (TrajectoryError, TypeError, ValueError) as exc:
+            return SetParametersResult(successful=False, reason=str(exc))
+        self._config = config
+        return SetParametersResult(successful=True)
 
     def _road_status_callback(self, msg: String) -> None:
         if not self._enabled:

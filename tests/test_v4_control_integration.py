@@ -12,6 +12,7 @@ executors = types.ModuleType('rclpy.executors')
 executors.ExternalShutdownException = type('ExternalShutdownException', (Exception,), {})
 sys.modules['rclpy.executors'] = executors
 from ros_stub import Twist
+from ros_stub import Parameter
 
 from risabot_v4_control.motion_executor import MotionExecutor
 
@@ -74,6 +75,32 @@ class V4ControlIntegrationTests(unittest.TestCase):
         node._control_loop()
         cmd = node._cmd_pub.messages[-1]
         self.assertEqual((cmd.linear.x, cmd.angular.z), (0.0, 0.0))
+
+    def test_speed_tuning_is_live_only_while_motion_is_blocked(self):
+        node = MotionExecutor()
+        result = node.set_parameters([
+            Parameter('forward_speed_mps', value=0.06),
+            Parameter('minimum_speed_scale', value=0.5),
+        ])[0]
+        self.assertTrue(result.successful)
+        self.assertEqual(node._p['forward_speed_mps'], 0.06)
+        self.assertEqual(node._p['minimum_speed_scale'], 0.5)
+
+        node._enabled = True
+        node._gates = {name: True for name in node._gate_names}
+        result = node.set_parameters([
+            Parameter('forward_speed_mps', value=0.07),
+        ])[0]
+        self.assertFalse(result.successful)
+        self.assertEqual(node._p['forward_speed_mps'], 0.06)
+
+    def test_stage8_gates_cannot_be_changed_live(self):
+        node = MotionExecutor()
+        result = node.set_parameters([
+            Parameter('operator_motion_authorized', value=True),
+        ])[0]
+        self.assertFalse(result.successful)
+        self.assertFalse(node._gates['operator_motion_authorized'])
 
 
 if __name__ == '__main__':
