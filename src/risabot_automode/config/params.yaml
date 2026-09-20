@@ -443,3 +443,11 @@ mipi_relay:
     second_source: "/cam_ov5647/image_raw"
     second_target: "/camera/third/image_raw"
     max_hz: 30.0
+
+# --- V4 Telemetry Bridge (read-only 5 Hz display payload) ---
+# Subscribes V4 shadow topics + /scan; publishes /v4_telemetry for the
+# dashboard track map. No command publishers; safe to run always.
+v4_telemetry_bridge:
+  ros__parameters:
+    publish_hz: 5.0
+    input_timeout_sec: 1.0

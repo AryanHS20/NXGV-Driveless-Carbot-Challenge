@@ -139,6 +139,8 @@ class DashboardNode(Node):
         self._last_encode_mono = 0.0
         self.active_camera_view = 'raw'
         self.active_camera_source = 'forward'  # forward | second | third
+        self._v4telemetry = None
+        self._v4telemetry_mono = 0.0
         self.initial_joy_axes = None
 
         # LiDAR scan storage for 2D visualization
@@ -301,6 +303,9 @@ class DashboardNode(Node):
         # Record & Playback state from servo_controller
         self.create_subscription(String, RECORD_PLAYBACK_STATE_TOPIC, self._rp_state_cb, 10)
 
+        # V4 telemetry bridge output for the track map (display only)
+        self.create_subscription(String, '/v4_telemetry', self._v4telemetry_cb, 10)
+
         # Simulate odometry since hardware might not publish
         self.create_timer(0.05, self._simulate_odom_loop)
 
@@ -442,6 +447,17 @@ class DashboardNode(Node):
                 self.data['v4_status'] = statuses
         except (json.JSONDecodeError, TypeError, ValueError):
             return
+
+    def _v4telemetry_cb(self, msg: String) -> None:
+        """Cache the latest V4 telemetry document for the track map."""
+        try:
+            payload = json.loads(msg.data)
+            if not isinstance(payload, dict):
+                raise ValueError('telemetry must be an object')
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return
+        self._v4telemetry = payload
+        self._v4telemetry_mono = time.monotonic()
 
     def _loop_stats_cb(self, msg: String) -> None:
         """Track latest loop stat payloads by node:loop key."""

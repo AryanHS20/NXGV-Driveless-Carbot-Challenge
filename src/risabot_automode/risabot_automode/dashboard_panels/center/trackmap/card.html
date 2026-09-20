@@ -1,0 +1,16 @@
+    <!-- Track Map (V4 telemetry trail, display only) -->
+    <div class="card">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <h3 style="margin:0;">Track Map</h3>
+        <span id="trackmapStale" style="font-size:0.8em; font-weight:600; color:#888;">● Waiting</span>
+      </div>
+      <button class="cam-toggle" id="trackmapBtn" onclick="toggleTrackmap()">🗺️ Enable Track Map</button>
+      <div id="trackmapPanel" style="display:none;">
+        <canvas id="trackmapCanvas" width="360" height="360" style="width:100%; border-radius:12px; background:#0a0a0f; border:1px solid rgba(0,0,0,0.1);"></canvas>
+        <div style="display:flex; gap:6px; margin-top:6px;">
+          <button class="cam-toggle" onclick="resetTrackmapTrail()" style="margin:0;">Reset trail</button>
+          <button class="cam-toggle" onclick="resetTrackmapView()" style="margin:0;">Reset view</button>
+        </div>
+        <div id="trackmapMeta" style="font-size:0.75em; color:#888; margin-top:4px;">No telemetry yet</div>
+      </div>
+    </div>

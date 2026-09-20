@@ -256,6 +256,15 @@ def generate_launch_description():
             parameters=[params_file]
         ),
 
+        # M2. V4 telemetry bridge (5 Hz read-only display payload; no motion)
+        Node(
+            package='risabot_automode',
+            executable='v4_telemetry_bridge',
+            name='v4_telemetry_bridge',
+            output='screen',
+            parameters=[params_file]
+        ),
+
         # N. Dashboard (web UI at http://<robot_ip>:8080)
         Node(
             package='risabot_automode',

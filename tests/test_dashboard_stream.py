@@ -180,6 +180,19 @@ class DispatchTests(unittest.TestCase):
         payload = json.loads(handler.wfile.getvalue())
         self.assertFalse(payload['ok'])
 
+    def test_v4_telemetry_absent_then_present(self):
+        handler = FakeHandler('/api/v4_telemetry')
+        registry.dispatch(make_ctx(handler, types.SimpleNamespace()), 'GET', handler.path)
+        self.assertFalse(json.loads(handler.wfile.getvalue())['ok'])
+        node = types.SimpleNamespace(
+            _v4telemetry={'t_wall': 1.0, 'local': None, 'stale': []},
+            _v4telemetry_mono=time.monotonic())
+        handler = FakeHandler('/api/v4_telemetry')
+        registry.dispatch(make_ctx(handler, node), 'GET', handler.path)
+        payload = json.loads(handler.wfile.getvalue())
+        self.assertTrue(payload['ok'])
+        self.assertIn('age_sec', payload)
+
 
 if __name__ == '__main__':
     unittest.main()

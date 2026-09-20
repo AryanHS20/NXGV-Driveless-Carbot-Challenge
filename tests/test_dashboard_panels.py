@@ -50,14 +50,18 @@ class PanelAssemblyTests(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_registry_well_formed(self):
-        self.assertEqual(len(registry.ORDER), 33)
-        self.assertEqual(len(set(registry.ORDER)), 33)
+        self.assertEqual(len(registry.ORDER), 35)
+        self.assertEqual(len(set(registry.ORDER)), 35)
         names = registry.plugin_names()
-        self.assertEqual(len(names), 33)
+        self.assertEqual(len(names), 35)
         self.assertIn('v4views', names)
+        self.assertIn('v4status', names)
+        self.assertIn('trackmap', names)
         self.assertIn('driveviz', names)
         self.assertIn('js_sim', names)
         self.assertIn('js_driveviz', names)
+        self.assertIn('js_trackmap', names)
+        self.assertIn('js_navigation', names)
         self.assertIn('v4status', names)
         self.assertIn('js_navigation', names)
         for rel_path in registry.ORDER + [registry.TEACH_PAGE]:
