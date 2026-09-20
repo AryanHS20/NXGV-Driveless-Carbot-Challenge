@@ -87,6 +87,7 @@ const PARAM_TIPS = {
   // Dashboard
   use_hw_odom:'Use hardware encoder odometry', freshness_stale_sec:'Dashboard stale threshold in seconds',
   cam_encode_max_hz:'Max MJPEG encode rate in Hz (lower = less robot CPU)',
+  dashboard_port:'HTTP port (takes effect on restart)',
   sim_odom_scale:'Scale for simulated odometry distance', hw_odom_scale:'Scale for hardware odometry distance',
   hw_odom_yaw_scale:'Scale for hardware odometry yaw',
   // Servo controller
@@ -189,7 +190,7 @@ const PARAM_GROUPS = [
   ]},
   { node: 'dashboard', label: 'Dashboard', params: [
     'use_hw_odom','freshness_stale_sec','sim_odom_scale','hw_odom_scale','hw_odom_yaw_scale',
-    'cam_encode_max_hz'
+    'cam_encode_max_hz','dashboard_port'
   ]},
   { node: 'health_monitor', label: 'Health Monitor', params: [
     'publish_period','timeout_perception','timeout_state',

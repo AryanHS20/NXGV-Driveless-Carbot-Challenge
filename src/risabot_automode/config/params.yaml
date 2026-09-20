@@ -308,6 +308,7 @@ dashboard:
     hw_odom_scale: 1.0
     hw_odom_yaw_scale: 1.0
     cam_encode_max_hz: 10.0   # MJPEG encode cap — lower if dashboard video stutters
+    dashboard_port: 8080      # HTTP port (takes effect on restart; 8081 if the carbot GUI owns 8080)
 
 # --- Health Monitor ---
 health_monitor:

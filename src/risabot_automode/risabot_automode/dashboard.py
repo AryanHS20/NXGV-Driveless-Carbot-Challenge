@@ -129,6 +129,7 @@ class DashboardNode(Node):
         self.declare_parameter('hw_odom_scale', 1.0)
         self.declare_parameter('hw_odom_yaw_scale', 1.0)
         self.declare_parameter('cam_encode_max_hz', 10.0)  # MJPEG encode cap (CPU saver)
+        self.declare_parameter('dashboard_port', 8080)  # HTTP port (8081 when the carbot GUI owns 8080)
 
         # CV Bridge for camera
         self.bridge = CvBridge() if CvBridge else None
@@ -993,7 +994,13 @@ def main(args=None) -> None:
     class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
         allow_reuse_address = True   # Prevent 'Address already in use' after crash
-    server = ThreadedHTTPServer(('0.0.0.0', 8080), DashboardHandler)
+    try:
+        dashboard_port = int(node.get_parameter('dashboard_port').value)
+    except Exception:
+        dashboard_port = 8080
+    if not 1024 <= dashboard_port <= 65535:
+        dashboard_port = 8080
+    server = ThreadedHTTPServer(('0.0.0.0', dashboard_port), DashboardHandler)
     http_thread = threading.Thread(target=server.serve_forever, daemon=True)
     http_thread.start()
 
@@ -1009,8 +1016,8 @@ def main(args=None) -> None:
     except Exception:
         ip = '?.?.?.?'
     node.get_logger().info(f'Dashboard live!')
-    node.get_logger().info(f'  → http://{hostname}.local:8080')
-    node.get_logger().info(f'  → http://{ip}:8080')
+    node.get_logger().info(f'  → http://{hostname}.local:{dashboard_port}')
+    node.get_logger().info(f'  → http://{ip}:{dashboard_port}')
 
     # All dashboard callbacks share the default mutually exclusive group.
     # Additional executor workers only add contention; HTTP and parameter
