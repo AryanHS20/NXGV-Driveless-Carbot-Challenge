@@ -81,6 +81,21 @@ safety controller must explicitly select that source and still applies sensor,
 e-stop, timeout, rate, speed, and swept-footprint checks. See the control
 package README for the validation and launch procedure.
 
+## Lane-only shadow pipeline
+
+V4's competition responsibility is lane and local-trajectory tracking.  The
+primary-camera lane launch excludes secondary-camera processing, parking,
+reverse recovery, and Stage 8 so it can be calibrated and benchmarked without
+heating optional sensors or acquiring motion authority:
+
+```bash
+ros2 launch risabot_v4_experimental lane_shadow.launch.py enabled:=true
+```
+
+It still requires the measured primary camera profile, road thresholds,
+vehicle geometry, turning radius, and LiDAR extrinsics before Stage 4 can
+produce a valid diagnostic trajectory.
+
 ## Build only this package
 
 ```bash

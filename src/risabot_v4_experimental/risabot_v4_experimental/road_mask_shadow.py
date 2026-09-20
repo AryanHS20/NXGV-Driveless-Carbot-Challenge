@@ -47,6 +47,7 @@ class RoadMaskShadow(Node):
         self.declare_parameter('enabled', False)
         self.declare_parameter('profile_path', '')
         self.declare_parameter('thresholds_validated', False)
+        self.declare_parameter('process_secondary', True)
         self.declare_parameter('primary_bev_topic', '/v4_experimental/bev/primary/image')
         self.declare_parameter('primary_coverage_topic', '/v4_experimental/bev/primary/coverage')
         self.declare_parameter('secondary_bev_topic', '/v4_experimental/bev/secondary/image')
@@ -72,6 +73,11 @@ class RoadMaskShadow(Node):
         self.declare_parameter('memory_reset_yaw_rad', 1.0)
 
         self._enabled = bool(self.get_parameter('enabled').value)
+        self._active_names = (
+            ('primary', 'secondary')
+            if bool(self.get_parameter('process_secondary').value)
+            else ('primary',)
+        )
         self._thresholds_validated = bool(
             self.get_parameter('thresholds_validated').value
         )
@@ -115,14 +121,13 @@ class RoadMaskShadow(Node):
 
         self._bridge = CvBridge()
         self._coverage: Dict[str, Optional[Tuple[np.ndarray, float]]] = {
-            'primary': None,
-            'secondary': None,
+            name: None for name in self._active_names
         }
-        self._frames = {'primary': 0, 'secondary': 0}
-        self._last_error = {'primary': '', 'secondary': ''}
-        self._last_corridor = {'primary': [], 'secondary': []}
-        self._last_frame_mono = {'primary': 0.0, 'secondary': 0.0}
-        self._last_image_stamp = {'primary': None, 'secondary': None}
+        self._frames = {name: 0 for name in self._active_names}
+        self._last_error = {name: '' for name in self._active_names}
+        self._last_corridor = {name: [] for name in self._active_names}
+        self._last_frame_mono = {name: 0.0 for name in self._active_names}
+        self._last_image_stamp = {name: None for name in self._active_names}
         self._memory_error = ''
         self._memory_resets = 0
         self._pose: Optional[Pose2D] = None
@@ -138,28 +143,28 @@ class RoadMaskShadow(Node):
             name: self.create_publisher(
                 Image, f'/v4_experimental/road/{name}/candidate', 2
             )
-            for name in ('primary', 'secondary')
+            for name in self._active_names
         }
         self._connected_pubs = {
             name: self.create_publisher(
                 Image, f'/v4_experimental/road/{name}/connected', 2
             )
-            for name in ('primary', 'secondary')
+            for name in self._active_names
         }
         self._memory_pubs = {
             name: self.create_publisher(
                 Image, f'/v4_experimental/road/{name}/memory', 2
             )
-            for name in ('primary', 'secondary')
+            for name in self._active_names
         }
         self._fused_pubs = {
             name: self.create_publisher(
                 Image, f'/v4_experimental/road/{name}/fused', 2
             )
-            for name in ('primary', 'secondary')
+            for name in self._active_names
         }
 
-        for name in ('primary', 'secondary'):
+        for name in self._active_names:
             self.create_subscription(
                 Image,
                 str(self.get_parameter(f'{name}_coverage_topic').value),
@@ -369,10 +374,12 @@ class RoadMaskShadow(Node):
             'motion_authority': False,
             'can_publish_motion': False,
             'thresholds_validated': self._thresholds_validated,
+            'active_profiles': list(self._active_names),
             'profile_error': self._profile_error,
             'profiles': {
                 name: profile_report(profile)
                 for name, profile in self._profiles.items()
+                if name in self._active_names
             },
             'frames_published': self._frames,
             'last_frame_age_sec': {

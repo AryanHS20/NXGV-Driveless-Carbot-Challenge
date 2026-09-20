@@ -32,17 +32,23 @@ class BevShadow(Node):
         self.declare_parameter('profile_path', '')
         self.declare_parameter('primary_camera_topic', '/camera/color/image_raw')
         self.declare_parameter('secondary_camera_topic', '/camera/second/image_raw')
+        self.declare_parameter('process_secondary', True)
         self.declare_parameter('max_hz', 10.0)
 
         self._enabled = bool(self.get_parameter('enabled').value)
+        self._active_names = (
+            ('primary', 'secondary')
+            if bool(self.get_parameter('process_secondary').value)
+            else ('primary',)
+        )
         self._max_hz = max(0.1, float(self.get_parameter('max_hz').value))
         self._bridge = CvBridge()
         self._profiles = {}
         self._profile_error = ''
-        self._last_output: Dict[str, float] = {'primary': 0.0, 'secondary': 0.0}
-        self._frames: Dict[str, int] = {'primary': 0, 'secondary': 0}
-        self._coverage: Dict[str, float] = {'primary': 0.0, 'secondary': 0.0}
-        self._last_error: Dict[str, str] = {'primary': '', 'secondary': ''}
+        self._last_output: Dict[str, float] = {name: 0.0 for name in self._active_names}
+        self._frames: Dict[str, int] = {name: 0 for name in self._active_names}
+        self._coverage: Dict[str, float] = {name: 0.0 for name in self._active_names}
+        self._last_error: Dict[str, str] = {name: '' for name in self._active_names}
 
         profile_path = str(self.get_parameter('profile_path').value)
         try:
@@ -53,25 +59,28 @@ class BevShadow(Node):
 
         self._status_pub = self.create_publisher(String, STATUS_TOPIC, 10)
         self._image_pubs = {
-            'primary': self.create_publisher(Image, PRIMARY_BEV_TOPIC, 2),
-            'secondary': self.create_publisher(Image, SECONDARY_BEV_TOPIC, 2),
+            name: self.create_publisher(
+                Image,
+                PRIMARY_BEV_TOPIC if name == 'primary' else SECONDARY_BEV_TOPIC,
+                2,
+            )
+            for name in self._active_names
         }
         self._coverage_pubs = {
-            'primary': self.create_publisher(Image, PRIMARY_COVERAGE_TOPIC, 2),
-            'secondary': self.create_publisher(Image, SECONDARY_COVERAGE_TOPIC, 2),
+            name: self.create_publisher(
+                Image,
+                PRIMARY_COVERAGE_TOPIC if name == 'primary' else SECONDARY_COVERAGE_TOPIC,
+                2,
+            )
+            for name in self._active_names
         }
-        self.create_subscription(
-            Image,
-            str(self.get_parameter('primary_camera_topic').value),
-            lambda msg: self._image_callback('primary', msg),
-            qos_profile_sensor_data,
-        )
-        self.create_subscription(
-            Image,
-            str(self.get_parameter('secondary_camera_topic').value),
-            lambda msg: self._image_callback('secondary', msg),
-            qos_profile_sensor_data,
-        )
+        for name in self._active_names:
+            self.create_subscription(
+                Image,
+                str(self.get_parameter(f'{name}_camera_topic').value),
+                lambda msg, camera=name: self._image_callback(camera, msg),
+                qos_profile_sensor_data,
+            )
         self.create_timer(1.0, self._publish_status)
 
         state = 'enabled' if self._enabled else 'disabled'
@@ -114,6 +123,7 @@ class BevShadow(Node):
         reports = {
             name: profile_report(profile)
             for name, profile in self._profiles.items()
+            if name in self._active_names
         }
         calibrated = bool(reports) and all(
             item['calibrated'] for item in reports.values()
@@ -126,6 +136,7 @@ class BevShadow(Node):
             'can_publish_motion': False,
             'profiles_valid': not self._profile_error,
             'calibration_complete': calibrated,
+            'active_profiles': list(self._active_names),
             'profile_error': self._profile_error,
             'profiles': reports,
             'frames_published': self._frames,

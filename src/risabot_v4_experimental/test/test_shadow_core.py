@@ -105,6 +105,23 @@ class ShadowCoreTests(unittest.TestCase):
             for gate in gates:
                 self.assertFalse(params[gate])
 
+    def test_lane_shadow_excludes_optional_motion_and_side_camera_stages(self):
+        launch_path = Path(__file__).parents[1] / 'launch' / 'lane_shadow.launch.py'
+        source = launch_path.read_text(encoding='utf-8')
+        for executable in (
+            'shadow_monitor', 'bev_shadow', 'road_mask_shadow',
+            'pose_shadow', 'trajectory_shadow', 'arbitration_shadow',
+        ):
+            self.assertIn(f"executable='{executable}'", source)
+        self.assertIn("'process_secondary': False", source)
+        self.assertIn("'require_secondary_camera': False", source)
+        self.assertIn("'lane_only': True", source)
+        for excluded in (
+            "executable='parking_shadow'", "executable='recovery_shadow'",
+            "executable='motion_executor'",
+        ):
+            self.assertNotIn(excluded, source)
+
 
 if __name__ == '__main__':
     unittest.main()

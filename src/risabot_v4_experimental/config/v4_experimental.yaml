@@ -25,11 +25,13 @@ v4_bev_shadow:
     enabled: false
     primary_camera_topic: /camera/color/image_raw
     secondary_camera_topic: /camera/second/image_raw
+    process_secondary: true
     max_hz: 5.0
 
 v4_road_mask_shadow:
   ros__parameters:
     enabled: false
+    process_secondary: true
     # Keep false until thresholds are measured on recorded competition surface.
     thresholds_validated: false
     primary_bev_topic: /v4_experimental/bev/primary/image
@@ -228,6 +230,7 @@ v4_recovery_request_source:
 v4_arbitration_shadow:
   ros__parameters:
     enabled: false
+    lane_only: false
     integration_reviewed: false
     command_contract_validated: false
     stop_preemption_validated: false

@@ -42,8 +42,10 @@ def select_diagnostic_intent(
             return ArbitrationDecision('parking', 'follow_path', 'valid parking proposal', selected)
         return ArbitrationDecision('hold', 'stop', 'parking has no valid proposal', None)
     selected_recovery = recovery_status.get('selected_diagnostic_only') if isinstance(recovery_status, Mapping) else None
-    if state == 'LANE_RECOVERY' and isinstance(selected_recovery, Mapping) and selected_recovery.get('valid') is True:
-        return ArbitrationDecision('recovery', 'follow_path', 'valid bounded recovery proposal', selected_recovery)
+    if state == 'LANE_RECOVERY':
+        if isinstance(selected_recovery, Mapping) and selected_recovery.get('valid') is True:
+            return ArbitrationDecision('recovery', 'follow_path', 'valid bounded recovery proposal', selected_recovery)
+        return ArbitrationDecision('hold', 'stop', 'recovery has no valid proposal', None)
     selected = trajectory_status.get('selected_diagnostic_only') if isinstance(trajectory_status, Mapping) else None
     if isinstance(selected, Mapping) and selected.get('valid') is True:
         return ArbitrationDecision('trajectory', 'follow_curvature', 'valid forward trajectory', selected)

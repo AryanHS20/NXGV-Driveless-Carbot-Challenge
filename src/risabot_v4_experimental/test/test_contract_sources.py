@@ -80,6 +80,12 @@ class ContractSourceTests(unittest.TestCase):
         self.assertEqual(select_diagnostic_intent(
             'LANE_RECOVERY|1', True, {}, parking, recovery).source, 'recovery')
 
+    def test_lane_recovery_never_falls_through_to_forward_trajectory(self):
+        forward = {'selected_diagnostic_only': {'valid': True, 'id': 2}}
+        decision = select_diagnostic_intent(
+            'LANE_RECOVERY|1', True, forward, {}, {})
+        self.assertEqual((decision.source, decision.action), ('hold', 'stop'))
+
 
 if __name__ == '__main__':
     unittest.main()
