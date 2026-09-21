@@ -40,4 +40,3 @@ finally:
     os.close(fd)
 print(f"marked {record['utc']} {event}")
 PY
-
