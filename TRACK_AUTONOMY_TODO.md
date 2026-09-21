@@ -26,7 +26,8 @@ passed.
 
 - Charge batteries and control physical power.
 - Freeze camera, LiDAR, servo and body mounts.
-- Place checkerboard and measured ground markers.
+- Place and measure ground markers; provide a checkerboard only if factory
+  camera calibration fails validation.
 - Measure body geometry, LiDAR pose and turning circles.
 - Move the car by hand for recordings and supervise all powered trials.
 - Hold the controller and perform manual takeover when requested.
@@ -51,10 +52,10 @@ passed.
 - [ ] Fully charged gamepad/receiver.
 - [ ] Robot power supply and charger.
 - [ ] Laptop on the same network as the RDK X5.
-- [ ] Printed checkerboard with 9 x 6 inner corners.
-- [ ] Accurate checkerboard square measurement.
+- [ ] Optional fallback: printed checkerboard with 9 x 6 inner corners.
+- [ ] Optional fallback: accurate checkerboard square measurement.
 - [ ] Tape measure or steel ruler.
-- [ ] Four high-contrast floor markers.
+- [ ] At least six high-contrast floor markers.
 - [ ] Masking tape/chalk for turning-circle marks.
 - [ ] Real traffic lights, signs and boom-gate examples where available.
 - [ ] Physical wheel stand so all wheels can rotate without touching anything.
@@ -196,19 +197,64 @@ frames and an initial legacy/V4 tuning report.
 
 ---
 
-## Phase 4 - Primary camera intrinsic calibration
+## Phase 4 - Primary camera intrinsics
 
-**Owner: Aryan positions checkerboard; Codex captures and calculates.**
+The primary route uses the Astra's factory `CameraInfo`; a checkerboard is the
+fallback. Factory intrinsics remove the need to own or print a target, but they
+must still pass resolution and measured-ground validation.
 
-- [ ] Measure checkerboard square size precisely in metres.
+### Phase 4A - Preferred factory-intrinsics route
+
+**Owner: Aryan keeps the mount fixed; Codex validates and converts the data.**
+
 - [ ] Keep the camera at its final resolution and mount position.
+- [ ] Start the Astra camera and verify the raw image is live.
+- [ ] Save the complete factory calibration message:
+
+  ```bash
+  mkdir -p ~/track_validation
+  ros2 topic info /camera/color/camera_info -v
+  ros2 topic echo --once /camera/color/camera_info \
+    > ~/track_validation/astra_color_camera_info.yaml
+  cat ~/track_validation/astra_color_camera_info.yaml
+  ```
+
+- [ ] Save the live image dimensions for comparison:
+
+  ```bash
+  ros2 topic echo --once /camera/color/image_raw --field width
+  ros2 topic echo --once /camera/color/image_raw --field height
+  ```
+
+**Codex validation**
+
+- [ ] `CameraInfo.width` and `height` exactly match the raw image.
+- [ ] `k` contains nine finite values with positive `fx` and `fy`.
+- [ ] Principal point `cx, cy` lies within or plausibly near the image.
+- [ ] `d` has a supported finite length: 4, 5, 8, 12 or 14 values.
+- [ ] Distortion model is compatible with OpenCV's calibration model, normally
+  `plumb_bob`.
+- [ ] Factory values remain consistent across restarts at the same resolution.
+- [ ] Convert the row-major `k` list into the 3 x 3 `camera_matrix` and copy `d`
+  into `distortion_coefficients`.
+- [ ] Leave `calibrated: false` until Phase 5 ground validation passes.
+
+Zero distortion coefficients are not automatically invalid. They are accepted
+only if straight-line and held-out ground-marker tests pass.
+
+### Phase 4B - Checkerboard fallback
+
+Use this only if `CameraInfo` is absent, has zero/invalid focal lengths, has the
+wrong resolution, changes unexpectedly, or fails the Phase 5 error test.
+
+- [ ] Obtain a flat 9 x 6-inner-corner checkerboard. A correctly displayed,
+  measured tablet/laptop pattern can be used if it is flat and free of glare.
+- [ ] Measure checkerboard square size precisely in metres.
 - [ ] Capture at least 20 sharp, distinct views.
 - [ ] Include near, middle and far distances.
 - [ ] Include left/right/top/bottom image regions.
 - [ ] Include modest checkerboard tilt in both axes.
 - [ ] Reject blurred images and repeated near-identical views.
-
-Calibration command after images exist:
 
 ```bash
 ros2 run risabot_v4_experimental calibrate_intrinsics \
@@ -219,7 +265,7 @@ ros2 run risabot_v4_experimental calibrate_intrinsics \
   --camera primary
 ```
 
-**Codex tasks**
+**Codex fallback tasks**
 
 - [ ] Review RMS error and rejected images.
 - [ ] Inspect straight-line undistortion visually.
@@ -236,18 +282,25 @@ ros2 run risabot_v4_experimental calibrate_intrinsics \
 The origin is the midpoint of the rear axle. Forward is positive; left is
 positive.
 
-- [ ] Place four visible floor markers forming a large non-crossed quadrilateral.
-- [ ] Measure each marker relative to the rear-axle midpoint:
+- [ ] Place at least six visible floor markers across the useful driving area.
+- [ ] Choose four perimeter markers forming a large non-crossed quadrilateral
+  for the homography. Reserve at least two as independent validation points.
+- [ ] Measure every marker relative to the rear-axle midpoint:
 
   ```text
   Marker 1: forward ______ m, left ______ m
   Marker 2: forward ______ m, left ______ m
   Marker 3: forward ______ m, left ______ m
   Marker 4: forward ______ m, left ______ m
+  Validation 1: forward ______ m, left ______ m
+  Validation 2: forward ______ m, left ______ m
   ```
 
-- [ ] Capture one raw primary-camera frame containing all four markers.
-- [ ] Record the raw pixel centre `[u, v]` for each marker in the same perimeter order.
+- [ ] Capture one raw primary-camera frame containing all markers.
+- [ ] Record the raw pixel centre `[u, v]` of the four homography markers in
+  the same perimeter order.
+- [ ] Record validation-marker pixels separately; do not use them to construct
+  the homography.
 
 **Codex tasks**
 
@@ -268,7 +321,10 @@ positive.
 **Pass criteria**
 
 - Straight floor lines remain straight.
-- All four markers land within approximately 2-3 cm of measured positions.
+- Four construction markers map consistently and every held-out validation
+  marker lands within approximately 2-3 cm of its measured position.
+- Straight physical edges remain straight after undistortion.
+- If factory intrinsics fail either check, return to the checkerboard fallback.
 - Useful road area has real coverage; unobserved black regions are excluded.
 - A wrong-resolution image is rejected.
 
