@@ -141,7 +141,7 @@ class ServoControllerV9(Node):
         self.declare_parameter('max_linear_velocity', 1.0)
         self.declare_parameter('max_angular_velocity', 6.0)
         self.declare_parameter('odom_reverse_polarity', False)
-        self.declare_parameter('wheel_base', 0.14)
+        self.declare_parameter('wheel_base', 0.21)
         self.declare_parameter('steering_max_deg', 50.0)
         self.declare_parameter('odom_vel_alpha', 0.3)
         self.declare_parameter('odom_velocity_deadband', 0.02)

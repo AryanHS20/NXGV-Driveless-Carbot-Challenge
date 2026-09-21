@@ -60,7 +60,7 @@ class ParkingShadow(Node):
 
         self.declare_parameter('vehicle_length_m', 0.300)
         self.declare_parameter('vehicle_width_m', 0.192)
-        self.declare_parameter('wheelbase_m', 0.216)
+        self.declare_parameter('wheelbase_m', 0.210)
         self.declare_parameter('rear_overhang_m', 0.042)
         self.declare_parameter('minimum_turn_radius_m', 0.400)
         self.declare_parameter('footprint_padding_m', 0.005)

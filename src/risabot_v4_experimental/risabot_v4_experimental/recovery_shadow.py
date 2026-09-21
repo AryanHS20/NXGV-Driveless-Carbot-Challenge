@@ -60,7 +60,7 @@ class RecoveryShadow(Node):
 
         for name, value in (
             ('vehicle_length_m', 0.300), ('vehicle_width_m', 0.192),
-            ('wheelbase_m', 0.216), ('rear_overhang_m', 0.042),
+            ('wheelbase_m', 0.210), ('rear_overhang_m', 0.042),
             ('minimum_turn_radius_m', 0.400), ('footprint_padding_m', 0.005),
             ('lidar_x_m', 0.0), ('lidar_y_m', 0.0), ('lidar_yaw_rad', 0.0),
             ('minimum_scan_range_m', 0.03), ('maximum_scan_range_m', 2.0),

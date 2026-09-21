@@ -24,7 +24,7 @@ class PathPoint:
 class VehicleGeometry:
     length_m: float = 0.300
     width_m: float = 0.192
-    wheelbase_m: float = 0.216
+    wheelbase_m: float = 0.210
     rear_overhang_m: float = 0.042
     minimum_turn_radius_m: float = 0.400
     footprint_padding_m: float = 0.005

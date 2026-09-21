@@ -14,7 +14,7 @@ v4_motion_executor:
     odom_timeout_sec: 0.25
     state_timeout_sec: 0.75
     legacy_timeout_sec: 0.35
-    wheelbase_m: 0.216
+    wheelbase_m: 0.210
     maximum_steer_deg: 50.0
     forward_speed_mps: 0.08
     path_forward_speed_mps: 0.06

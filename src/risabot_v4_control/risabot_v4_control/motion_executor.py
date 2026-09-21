@@ -61,7 +61,7 @@ class MotionExecutor(Node):
             ('path_timeout_sec', 0.50), ('path_max_age_sec', 45.0),
             ('odom_timeout_sec', 0.25),
             ('state_timeout_sec', 0.50), ('legacy_timeout_sec', 0.35),
-            ('wheelbase_m', 0.216), ('maximum_steer_deg', 50.0),
+            ('wheelbase_m', 0.210), ('maximum_steer_deg', 50.0),
             ('forward_speed_mps', 0.08), ('path_forward_speed_mps', 0.06),
             ('path_reverse_speed_mps', 0.05), ('minimum_speed_scale', 0.40),
             ('completion_distance_m', 0.04),

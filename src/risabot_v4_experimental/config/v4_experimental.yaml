@@ -95,7 +95,7 @@ v4_trajectory_shadow:
     lidar_extrinsics_validated: false
     vehicle_length_m: 0.300
     vehicle_width_m: 0.192
-    wheelbase_m: 0.216
+    wheelbase_m: 0.210
     rear_overhang_m: 0.042
     minimum_turn_radius_m: 0.400
     footprint_padding_m: 0.005
@@ -145,7 +145,7 @@ v4_parking_shadow:
 
     vehicle_length_m: 0.300
     vehicle_width_m: 0.192
-    wheelbase_m: 0.216
+    wheelbase_m: 0.210
     rear_overhang_m: 0.042
     minimum_turn_radius_m: 0.400
     footprint_padding_m: 0.005
@@ -190,7 +190,7 @@ v4_recovery_shadow:
 
     vehicle_length_m: 0.300
     vehicle_width_m: 0.192
-    wheelbase_m: 0.216
+    wheelbase_m: 0.210
     rear_overhang_m: 0.042
     minimum_turn_radius_m: 0.400
     footprint_padding_m: 0.005

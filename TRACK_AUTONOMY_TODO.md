@@ -467,7 +467,7 @@ Record:
 ```text
 vehicle_length_m: ______
 vehicle_width_m: ______
-wheelbase_m: ______
+wheelbase_m: 0.210  # measured rear axle centre to front axle centre
 rear_overhang_m: ______
 footprint_padding_m: ______
 ```

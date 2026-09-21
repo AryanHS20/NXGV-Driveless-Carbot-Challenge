@@ -350,7 +350,7 @@ servo_controller:
     max_linear_velocity: 1.0
     max_angular_velocity: 6.0
     odom_reverse_polarity: false
-    wheel_base: 0.14
+    wheel_base: 0.21
     steering_max_deg: 50.0
     odom_vel_alpha: 0.3
     odom_velocity_deadband: 0.02
