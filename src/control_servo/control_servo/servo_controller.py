@@ -262,6 +262,7 @@ class ServoControllerV9(Node):
         self.joy_timeout = float(self._param_cache['joy_timeout'])
         self.joy_lost_reported = False   # avoid spamming log
         self.create_timer(0.3, self._joy_watchdog)
+        self.create_timer(0.5, self._publish_mode)
         self.create_timer(1.0, self._publish_loop_stats)
         self.hw_error_count = 0
         self.hw_error_tripped = False
@@ -406,6 +407,10 @@ class ServoControllerV9(Node):
         msg = String()
         msg.data = f"{self.current_speed_limit}|{self.challenge_index}|{state_str}"
         self.dash_pub.publish(msg)
+
+    def _publish_mode(self) -> None:
+        """Heartbeat the authoritative controller mode for late/missed listeners."""
+        self.auto_mode_pub.publish(Bool(data=not self.manual_mode))
 
     def _publish_loop_stats(self) -> None:
         """Publish loop timing diagnostics."""

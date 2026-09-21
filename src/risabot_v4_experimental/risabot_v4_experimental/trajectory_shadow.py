@@ -40,7 +40,7 @@ class TrajectoryShadow(Node):
         self.declare_parameter('road_status_topic', '/v4_experimental/road/status')
         self.declare_parameter('road_mask_topic', '/v4_experimental/road/primary/fused')
         self.declare_parameter('scan_topic', '/scan')
-        self.declare_parameter('road_timeout_sec', 0.35)
+        self.declare_parameter('road_timeout_sec', 1.10)
         self.declare_parameter('scan_timeout_sec', 0.50)
         self.declare_parameter('road_mask_sync_tolerance_sec', 0.02)
         self.declare_parameter('vehicle_geometry_validated', False)

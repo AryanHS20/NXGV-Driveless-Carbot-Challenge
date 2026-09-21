@@ -86,7 +86,8 @@ v4_trajectory_shadow:
     road_status_topic: /v4_experimental/road/status
     road_mask_topic: /v4_experimental/road/primary/fused
     scan_topic: /scan
-    road_timeout_sec: 0.75
+    # Measured X5 road-mask gaps peak just below 1.0 s under the full lane stack.
+    road_timeout_sec: 1.10
     scan_timeout_sec: 0.75
     road_mask_sync_tolerance_sec: 0.02
     # These three gates remain false until measured on the physical car.
@@ -101,7 +102,7 @@ v4_trajectory_shadow:
     footprint_padding_m: 0.005
     lidar_x_m: 0.0
     lidar_y_m: 0.0
-    lidar_yaw_rad: 0.0
+    lidar_yaw_rad: 3.141592653589793
     minimum_scan_range_m: 0.03
     maximum_scan_range_m: 2.0
     horizon_m: 0.55
@@ -151,7 +152,7 @@ v4_parking_shadow:
     footprint_padding_m: 0.005
     lidar_x_m: 0.0
     lidar_y_m: 0.0
-    lidar_yaw_rad: 0.0
+    lidar_yaw_rad: 3.141592653589793
     minimum_scan_range_m: 0.03
     maximum_scan_range_m: 2.0
 
@@ -196,7 +197,7 @@ v4_recovery_shadow:
     footprint_padding_m: 0.005
     lidar_x_m: 0.0
     lidar_y_m: 0.0
-    lidar_yaw_rad: 0.0
+    lidar_yaw_rad: 3.141592653589793
     minimum_scan_range_m: 0.03
     maximum_scan_range_m: 2.0
 

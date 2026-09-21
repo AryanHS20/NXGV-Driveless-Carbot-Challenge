@@ -111,6 +111,15 @@ class SafetyTests(unittest.TestCase):
         d.publish_cmd_vel()
         self.assertEqual(d.state, S.LANE_RECOVERY)
 
+    def test_servo_heartbeats_authoritative_mode(self):
+        servo = self.servo()
+        servo.manual_mode = True
+        servo._publish_mode()
+        self.assertFalse(servo.auto_mode_pub.messages[-1].data)
+        servo.manual_mode = False
+        servo._publish_mode()
+        self.assertTrue(servo.auto_mode_pub.messages[-1].data)
+
     def test_red_preempts_obstruction(self):
         d=self.car(); d.traffic_light_state='red'; d.traffic_light_last_time=100.
         d.obstruction_active=True; d.obstruction_cmd.linear.x=.12; d.publish_cmd_vel()
