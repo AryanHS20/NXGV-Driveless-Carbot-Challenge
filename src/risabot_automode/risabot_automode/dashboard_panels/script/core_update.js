@@ -145,23 +145,23 @@ function update() {
       else{gD.className=d.boom_gate?'dot dot-green':'dot dot-red';gV.textContent=d.boom_gate?'OPEN':'CLOSED';}
 
       // Lane
-      document.getElementById('laneErr').textContent = d.lane_error.toFixed(3);
-      document.getElementById('laneBar').style.width = Math.min(Math.max((d.lane_error+0.5)/1.0*100,0),100)+'%';
-      document.getElementById('cmdLinX').textContent = d.cmd_lin_x.toFixed(3);
-      document.getElementById('cmdAngZ').textContent = d.cmd_ang_z.toFixed(3);
+      document.getElementById('laneErr').textContent = (d.lane_error || 0).toFixed(3);
+      document.getElementById('laneBar').style.width = Math.min(Math.max(((d.lane_error || 0)+0.5)/1.0*100,0),100)+'%';
+      document.getElementById('cmdLinX').textContent = (d.cmd_lin_x || 0).toFixed(3);
+      document.getElementById('cmdAngZ').textContent = (d.cmd_ang_z || 0).toFixed(3);
       updateAuthority(d);
       updateV4Status(d);
 
       // Odom
-      document.getElementById('odomDist').textContent = d.distance.toFixed(2);
-      document.getElementById('odomSpeed').textContent = d.speed.toFixed(3)+' m/s';
+      document.getElementById('odomDist').textContent = (d.distance || 0).toFixed(2);
+      document.getElementById('odomSpeed').textContent = (d.speed || 0).toFixed(3)+' m/s';
       document.getElementById('odomX').textContent = (d.odom_x || 0).toFixed(2) + ' m';
       document.getElementById('odomY').textContent = (d.odom_y || 0).toFixed(2) + ' m';
       document.getElementById('odomYaw').textContent = ((d.odom_yaw || 0) * 180 / Math.PI).toFixed(1) + '°';
 
       // Speed & Selector
-      document.getElementById('speedPct').textContent = d.speed_pct+'%';
-      document.getElementById('speedBar').style.width = d.speed_pct+'%';
+      document.getElementById('speedPct').textContent = (d.speed_pct || 0)+'%';
+      document.getElementById('speedBar').style.width = (d.speed_pct || 0)+'%';
       // Update gear dots
       const gears = [25,40,60,100];
       gears.forEach((g,i) => {

@@ -347,7 +347,7 @@ async function saveDefaults() {
   const btn = document.getElementById('saveDefaultsBtn');
   const status = document.getElementById('saveDefaultsStatus');
   btn.className = 'param-save-defaults-btn saving';
-  btn.textContent = 'â³ Saving...';
+  btn.textContent = '⏳ Saving...';
   status.textContent = '';
   try {
     const r = await fetch('/api/save_defaults', { method: 'POST' });
@@ -467,9 +467,9 @@ update();
     ctx.fillText('R', W-12, CY+4);
     // Status
     var el = document.getElementById('lidarStatus');
-    if(tunnelDetected) el.innerHTML = '<span style="color:#40a02b;">â— TUNNEL</span>';
-    else if(points && points.length > 0) el.innerHTML = '<span style="color:#1e66f5;">â— ' + points.length + ' pts</span>';
-    else el.innerHTML = '<span style="color:#888;">â— No data</span>';
+    if(tunnelDetected) el.innerHTML = '<span style="color:#40a02b;">● TUNNEL</span>';
+    else if(points && points.length > 0) el.innerHTML = '<span style="color:#1e66f5;">● ' + points.length + ' pts</span>';
+    else el.innerHTML = '<span style="color:#888;">● No data</span>';
   }
   function fetchLidar(){
     fetch('/lidar_data').then(function(r){return r.json();}).then(function(d){
