@@ -8,9 +8,11 @@ from risabot_v4_experimental.bev_core import CameraProfile, metric_to_bev
 from risabot_v4_experimental.trajectory_core import (
     PathPoint,
     TrajectoryConfig,
+    TrajectoryError,
     VehicleGeometry,
     footprint_points,
     generate_candidates,
+    near_field_bootstrap_from_corridor,
     reference_from_corridor,
     road_support,
 )
@@ -77,6 +79,31 @@ class TrajectoryCoreTests(unittest.TestCase):
         candidates = generate_candidates(self.reference, corridor_mask(self.profile, 0.35), self.profile)
         valid_costs = [candidate.cost for candidate in candidates if candidate.valid]
         self.assertEqual(candidates[0].cost, min(valid_costs))
+
+    def test_bounded_near_field_bootstrap_covers_camera_blind_strip(self):
+        mask = corridor_mask(self.profile, 0.22)
+        # Reproduce a camera whose connected road begins well ahead of the
+        # rear-axle origin: erase every observed road pixel below 0.45 m.
+        blind = metric_to_bev(self.profile, np.array([[0.45, 0.0]], np.float64))[0]
+        mask[int(round(blind[1])) + 1:, :] = 0
+        samples = [(0.45 + 0.04 * i, 0.0, 0.44) for i in range(8)]
+        bootstrap = near_field_bootstrap_from_corridor(
+            samples, VehicleGeometry(), maximum_gap_m=0.55, settle_m=0.04)
+        without = generate_candidates(self.reference, mask, self.profile)
+        with_bootstrap = generate_candidates(
+            self.reference, mask, self.profile, near_field=bootstrap)
+        self.assertFalse(any(candidate.valid for candidate in without))
+        self.assertTrue(any(candidate.valid for candidate in with_bootstrap))
+
+    def test_near_field_bootstrap_rejects_unbounded_gap_or_narrow_road(self):
+        with self.assertRaises(TrajectoryError):
+            near_field_bootstrap_from_corridor(
+                [(0.70, 0.0, 0.44), (0.75, 0.0, 0.44)],
+                VehicleGeometry(), maximum_gap_m=0.55, settle_m=0.04)
+        with self.assertRaises(TrajectoryError):
+            near_field_bootstrap_from_corridor(
+                [(0.45, 0.0, 0.15), (0.49, 0.0, 0.15)],
+                VehicleGeometry(), maximum_gap_m=0.55, settle_m=0.04)
 
 
 if __name__ == '__main__':

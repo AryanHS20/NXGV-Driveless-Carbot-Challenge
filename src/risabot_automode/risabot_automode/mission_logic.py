@@ -42,6 +42,15 @@ def select_command(d, now):
     zero = Twist()
     ttl = float(d._param_cache['stale_timeout'])
     def recent(stamp): return fresh(stamp, now, ttl)
+    lane_source = str(d._param_cache.get('lane_readiness_source', 'legacy'))
+    if lane_source == 'v4':
+        lane_ready = recent(d.v4_lane_stamp) and d.v4_lane_ready
+    else:
+        lane_ready = (
+            recent(d.lane_stamp)
+            and recent(d.lane_lost_stamp)
+            and not d.lane_lost
+        )
     if d.mission_finished:
         return S.FINISHED, zero, 'MISSION COMPLETE'
 
@@ -79,7 +88,7 @@ def select_command(d, now):
         stop = 'TRAFFIC LAMP UNRESOLVED: WAITING FOR GREEN'
     elif recent(d.boom_gate_last_time) and not d.boom_gate_open and not (
             d.route == 'right' and d.route_confirmed == 'right' and recent(d.route_stamp)
-            and recent(d.lane_stamp) and not d.lane_lost and d.lane_error > .05):
+            and lane_ready):
         # Only an observed right branch may divert around a closed gate.
         # The final safety node independently checks the commanded swept path.
         stop = 'BOOM GATE CLOSED'
@@ -134,7 +143,7 @@ def select_command(d, now):
     if recent(d.roundabout_stamp) and d.roundabout_active:
         d.roundabout_seen = True
     if d.roundabout_seen:
-        if not recent(d.lane_stamp) or not recent(d.lane_lost_stamp) or d.lane_lost:
+        if not lane_ready:
             return S.LANE_RECOVERY, zero, "LANE MISSING AT JUNCTION"
         if not d.route:
             if not recent(d.boom_gate_last_time):
@@ -170,7 +179,7 @@ def select_command(d, now):
     if d.tunnel_was_seen:
         d._tl_armed = True
 
-    if not recent(d.lane_stamp) or not recent(d.lane_lost_stamp) or d.lane_lost:
+    if not lane_ready:
         return S.LANE_RECOVERY, zero, 'LANE MISSING OR STALE'
 
     if d.current_lap == 2 and recent(d.parking_kind_stamp):

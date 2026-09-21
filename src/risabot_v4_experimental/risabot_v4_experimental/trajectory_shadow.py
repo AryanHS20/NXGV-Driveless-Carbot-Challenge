@@ -24,6 +24,7 @@ from .trajectory_core import (
     TrajectoryError,
     VehicleGeometry,
     generate_candidates,
+    near_field_bootstrap_from_corridor,
     reference_from_corridor,
 )
 
@@ -63,6 +64,7 @@ class TrajectoryShadow(Node):
             ('steering_rate_rad_sec', math.pi),
             ('footprint_sample_spacing_m', 0.02),
             ('minimum_road_support', 0.98), ('obstacle_margin_m', 0.015),
+            ('near_field_max_gap_m', 0.55), ('near_field_settle_m', 0.04),
         ):
             self.declare_parameter(name, value)
 
@@ -126,6 +128,7 @@ class TrajectoryShadow(Node):
         self._mask_stamp: Optional[float] = None
         self._mask_mono: Optional[float] = None
         self._last_processed_stamp: Optional[float] = None
+        self._last_success_mono: Optional[float] = None
         self._last_candidates: List[Dict[str, object]] = []
         self._selected: Optional[Dict[str, object]] = None
         self._last_error = ''
@@ -164,6 +167,7 @@ class TrajectoryShadow(Node):
             'steering_lag_sec', 'steering_rate_rad_sec',
             'footprint_sample_spacing_m', 'minimum_road_support',
             'obstacle_margin_m',
+            'near_field_max_gap_m', 'near_field_settle_m',
         )
         values = {
             name: float(overrides.get(name, self.get_parameter(name).value))
@@ -177,6 +181,7 @@ class TrajectoryShadow(Node):
             'steering_lag_sec', 'steering_rate_rad_sec',
             'footprint_sample_spacing_m', 'minimum_road_support',
             'obstacle_margin_m',
+            'near_field_max_gap_m', 'near_field_settle_m',
         }
         protected = {
             'enabled', 'profile_path', 'vehicle_geometry_validated',
@@ -287,9 +292,26 @@ class TrajectoryShadow(Node):
         expected_stamp = self._expected_road_stamp()
         if expected_stamp is None or self._mask_stamp is None:
             blockers.append('road mask timestamp unavailable')
-        elif abs(float(expected_stamp) - self._mask_stamp) > self._sync_tolerance:
+        elif (
+            abs(float(expected_stamp) - self._mask_stamp) > self._sync_tolerance
+            and (
+                self._selected is None
+                or self._last_success_mono is None
+                or now - self._last_success_mono > self._road_timeout
+            )
+        ):
             blockers.append('road mask and corridor timestamps do not match')
         return blockers
+
+    def _inputs_synchronized(self) -> bool:
+        """Return whether the current mask belongs to the current corridor."""
+        expected_stamp = self._expected_road_stamp()
+        return bool(
+            expected_stamp is not None
+            and self._mask_stamp is not None
+            and abs(float(expected_stamp) - self._mask_stamp)
+            <= self._sync_tolerance
+        )
 
     def _mask_callback(self, msg: Image) -> None:
         if not self._enabled:
@@ -312,6 +334,12 @@ class TrajectoryShadow(Node):
             self._last_candidates = []
             self._selected = None
             return
+        # Road status and its mask are separate ROS messages.  One normally
+        # arrives just before the other.  Keep the last recent matched plan
+        # during that bounded interval instead of publishing a one-cycle stop
+        # or combining data from two different camera frames.
+        if not self._inputs_synchronized():
+            return
         expected_stamp = self._expected_road_stamp()
         if self._last_processed_stamp == expected_stamp:
             return
@@ -321,6 +349,11 @@ class TrajectoryShadow(Node):
                 (float(sample['forward_m']), float(sample['left_m']))
                 for sample in raw_corridor
             ])
+            near_field = near_field_bootstrap_from_corridor([
+                (float(sample['forward_m']), float(sample['left_m']), float(sample['width_m']))
+                for sample in raw_corridor
+            ], self._geometry, self._config.near_field_max_gap_m,
+                self._config.near_field_settle_m)
             candidates = generate_candidates(
                 reference,
                 self._mask,
@@ -328,6 +361,7 @@ class TrajectoryShadow(Node):
                 self._geometry,
                 self._config,
                 self._scan_points,
+                near_field,
             )
         except (CalibrationError, KeyError, TrajectoryError, TypeError, ValueError) as exc:
             self._last_error = str(exc)
@@ -356,6 +390,7 @@ class TrajectoryShadow(Node):
         self._last_error = '' if selected else 'all trajectory candidates rejected'
         self._processed_frames += 1
         self._last_processed_stamp = expected_stamp
+        self._last_success_mono = now
 
     def _publish_status(self) -> None:
         blockers = self._blockers(time.monotonic()) if self._enabled else ['node disabled']

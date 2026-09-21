@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass
 import math
-from typing import List, Sequence, Tuple
+from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -42,6 +42,27 @@ class VehicleGeometry:
 
 
 @dataclass(frozen=True)
+class NearFieldBootstrap:
+    """Bounded road evidence for the camera blind strip below the vehicle.
+
+    The rear axle is the metric origin.  Road pixels remain authoritative from
+    ``forward_m`` onward; this object only describes the continuous strip from
+    the current vehicle footprint to that first stable observed row.
+    """
+
+    rear_m: float
+    forward_m: float
+    end_left_m: float
+    width_m: float
+
+    def validate(self) -> None:
+        if not all(math.isfinite(value) for value in vars(self).values()):
+            raise TrajectoryError('near-field bootstrap must be finite')
+        if self.rear_m >= 0.0 or self.forward_m <= 0.0 or self.width_m <= 0.0:
+            raise TrajectoryError('near-field bootstrap bounds are invalid')
+
+
+@dataclass(frozen=True)
 class TrajectoryConfig:
     lateral_offsets_m: Tuple[float, ...] = (
         -0.060, -0.040, -0.020, -0.008, 0.0, 0.008, 0.020, 0.040, 0.060,
@@ -55,6 +76,8 @@ class TrajectoryConfig:
     footprint_sample_spacing_m: float = 0.02
     minimum_road_support: float = 0.98
     obstacle_margin_m: float = 0.015
+    near_field_max_gap_m: float = 0.55
+    near_field_settle_m: float = 0.04
 
     def validate(self) -> None:
         if not self.lateral_offsets_m:
@@ -68,6 +91,8 @@ class TrajectoryConfig:
             ('steering_lag_sec', self.steering_lag_sec),
             ('steering_rate_rad_sec', self.steering_rate_rad_sec),
             ('footprint_sample_spacing_m', self.footprint_sample_spacing_m),
+            ('near_field_max_gap_m', self.near_field_max_gap_m),
+            ('near_field_settle_m', self.near_field_settle_m),
         ):
             if not math.isfinite(value) or value <= 0.0:
                 raise TrajectoryError(f'{name} must be finite and positive')
@@ -122,6 +147,19 @@ def footprint_points(
     geometry.validate()
     if not math.isfinite(spacing_m) or spacing_m <= 0.0:
         raise TrajectoryError('footprint sample spacing must be positive')
+    local = _footprint_template(geometry, spacing_m)
+    cosine = math.cos(pose.yaw)
+    sine = math.sin(pose.yaw)
+    world_x = pose.x + local[:, 0] * cosine - local[:, 1] * sine
+    world_y = pose.y + local[:, 0] * sine + local[:, 1] * cosine
+    return np.column_stack((world_x, world_y))
+
+
+def _footprint_template(
+    geometry: VehicleGeometry,
+    spacing_m: float,
+) -> np.ndarray:
+    """Return body samples in vehicle coordinates for reuse across poses."""
     rear = -geometry.rear_overhang_m - geometry.footprint_padding_m
     front = geometry.length_m - geometry.rear_overhang_m + geometry.footprint_padding_m
     half_width = 0.5 * geometry.width_m + geometry.footprint_padding_m
@@ -130,17 +168,92 @@ def footprint_points(
     longitudinal, lateral = np.meshgrid(
         np.linspace(rear, front, nx), np.linspace(-half_width, half_width, ny)
     )
-    cosine = math.cos(pose.yaw)
-    sine = math.sin(pose.yaw)
-    world_x = pose.x + longitudinal * cosine - lateral * sine
-    world_y = pose.y + longitudinal * sine + lateral * cosine
-    return np.column_stack((world_x.ravel(), world_y.ravel()))
+    return np.column_stack((longitudinal.ravel(), lateral.ravel()))
+
+
+def _candidate_supports(
+    poses: Sequence[PathPoint],
+    local_footprint: np.ndarray,
+    drivable_mask: np.ndarray,
+    profile: CameraProfile,
+    near_field: Optional[NearFieldBootstrap],
+) -> np.ndarray:
+    """Calculate support for every pose in one vectorized BEV lookup."""
+    pose_x = np.asarray([pose.x for pose in poses], dtype=np.float64)
+    pose_y = np.asarray([pose.y for pose in poses], dtype=np.float64)
+    yaw = np.asarray([pose.yaw for pose in poses], dtype=np.float64)
+    cosine = np.cos(yaw)[:, None]
+    sine = np.sin(yaw)[:, None]
+    local_x = local_footprint[:, 0][None, :]
+    local_y = local_footprint[:, 1][None, :]
+    world_x = pose_x[:, None] + local_x * cosine - local_y * sine
+    world_y = pose_y[:, None] + local_x * sine + local_y * cosine
+    flattened = np.column_stack((world_x.ravel(), world_y.ravel()))
+
+    if drivable_mask is None or drivable_mask.ndim != 2:
+        raise TrajectoryError('drivable mask must be single-channel')
+    if tuple(reversed(drivable_mask.shape)) != profile.output_size:
+        raise TrajectoryError('drivable mask shape does not match BEV profile')
+    pixels = metric_to_bev(profile, flattened)
+    columns = np.rint(pixels[:, 0]).astype(int)
+    rows = np.rint(pixels[:, 1]).astype(int)
+    inside = (
+        (columns >= 0) & (columns < drivable_mask.shape[1])
+        & (rows >= 0) & (rows < drivable_mask.shape[0])
+    )
+    supported = np.zeros(flattened.shape[0], dtype=bool)
+    supported[inside] = drivable_mask[rows[inside], columns[inside]] > 0
+    if near_field is not None:
+        near_field.validate()
+        forward = flattened[:, 0]
+        left = flattened[:, 1]
+        in_strip = (
+            (forward >= near_field.rear_m)
+            & (forward <= near_field.forward_m)
+        )
+        alpha = np.clip(forward / near_field.forward_m, 0.0, 1.0)
+        center = alpha * near_field.end_left_m
+        supported |= (
+            in_strip
+            & (np.abs(left - center) <= 0.5 * near_field.width_m)
+        )
+    return supported.reshape(len(poses), -1).mean(axis=1)
+
+
+def _candidate_obstacle_hits(
+    poses: Sequence[PathPoint],
+    obstacles_m: Sequence[Tuple[float, float]],
+    geometry: VehicleGeometry,
+    margin_m: float,
+) -> np.ndarray:
+    """Return one collision flag per pose using a batch body-frame test."""
+    if not obstacles_m:
+        return np.zeros(len(poses), dtype=bool)
+    obstacles = np.asarray(obstacles_m, dtype=np.float64)
+    if obstacles.ndim != 2 or obstacles.shape[1] != 2 or not np.all(np.isfinite(obstacles)):
+        raise TrajectoryError('obstacles must be finite [forward, left] pairs')
+    pose_x = np.asarray([pose.x for pose in poses], dtype=np.float64)[:, None]
+    pose_y = np.asarray([pose.y for pose in poses], dtype=np.float64)[:, None]
+    yaw = np.asarray([pose.yaw for pose in poses], dtype=np.float64)[:, None]
+    dx = obstacles[None, :, 0] - pose_x
+    dy = obstacles[None, :, 1] - pose_y
+    local_x = dx * np.cos(yaw) + dy * np.sin(yaw)
+    local_y = -dx * np.sin(yaw) + dy * np.cos(yaw)
+    rear = -geometry.rear_overhang_m - margin_m
+    front = geometry.length_m - geometry.rear_overhang_m + margin_m
+    half_width = 0.5 * geometry.width_m + margin_m
+    return np.any(
+        (local_x >= rear) & (local_x <= front)
+        & (np.abs(local_y) <= half_width),
+        axis=1,
+    )
 
 
 def road_support(
     points_m: np.ndarray,
     drivable_mask: np.ndarray,
     profile: CameraProfile,
+    near_field: Optional[NearFieldBootstrap] = None,
 ) -> float:
     if drivable_mask is None or drivable_mask.ndim != 2:
         raise TrajectoryError('drivable mask must be single-channel')
@@ -155,7 +268,65 @@ def road_support(
     )
     supported = np.zeros(points_m.shape[0], dtype=bool)
     supported[inside] = drivable_mask[rows[inside], columns[inside]] > 0
+    if near_field is not None:
+        near_field.validate()
+        x = points_m[:, 0]
+        y = points_m[:, 1]
+        in_strip = (x >= near_field.rear_m) & (x <= near_field.forward_m)
+        alpha = np.clip(x / near_field.forward_m, 0.0, 1.0)
+        center = alpha * near_field.end_left_m
+        supported |= in_strip & (np.abs(y - center) <= 0.5 * near_field.width_m)
     return float(supported.mean()) if supported.size else 0.0
+
+
+def near_field_bootstrap_from_corridor(
+    samples: Sequence[Tuple[float, float, float]],
+    geometry: VehicleGeometry,
+    maximum_gap_m: float,
+    settle_m: float,
+) -> NearFieldBootstrap:
+    """Build a conservative blind-strip continuation from measured corridor rows.
+
+    The first row at the camera coverage edge is commonly clipped.  The anchor
+    therefore starts ``settle_m`` farther forward and uses the minimum width of
+    the next four measured rows.  Nothing is extrapolated when that stable row
+    is beyond ``maximum_gap_m`` or cannot contain the padded vehicle.
+    """
+    geometry.validate()
+    if not math.isfinite(maximum_gap_m) or maximum_gap_m <= 0.0:
+        raise TrajectoryError('near-field maximum gap must be finite and positive')
+    if not math.isfinite(settle_m) or settle_m < 0.0:
+        raise TrajectoryError('near-field settle distance must be finite and non-negative')
+    clean = []
+    for sample in samples:
+        if len(sample) != 3:
+            raise TrajectoryError('corridor bootstrap samples must be [forward, left, width]')
+        x, y, width = map(float, sample)
+        if not all(math.isfinite(value) for value in (x, y, width)) or x <= 0.0 or width <= 0.0:
+            continue
+        clean.append((x, y, width))
+    clean.sort(key=lambda item: item[0])
+    if not clean:
+        raise TrajectoryError('no finite corridor is available for the near-field blind strip')
+    target_x = clean[0][0] + settle_m
+    anchor_index = next((index for index, item in enumerate(clean) if item[0] >= target_x), None)
+    if anchor_index is None:
+        raise TrajectoryError('corridor does not reach the near-field stable row')
+    anchor = clean[anchor_index]
+    if anchor[0] > maximum_gap_m:
+        raise TrajectoryError('first stable corridor row exceeds the near-field maximum gap')
+    width = min(item[2] for item in clean[anchor_index:anchor_index + 4])
+    required_width = geometry.width_m + 2.0 * geometry.footprint_padding_m
+    if width < required_width:
+        raise TrajectoryError('near-field corridor is narrower than the padded vehicle')
+    bootstrap = NearFieldBootstrap(
+        rear_m=-geometry.rear_overhang_m - geometry.footprint_padding_m,
+        forward_m=anchor[0],
+        end_left_m=anchor[1],
+        width_m=width,
+    )
+    bootstrap.validate()
+    return bootstrap
 
 
 def obstacle_in_footprint(
@@ -195,6 +366,7 @@ def generate_candidates(
     geometry: VehicleGeometry = VehicleGeometry(),
     config: TrajectoryConfig = TrajectoryConfig(),
     obstacles_m: Sequence[Tuple[float, float]] = (),
+    near_field: Optional[NearFieldBootstrap] = None,
 ) -> List[Candidate]:
     geometry.validate()
     config.validate()
@@ -207,6 +379,9 @@ def generate_candidates(
     maximum_curvature = 1.0 / geometry.minimum_turn_radius_m
     steps = max(1, int(math.ceil(config.horizon_m / config.step_m)))
     dt = config.step_m / config.rollout_speed_mps
+    local_footprint = _footprint_template(
+        geometry, config.footprint_sample_spacing_m
+    )
     candidates = []
     for candidate_id, offset in enumerate(config.lateral_offsets_m):
         pose = PathPoint(0.0, 0.0, 0.0)
@@ -262,15 +437,21 @@ def generate_candidates(
             points.append(pose)
             curvatures.append(curvature)
 
-            samples = footprint_points(pose, geometry, config.footprint_sample_spacing_m)
-            support = road_support(samples, drivable_mask, profile)
-            minimum_support = min(minimum_support, support)
-            if support < config.minimum_road_support:
-                road_blocked += 1
-            if obstacle_in_footprint(pose, obstacles_m, geometry, config.obstacle_margin_m):
-                obstacle_blocked += 1
             tracking = math.hypot(target.x - pose.x, target.y - pose.y)
-            cost += tracking ** 2 * 8.0 + (1.0 - support) * 40.0 + abs(curvature) * 0.001
+            cost += tracking ** 2 * 8.0 + abs(curvature) * 0.001
+
+        supports = _candidate_supports(
+            points[1:], local_footprint, drivable_mask, profile, near_field
+        )
+        obstacle_hits = _candidate_obstacle_hits(
+            points[1:], obstacles_m, geometry, config.obstacle_margin_m
+        )
+        minimum_support = float(np.min(supports))
+        road_blocked = int(np.count_nonzero(
+            supports < config.minimum_road_support
+        ))
+        obstacle_blocked = int(np.count_nonzero(obstacle_hits))
+        cost += float(np.sum((1.0 - supports) * 40.0))
 
         reasons = []
         if road_blocked:

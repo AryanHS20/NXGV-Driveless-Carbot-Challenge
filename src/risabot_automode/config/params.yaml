@@ -18,6 +18,8 @@ auto_driver:
     stale_timeout: 0.75
     traffic_unresolved_hold_sec: 1.0  # uncertain lamp expires; confirmed red still latches
     lane_control_mode: direct
+    # Must match cmd_safety_controller autonomy_source in the launch file.
+    lane_readiness_source: legacy
     parking_max_duration: 45.0
     dist_lap_complete: 1.0
     enable_subsumption_obstacle: true

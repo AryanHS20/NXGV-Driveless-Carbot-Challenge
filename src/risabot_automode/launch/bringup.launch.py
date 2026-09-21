@@ -200,7 +200,9 @@ def generate_launch_description():
                     executable='auto_driver',
                     name='auto_driver',
                     output='screen',
-                    parameters=[params_file]
+                    parameters=[params_file, {
+                        'lane_readiness_source': LaunchConfiguration('autonomy_source'),
+                    }]
                 )
             ]
         ),

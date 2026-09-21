@@ -142,6 +142,7 @@ class AutoDriver(Node):
         self.declare_parameter('current_lap', 1)
         self.declare_parameter('parking_max_duration', 45.0)
         self.declare_parameter('lane_control_mode', 'direct')
+        self.declare_parameter('lane_readiness_source', 'legacy')
         self.declare_parameter('enable_subsumption_obstacle', True)  # fuse LiDAR + camera for obstacle
 
         # PID gains for steering angular.z
@@ -251,6 +252,12 @@ class AutoDriver(Node):
             Bool, LANE_LOST_TOPIC, self.lane_lost_callback,
             QoSPresetProfiles.SENSOR_DATA.value
         )
+        self.v4_lane_ready = False
+        self.v4_lane_stamp = 0.0
+        self.create_subscription(
+            String, '/v4_experimental/trajectory/status',
+            self.v4_lane_status_callback, 10
+        )
         self.pitch_sub = self.create_subscription(
             Float32, IMU_PITCH_TOPIC, self.pitch_callback,
             QoSPresetProfiles.SENSOR_DATA.value
@@ -351,6 +358,9 @@ class AutoDriver(Node):
             'current_lap': int(self.get_parameter('current_lap').value),
             'parking_max_duration': float(self.get_parameter('parking_max_duration').value),
             'lane_control_mode': str(self.get_parameter('lane_control_mode').value),
+            'lane_readiness_source': str(
+                self.get_parameter('lane_readiness_source').value
+            ),
             # PID
             'pid_kp':            float(self.get_parameter('pid_kp').value),
             'pid_ki':            float(self.get_parameter('pid_ki').value),
@@ -385,6 +395,8 @@ class AutoDriver(Node):
                     return SetParametersResult(successful=False, reason='Finite nonnegative values required')
             if p.name == 'lane_control_mode' and p.value not in ('direct', 'legacy_pid'):
                 return SetParametersResult(successful=False, reason='Use direct or legacy_pid')
+            if p.name == 'lane_readiness_source' and p.value not in ('legacy', 'v4'):
+                return SetParametersResult(successful=False, reason='Use legacy or v4')
         for p in params:
             if p.name in self._param_cache:
                 self._param_cache[p.name] = p.value
@@ -415,6 +427,26 @@ class AutoDriver(Node):
     def lane_lost_callback(self, msg: Bool) -> None:
         self.lane_lost = msg.data
         self.lane_lost_stamp = time.monotonic()
+
+    def v4_lane_status_callback(self, msg: String) -> None:
+        """Accept lane readiness only from a current, fully valid V4 plan."""
+        self.v4_lane_ready = False
+        self.v4_lane_stamp = time.monotonic()
+        try:
+            payload = json.loads(msg.data)
+            selected = payload.get('selected_diagnostic_only')
+            blockers = payload.get('blockers', [])
+            self.v4_lane_ready = bool(
+                isinstance(payload, dict)
+                and payload.get('enabled') is True
+                and isinstance(selected, dict)
+                and selected.get('valid') is True
+                and isinstance(blockers, list)
+                and not blockers
+                and not payload.get('last_error')
+            )
+        except (AttributeError, json.JSONDecodeError, TypeError):
+            self.v4_lane_ready = False
 
     def _fused_heading_callback(self, msg: Float32) -> None:
         self.fused_heading_rad = msg.data

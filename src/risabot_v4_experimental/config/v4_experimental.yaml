@@ -86,8 +86,8 @@ v4_trajectory_shadow:
     road_status_topic: /v4_experimental/road/status
     road_mask_topic: /v4_experimental/road/primary/fused
     scan_topic: /scan
-    road_timeout_sec: 0.35
-    scan_timeout_sec: 0.50
+    road_timeout_sec: 0.75
+    scan_timeout_sec: 0.75
     road_mask_sync_tolerance_sec: 0.02
     # These three gates remain false until measured on the physical car.
     vehicle_geometry_validated: false
@@ -113,6 +113,11 @@ v4_trajectory_shadow:
     footprint_sample_spacing_m: 0.02
     minimum_road_support: 0.98
     obstacle_margin_m: 0.015
+    # The Astra cannot observe the strip directly below the car. Continue only
+    # the first stable connected-corridor row back to the current footprint;
+    # never extrapolate when that row starts farther than this bound.
+    near_field_max_gap_m: 0.55
+    near_field_settle_m: 0.04
 
 v4_parking_shadow:
   ros__parameters:
@@ -247,4 +252,4 @@ v4_arbitration_shadow:
     stop_preemption_validated: false
     timeout_validated: false
     physical_trials_validated: false
-    input_timeout_sec: 0.35
+    input_timeout_sec: 0.75

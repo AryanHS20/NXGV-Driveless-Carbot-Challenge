@@ -67,6 +67,50 @@ class SafetyTests(unittest.TestCase):
         d=self.car(); d.lane_stamp=98.; d.publish_cmd_vel()
         self.assertEqual(d.state,S.LANE_RECOVERY); self.assertEqual(d.last_cmd.linear.x,0)
 
+    def test_v4_readiness_ignores_stale_legacy_lane(self):
+        d = self.car()
+        d._param_cache['lane_readiness_source'] = 'v4'
+        d.lane_stamp = d.lane_lost_stamp = 0.0
+        d.lane_lost = True
+        d.v4_lane_status_callback(Message(json.dumps({
+            'enabled': True,
+            'blockers': [],
+            'last_error': '',
+            'selected_diagnostic_only': {'valid': True},
+        })))
+        d.publish_cmd_vel()
+        self.assertEqual(d.state, S.LANE_FOLLOW)
+        self.assertGreater(d.last_cmd.linear.x, 0.0)
+
+    def test_v4_readiness_rejects_blocked_or_malformed_status(self):
+        for payload in (
+            '{',
+            json.dumps({
+                'enabled': True,
+                'blockers': ['road mask is stale'],
+                'last_error': '',
+                'selected_diagnostic_only': {'valid': True},
+            }),
+        ):
+            d = self.car()
+            d._param_cache['lane_readiness_source'] = 'v4'
+            d.v4_lane_status_callback(Message(payload))
+            d.publish_cmd_vel()
+            self.assertEqual(d.state, S.LANE_RECOVERY)
+            self.assertEqual(d.last_cmd.linear.x, 0.0)
+
+    def test_legacy_readiness_remains_default(self):
+        d = self.car()
+        d.v4_lane_status_callback(Message(json.dumps({
+            'enabled': True,
+            'blockers': [],
+            'last_error': '',
+            'selected_diagnostic_only': {'valid': True},
+        })))
+        d.lane_lost = True
+        d.publish_cmd_vel()
+        self.assertEqual(d.state, S.LANE_RECOVERY)
+
     def test_red_preempts_obstruction(self):
         d=self.car(); d.traffic_light_state='red'; d.traffic_light_last_time=100.
         d.obstruction_active=True; d.obstruction_cmd.linear.x=.12; d.publish_cmd_vel()

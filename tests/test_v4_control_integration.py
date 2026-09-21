@@ -111,6 +111,15 @@ class V4ControlIntegrationTests(unittest.TestCase):
         self.assertEqual(source.count(
             "_include('risabot_v4_experimental', 'stage2_road_mask.launch.py'"), 1)
 
+    def test_bringup_uses_selected_source_for_lane_readiness(self):
+        launch = Path(__file__).parents[1] / (
+            'src/risabot_automode/launch/bringup.launch.py')
+        source = launch.read_text(encoding='utf-8')
+        self.assertIn(
+            "'lane_readiness_source': LaunchConfiguration('autonomy_source')",
+            source,
+        )
+
 
 if __name__ == '__main__':
     unittest.main()

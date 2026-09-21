@@ -8,11 +8,11 @@ v4_motion_executor:
     operator_motion_authorized: false
     allow_legacy_challenge_passthrough: true
     publish_hz: 50.0
-    proposal_timeout_sec: 0.35
+    proposal_timeout_sec: 0.75
     path_timeout_sec: 0.50
     path_max_age_sec: 45.0
     odom_timeout_sec: 0.25
-    state_timeout_sec: 0.50
+    state_timeout_sec: 0.75
     legacy_timeout_sec: 0.35
     wheelbase_m: 0.216
     maximum_steer_deg: 50.0
