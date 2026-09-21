@@ -49,17 +49,19 @@ auto_driver:
     #   hill_speed_per_degree  : extra m/s per extra degree of pitch.
     #                            e.g. 0.006 * 10° = +0.06 m/s boost.
     #   hill_max_speed         : hard cap. Never exceed this on the hill.
-    #   hill_steer_scale       : fraction of lane-follow steering to keep (0 = dead straight).
+    #   hill_steer_scale       : RESERVED (currently unused — hill keeps full
+    #                            lane steering by design; wire + track-validate before use).
     #   hill_sign_prime_sec    : seconds after seeing the hill sign that priming stays active.
-    #   hill_sign_prime_threshold_reduction : degrees subtracted from threshold while primed.
+    #   hill_sign_prime_threshold_reduction : RESERVED (priming flag + dash notice
+    #                            only; threshold reduction not yet wired — validate before use).
     hill_pitch_threshold: 8.0
     hill_pitch_hysteresis: 4.0
     hill_base_speed: 0.18        # m/s — starting speed when robot tips onto the slope
     hill_speed_per_degree: 0.006 # extra m/s per degree above threshold
     hill_max_speed: 0.28         # safety cap — never go faster than this on the hill
-    hill_steer_scale: 0.4        # keep 40% of lane steering on hill (helps stay straight)
+    hill_steer_scale: 0.4        # RESERVED — hill keeps 100% steering today; validate before wiring
     hill_sign_prime_sec: 8.0     # prime window duration after hill sign seen (seconds)
-    hill_sign_prime_threshold_reduction: 3.0  # lower threshold by 3° when primed
+    hill_sign_prime_threshold_reduction: 3.0  # RESERVED — flag/notice only today; validate before wiring
 
 # --- Command Safety Controller ---
 cmd_safety_controller:

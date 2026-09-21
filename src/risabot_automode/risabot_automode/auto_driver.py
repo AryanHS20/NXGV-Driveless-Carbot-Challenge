@@ -533,9 +533,9 @@ class AutoDriver(Node):
     def hill_sign_callback(self, msg: Bool) -> None:
         """Receive hill sign detection from signage_detector.
         
-        When the hill sign is detected, open a 'prime window' that:
-        - Lowers the effective pitch threshold (robot reacts earlier on the slope)
-        - Tells the dashboard that a hill is coming
+        When the hill sign is detected, open a 'prime window' that tells the
+        dashboard a hill is coming. (Threshold reduction is reserved for
+        future validation; today the window is a flag and notice only.)
         """
         self.hill_sign_detected = msg.data
         if msg.data:

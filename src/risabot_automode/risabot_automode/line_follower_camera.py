@@ -342,7 +342,12 @@ class LineFollowerCamera(Node):
             'depth_max_age':           float(self.get_parameter('depth_max_age').value),
             'poly_fit_enabled':        bool(self.get_parameter('poly_fit_enabled').value),
             'pp_lookahead_ratio':      float(self.get_parameter('pp_lookahead_ratio').value),
+            'pp_metric_enabled':        bool(self.get_parameter('pp_metric_enabled').value),
+            'pp_lateral_span_m':        float(self.get_parameter('pp_lateral_span_m').value),
+            'pp_forward_span_m':        float(self.get_parameter('pp_forward_span_m').value),
+            'pp_near_m':                float(self.get_parameter('pp_near_m').value),
             'pp_wheelbase':            float(self.get_parameter('pp_wheelbase').value),
+            'steering_max_deg':         float(self.get_parameter('steering_max_deg').value),
             'pp_steering_gain':        float(self.get_parameter('pp_steering_gain').value),
             'kalman_enabled':          bool(self.get_parameter('kalman_enabled').value),
             'kalman_process_noise':    float(self.get_parameter('kalman_process_noise').value),
@@ -682,11 +687,11 @@ class LineFollowerCamera(Node):
                     
             center_points.append((center_x, y_center))
 
-                # Weight for polyfit (bottom higher)
+            # Weight for polyfit (bottom higher)
             y_frac = (window + 0.5) / nwindows
             scanline_weights.append(1.0 - y_frac + 0.5)
-                
-                # Save bottom-most valid center for prior
+
+            # Save bottom-most valid center for prior
             if valid_count == 1:
                 smooth = 0.15
                 if self._expected_left is not None:
@@ -1049,13 +1054,13 @@ class LineFollowerCamera(Node):
                     lookahead_pt = (lx_px, ly_px)
 
                     # Pure Pursuit Steering Angle
-                    if self.get_parameter('pp_metric_enabled').value and self._param_cache['ipm_enabled']:
+                    if self._param_cache['pp_metric_enabled'] and self._param_cache['ipm_enabled']:
                         # Calibrated ground-plane rectangle, both axes in metres.
-                        x_m = x_L * float(self.get_parameter('pp_lateral_span_m').value) / 2
-                        y_m = float(self.get_parameter('pp_near_m').value) + y_L * float(self.get_parameter('pp_forward_span_m').value)
+                        x_m = x_L * float(self._param_cache['pp_lateral_span_m']) / 2
+                        y_m = float(self._param_cache['pp_near_m']) + y_L * float(self._param_cache['pp_forward_span_m'])
                         curv = 2*x_m / max(0.001, x_m*x_m+y_m*y_m)
                         steer_rad = math.atan(curv * float(self._param_cache['pp_wheelbase']))
-                        raw_error = steer_rad / math.radians(float(self.get_parameter('steering_max_deg').value))
+                        raw_error = steer_rad / math.radians(float(self._param_cache['steering_max_deg']))
                     else:
                         # Uncalibrated image-space mode is explicitly a heuristic.
                         raw_error = x_L
@@ -1096,7 +1101,6 @@ class LineFollowerCamera(Node):
                 self.frames_lost += 1
                 self.lane_lost_pub.publish(Bool(data=True))
                 if self.frames_lost >= self._param_cache['hold_error_frames']:
-                    self.lane_lost_pub.publish(Bool(data=True))
                     self._expected_left = None
                     self._expected_right = None
                 raw_error = 0.0
