@@ -10,10 +10,15 @@ profiles:
   primary:
     sensor: Astra
     topic: /camera/color/image_raw
+    # Factory CameraInfo captured at 320x240 on 2026-09-21. Keep this profile
+    # locked until measured ground correspondences pass the held-out test.
     calibrated: false
     resolution: [320, 240]
-    camera_matrix: []
-    distortion_coefficients: []
+    camera_matrix:
+      - [285.17110237076486, 0.0, 159.5]
+      - [0.0, 285.17110237076486, 119.5]
+      - [0.0, 0.0, 1.0]
+    distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
     source_points_px: []
     ground_points_m: []
     ground_bounds_m:

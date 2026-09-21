@@ -12,7 +12,7 @@ passed.
 - [x] Cameras, LiDAR, UWB and gamepad previously observed on the board.
 - [x] Manual wheels-up directions checked.
 - [x] Steering centre measured as `servo_center: 110` and committed.
-- [ ] Primary camera profile calibrated.
+- [ ] Primary camera ground profile calibrated (factory intrinsics captured).
 - [ ] Secondary camera profile calibrated.
 - [ ] V4 road thresholds validated on the competition surface.
 - [ ] Vehicle geometry, turning radius and LiDAR extrinsics validated.
@@ -223,9 +223,9 @@ must still pass resolution and measured-ground validation.
 
 **Owner: Aryan keeps the mount fixed; Codex validates and converts the data.**
 
-- [ ] Keep the camera at its final resolution and mount position.
-- [ ] Start the Astra camera and verify the raw image is live.
-- [ ] Save the complete factory calibration message:
+- [x] Keep the camera at its final 320 x 240 resolution and mount position.
+- [x] Start the Astra camera and verify the raw image is live.
+- [x] Save the complete factory calibration message:
 
   ```bash
   mkdir -p ~/track_validation
@@ -244,16 +244,24 @@ must still pass resolution and measured-ground validation.
 
 **Codex validation**
 
-- [ ] `CameraInfo.width` and `height` exactly match the raw image.
-- [ ] `k` contains nine finite values with positive `fx` and `fy`.
-- [ ] Principal point `cx, cy` lies within or plausibly near the image.
-- [ ] `d` has a supported finite length: 4, 5, 8, 12 or 14 values.
-- [ ] Distortion model is compatible with OpenCV's calibration model, normally
+- [x] `CameraInfo.width` and `height` exactly match the raw image.
+- [x] `k` contains nine finite values with positive `fx` and `fy`.
+- [x] Principal point `cx, cy` lies within or plausibly near the image.
+- [x] `d` has a supported finite length: 4, 5, 8, 12 or 14 values.
+- [x] Distortion model is compatible with OpenCV's calibration model, normally
   `plumb_bob`.
-- [ ] Factory values remain consistent across restarts at the same resolution.
-- [ ] Convert the row-major `k` list into the 3 x 3 `camera_matrix` and copy `d`
+- [x] Factory values remain consistent across restarts at the same resolution.
+- [x] Convert the row-major `k` list into the 3 x 3 `camera_matrix` and copy `d`
   into `distortion_coefficients`.
-- [ ] Leave `calibrated: false` until Phase 5 ground validation passes.
+- [x] Leave `calibrated: false` until Phase 5 ground validation passes.
+
+Captured evidence: `/home/sunrise/track_validation/20260921T090557Z_full_course_raw/metadata/camera_color_camera_info.yaml`.
+The recorded raw stream and `CameraInfo` are both 320 x 240. The captured
+matrix has `fx = fy = 285.17110237076486`, `cx = 159.5`, `cy = 119.5`, and
+five finite zero distortion coefficients. These values are staged in
+`camera_profiles.yaml`; they do not enable BEV while `calibrated` is false.
+The same values were observed again after a clean camera-node restart on
+2026-09-21 (`/tmp/astra_restart_camera_info.yaml` on the board).
 
 Zero distortion coefficients are not automatically invalid. They are accepted
 only if straight-line and held-out ground-marker tests pass.
