@@ -52,6 +52,7 @@ passed.
 - [ ] Fully charged gamepad/receiver.
 - [ ] Robot power supply and charger.
 - [ ] Laptop on the same network as the RDK X5.
+- [ ] At least 10 GiB free storage on the board for the recording session.
 - [ ] Optional fallback: printed checkerboard with 9 x 6 inner corners.
 - [ ] Optional fallback: accurate checkerboard square measurement.
 - [ ] Tape measure or steel ruler.
@@ -157,19 +158,31 @@ export FASTRTPS_DEFAULT_PROFILES_FILE=/home/sunrise/risabotcar_ws/install/risabo
 Do this in MANUAL. Prefer pushing the powered-off drivetrain by hand if that is
 mechanically safe; otherwise use the lowest manual speed with a spotter.
 
-```bash
-mkdir -p ~/track_validation
+Start one evidence-complete session from the repository root. The recorder
+refuses to start without the primary camera, LiDAR and odometry. It records all
+available cameras, calibration messages, sensors, perception results, V4
+statuses, safety decisions and command topics. It also saves parameters, the
+Git revision, topic/node inventories and two-second system-health samples.
 
-ros2 bag record \
-  -o ~/track_validation/track_raw_$(date +%Y%m%d_%H%M%S) \
-  /camera/color/image_raw \
-  /camera/depth/image_raw \
-  /camera/second/image_raw \
-  /scan \
-  /odom \
-  /imu/data \
-  /dashboard_state
+```bash
+cd /home/sunrise/risabotcar_ws
+bash tools/record_track_session.sh --name full_course_baseline --require-v4
 ```
+
+Keep that terminal open. From a second configured terminal, mark the beginning
+of each feature. Replace `<SESSION_DIR>` with the directory printed by the
+recorder:
+
+```bash
+bash tools/mark_track_event.sh <SESSION_DIR> straight_normal
+bash tools/mark_track_event.sh <SESSION_DIR> left_curve
+bash tools/mark_track_event.sh <SESSION_DIR> shadow "strong cross-track shadow"
+bash tools/mark_track_event.sh <SESSION_DIR> boom_closed
+```
+
+Use short event names containing the feature and state. A note is optional.
+The marker timestamp allows the corresponding camera, LiDAR, perception and
+control messages to be located precisely in the bag.
 
 Record all of the following:
 
@@ -189,8 +202,11 @@ Record all of the following:
 - [ ] Every sign class.
 - [ ] Parallel and perpendicular parking markings.
 
-Target 5-10 minutes of useful footage. Stop with `Ctrl+C` and retain the bag
-directory unchanged.
+Target 5-10 minutes of useful footage. Mark every listed feature, stop the
+recorder with `Ctrl+C`, and wait for `Session saved:` before disconnecting
+power. Retain the complete timestamped session directory unchanged. Inspect
+`metadata/verification.json`, `metadata/bag_info.txt` and `SHA256SUMS`; an
+empty or missing required topic means the capture must be repeated.
 
 **Codex output:** topic-rate report, dropped-frame findings, representative
 frames and an initial legacy/V4 tuning report.
