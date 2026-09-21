@@ -31,6 +31,7 @@ from .road_mask_core import (
     RoadMaskConfig,
     RoadMaskError,
     extract_corridor,
+    prior_center_from_mask,
     process_bev,
     timestamps_synchronized,
 )
@@ -377,6 +378,28 @@ class RoadMaskShadow(Node):
         try:
             image = self._bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             seed = self._seed(name)
+            prior_mask = None
+            prior_center_x = None
+            if (
+                self._pose is not None
+                and time.monotonic() - self._pose_mono <= self._odom_timeout
+                and int(self._memory.stats().get('cells', 0)) > 0
+            ):
+                try:
+                    rendered = self._memory.render(
+                        profile,
+                        self._pose,
+                        time.monotonic(),
+                        self._distance,
+                        self._memory_age,
+                        self._memory_distance,
+                    )
+                    if bool((rendered > 0).any()):
+                        prior_mask = rendered
+                        prior_center_x = prior_center_from_mask(rendered)
+                except (CalibrationError, RoadMaskError, ValueError):
+                    prior_mask = None
+                    prior_center_x = None
             result = process_bev(
                 image,
                 coverage,
@@ -389,6 +412,8 @@ class RoadMaskShadow(Node):
                 min_width_m=self._min_width_m,
                 max_width_m=self._max_width_m,
                 row_step_px=self._row_step,
+                prior_mask=prior_mask,
+                prior_center_x=prior_center_x,
             )
         except (CalibrationError, RoadMaskError, CvBridgeError, ValueError) as exc:
             self._last_error[name] = str(exc)
@@ -411,7 +436,10 @@ class RoadMaskShadow(Node):
         fused_mask = result['connected']
         samples = result['samples']
         now = time.monotonic()
-        if self._pose is None or now - self._pose_mono > self._odom_timeout:
+        pose_fresh = (
+            self._pose is not None and now - self._pose_mono <= self._odom_timeout
+        )
+        if not pose_fresh:
             self._memory_error = 'no fresh odometry; live mask only'
         else:
             try:
@@ -428,7 +456,11 @@ class RoadMaskShadow(Node):
                 samples = extract_corridor(
                     fused_mask,
                     fused_coverage,
-                    seed_center_x=seed[0],
+                    seed_center_x=(
+                        seed[0]
+                        if prior_center_x is None
+                        else prior_center_x
+                    ),
                     pixels_per_meter=profile.pixels_per_meter,
                     min_width_m=self._min_width_m,
                     max_width_m=self._max_width_m,

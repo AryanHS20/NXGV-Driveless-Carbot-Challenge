@@ -109,8 +109,16 @@ def seed_connected_component(
     seed_xy: Tuple[float, float],
     seed_radius_px: int,
     min_component_px: int,
+    prior_mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Keep the four-connected candidate component with most seed overlap."""
+    """Keep the four-connected candidate component with most seed overlap.
+
+    When ``prior_mask`` (e.g. the rendered road memory) is provided, the
+    choice prefers the touched component with most prior overlap instead.
+    This keeps the corridor on the previously observed road when a larger
+    impostor component (shadow, floor outside the lane) also touches the
+    seed circle. With no prior, or no prior overlap, behavior is unchanged.
+    """
     if candidate is None or candidate.ndim != 2:
         raise RoadMaskError('candidate must be a single-channel mask')
     if seed_radius_px < 1 or min_component_px < 1:
@@ -129,12 +137,56 @@ def seed_connected_component(
     touched = labels[seed_mask > 0]
     if touched.size == 0:
         return np.zeros_like(candidate)
+    if prior_mask is not None and prior_mask.shape == candidate.shape:
+        prior = (prior_mask > 0)
+        if bool(prior.any()):
+            best_label = 0
+            best_overlap = 0
+            for label in range(1, count):
+                if int(stats[label, cv2.CC_STAT_AREA]) < min_component_px:
+                    continue
+                touched_pixels = int(np.count_nonzero(touched == label))
+                if touched_pixels == 0:
+                    continue
+                overlap = int(np.count_nonzero((labels == label) & prior))
+                if overlap > best_overlap or (
+                    overlap == best_overlap
+                    and best_label != 0
+                    and touched_pixels
+                    > int(np.count_nonzero(touched == best_label))
+                ):
+                    best_label = int(label)
+                    best_overlap = overlap
+            if best_label != 0 and best_overlap > 0:
+                return (labels == best_label).astype(np.uint8) * 255
     label_counts = np.bincount(touched, minlength=count)
     label_counts[0] = 0
     chosen = int(np.argmax(label_counts))
     if chosen == 0 or int(stats[chosen, cv2.CC_STAT_AREA]) < min_component_px:
         return np.zeros_like(candidate)
     return (labels == chosen).astype(np.uint8) * 255
+
+
+def prior_center_from_mask(
+    mask: np.ndarray, band_rows: int = 3, row_step_px: int = 8
+) -> Optional[float]:
+    """Return the mean x of mask pixels in the nearest image rows, if any."""
+    if mask is None or mask.ndim != 2:
+        raise RoadMaskError('prior mask must be single-channel')
+    if band_rows < 1 or row_step_px < 1:
+        raise RoadMaskError('band rows and row step must be positive')
+    height = mask.shape[0]
+    columns = []
+    row_index = height - 1
+    for _ in range(band_rows):
+        if row_index < 0:
+            break
+        row = np.flatnonzero(mask[row_index] > 0)
+        columns.extend(int(value) for value in row)
+        row_index -= row_step_px
+    if not columns:
+        return None
+    return float(sum(columns) / len(columns))
 
 
 def _runs(row: np.ndarray) -> List[Tuple[int, int]]:
@@ -197,15 +249,22 @@ def process_bev(
     min_width_m: float = 0.12,
     max_width_m: float = 0.80,
     row_step_px: int = 8,
+    prior_mask: Optional[np.ndarray] = None,
+    prior_center_x: Optional[float] = None,
 ) -> Dict[str, object]:
     candidate = segment_dark_road(bev_bgr, coverage, config)
     connected = seed_connected_component(
-        candidate, seed_xy, seed_radius_px, config.min_component_px
+        candidate,
+        seed_xy,
+        seed_radius_px,
+        config.min_component_px,
+        prior_mask=prior_mask,
     )
+    start_x = seed_xy[0] if prior_center_x is None else float(prior_center_x)
     samples = extract_corridor(
         connected,
         coverage,
-        seed_center_x=seed_xy[0],
+        seed_center_x=start_x,
         pixels_per_meter=pixels_per_meter,
         min_width_m=min_width_m,
         max_width_m=max_width_m,
@@ -216,4 +275,7 @@ def process_bev(
         'connected': connected,
         'samples': samples,
         'connected_fraction': float((connected > 0).mean()),
+        'prior_used': bool(
+            prior_mask is not None and prior_center_x is not None
+        ),
     }
