@@ -77,13 +77,18 @@ class BevCoreTests(unittest.TestCase):
         np.testing.assert_allclose(bev, image, atol=1)
         self.assertGreater(float((coverage > 0).mean()), 0.99)
 
-    def test_uncalibrated_repository_profiles_are_explicitly_rejected(self):
+    def test_repository_primary_is_calibrated_and_secondary_remains_locked(self):
         config = Path(__file__).parents[1] / 'config' / 'camera_profiles.yaml'
         profiles = load_profiles(str(config))
-        self.assertFalse(profiles['primary'].calibrated)
+        self.assertTrue(profiles['primary'].calibrated)
         self.assertFalse(profiles['secondary'].calibrated)
+        bev, coverage = warp_to_bev(
+            np.zeros((240, 320, 3), np.uint8), profiles['primary']
+        )
+        self.assertEqual(tuple(reversed(bev.shape[:2])), profiles['primary'].output_size)
+        self.assertEqual(coverage.shape, bev.shape[:2])
         with self.assertRaisesRegex(CalibrationError, 'not calibrated'):
-            warp_to_bev(np.zeros((544, 960, 3), np.uint8), profiles['primary'])
+            warp_to_bev(np.zeros((272, 480, 3), np.uint8), profiles['secondary'])
 
     def test_resolution_mismatch_is_rejected(self):
         profile = profile_from_mapping('test', calibrated_mapping())

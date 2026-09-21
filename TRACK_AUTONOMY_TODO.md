@@ -12,7 +12,7 @@ passed.
 - [x] Cameras, LiDAR, UWB and gamepad previously observed on the board.
 - [x] Manual wheels-up directions checked.
 - [x] Steering centre measured as `servo_center: 110` and committed.
-- [ ] Primary camera ground profile calibrated (factory intrinsics captured).
+- [x] Primary camera ground profile calibrated and held-out board corners validated.
 - [ ] Secondary camera profile calibrated.
 - [ ] V4 road thresholds validated on the competition surface.
 - [ ] Vehicle geometry, turning radius and LiDAR extrinsics validated.
@@ -302,6 +302,11 @@ ros2 run risabot_v4_experimental calibrate_intrinsics \
 ## Phase 5 - Ground-plane / BEV calibration
 
 **Owner: Aryan measures; Codex enters and verifies.**
+
+The primary Astra used the supplied 6 x 4 floor checkerboard instead of manual
+tape points. Its measured 50.0 mm squares and board centre at `[0.765, 0.0]`
+produced 24 detected corners. Four perimeter corners construct the homography;
+the other 20 produced 11.8 mm RMS and 19.2 mm maximum ground error.
 
 The origin is the midpoint of the rear axle. Forward is positive; left is
 positive.
