@@ -27,7 +27,9 @@ def generate_launch_description():
             description='Run V4 stages; physical gates still remain authoritative'),
         _include('risabot_automode', 'bringup.launch.py', autonomy_source=source),
         _include('risabot_v4_experimental', 'shadow.launch.py', enabled=enabled),
-        _include('risabot_v4_experimental', 'stage1_bev.launch.py', enabled=enabled),
+        # Stage 2 already launches its Stage 1 BEV dependency. Including the
+        # standalone Stage 1 launch here creates two BEV processors with the
+        # same node name and doubles the camera/CPU load.
         _include('risabot_v4_experimental', 'stage2_road_mask.launch.py', enabled=enabled),
         _include('risabot_v4_experimental', 'stage3_pose.launch.py', enabled=enabled),
         _include('risabot_v4_experimental', 'stage3_uwb_bridge.launch.py', enabled=enabled),

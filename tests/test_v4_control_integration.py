@@ -2,6 +2,7 @@
 
 import unittest
 from unittest.mock import patch
+from pathlib import Path
 import sys
 import types
 
@@ -101,6 +102,14 @@ class V4ControlIntegrationTests(unittest.TestCase):
         ])[0]
         self.assertFalse(result.successful)
         self.assertFalse(node._gates['operator_motion_authorized'])
+
+    def test_competition_launch_does_not_duplicate_bev_stage(self):
+        launch = Path(__file__).parents[1] / (
+            'src/risabot_v4_control/launch/v4_competition.launch.py')
+        source = launch.read_text(encoding='utf-8')
+        self.assertNotIn("_include('risabot_v4_experimental', 'stage1_bev.launch.py'", source)
+        self.assertEqual(source.count(
+            "_include('risabot_v4_experimental', 'stage2_road_mask.launch.py'"), 1)
 
 
 if __name__ == '__main__':
