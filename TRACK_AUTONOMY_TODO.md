@@ -788,6 +788,16 @@ dashboard status turn green.
   steering 0.02073 rad, zero obstacle-blocked steps and three LiDAR points.
 - [x] During that centred snapshot, motion permission was true, raw and final
   commands stayed zero in MANUAL, and the board temperature was 70.4 C.
-- [ ] Repeat the raised-wheel AUTO continuity capture at 0.04 m/s after the
-  mode-heartbeat and LiDAR-yaw fixes. Do not lower the wheels until this passes
-  and the car has been returned to MANUAL with zero commands.
+- [x] Repeated the raised-wheel AUTO continuity capture at 0.04 m/s after the
+  mode-heartbeat and LiDAR-yaw fixes. Over 12 s, `/cmd_vel_v4_raw` was nonzero
+  for 502/502 samples, `/cmd_vel_auto` was nonzero for 440/440 samples,
+  dashboard state was `LANE_FOLLOW` for 46/46 samples, trajectory blockers
+  were present for 0/46 reports, and there were zero command transitions.
+- [x] Returned to MANUAL after that capture. Over the following 12 s,
+  `/cmd_vel_auto` was zero for 594/594 samples, `/cmd_vel_v4_raw` was zero for
+  584/584 samples, dashboard state was `MANUAL` for 57/57 samples, and there
+  were zero transitions. Board temperature was 70.8 C.
+- [ ] Treat `lidar_extrinsics_validated` and
+  `minimum_turn_radius_validated` as temporary commissioning gate values only.
+  Their live `true` values do not replace the deferred physical measurements
+  and must not be cited as full obstacle or parking validation.
