@@ -760,10 +760,34 @@ dashboard status turn green.
 - [ ] Restore and validate signage (`require_signage:=true`) before any full
   mission or competition run; it was deliberately disabled for this lane-only
   raised-wheel commissioning test.
-- [ ] Measure/confirm wheelbase, minimum turning radius, and LiDAR pose before
-  treating their temporary commissioning gates as physically validated.
+- [x] Measured the rear-axle-centre to front-axle-centre wheelbase as 0.21 m
+  and deployed it to the V4 trajectory, parking, recovery and motion-executor
+  configuration, plus legacy servo odometry.
+- [ ] Measure the minimum turning radius before validating tight curves or
+  parking.
+- [ ] Measure the physical LiDAR x/y pose before obstacle-distance validation.
+  For this lane-only test its yaw uses the proven legacy `pi` mounting offset;
+  the skipped x/y measurement is explicitly deferred, not marked calibrated.
 - [ ] Perform supervised ground tests in order: 0.03-0.05 m/s straight crawl,
   gentle curves, shadows, lane-loss stop, obstacle stop, manual takeover, then
   challenge-by-challenge mission trials. Do not begin with a full-speed lap.
 - [ ] Validate parking recordings and both parking manoeuvres on the final
   steering ramp before attempting a complete two-lap mission.
+
+## 2026-09-21 final lane-only commissioning state
+
+- [x] Temporary raised-wheel and first-crawl speed is limited to 0.04 m/s.
+- [x] Added an authoritative `/auto_mode` heartbeat from the servo controller
+  every 0.5 s so a missed controller button edge cannot leave mission and
+  actuator nodes in different modes.
+- [x] Measured road-mask arrival gaps under board load: average 0.347 s and
+  maximum 0.997 s. The Stage 4 road-input timeout is bounded at 1.10 s; the
+  independent downstream safety watchdogs remain faster.
+- [x] With the car centred and the track clear in MANUAL, the live V4 planner
+  selected a valid centre candidate with no blockers, road support 1.0,
+  steering 0.02073 rad, zero obstacle-blocked steps and three LiDAR points.
+- [x] During that centred snapshot, motion permission was true, raw and final
+  commands stayed zero in MANUAL, and the board temperature was 70.4 C.
+- [ ] Repeat the raised-wheel AUTO continuity capture at 0.04 m/s after the
+  mode-heartbeat and LiDAR-yaw fixes. Do not lower the wheels until this passes
+  and the car has been returned to MANUAL with zero commands.
