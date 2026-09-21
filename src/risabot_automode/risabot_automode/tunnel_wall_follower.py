@@ -333,7 +333,8 @@ class TunnelWallFollower(Node):
                 self.get_logger().info(
                     f'CL: lat:{lateral_error:.3f} head:{math.degrees(heading_error):.1f}° '
                     f'ω:{angular_z:.2f} ({direction}) '
-                    f'L~{avg_l:.2f}m R~{avg_r:.2f}m pts:{len(centerline)}')
+                    f'L~{avg_l:.2f}m R~{avg_r:.2f}m pts:{len(centerline)}',
+                    throttle_duration_sec=2.0)
 
                 # Publish debug: JSON with all info including centerline
                 import json
@@ -348,7 +349,9 @@ class TunnelWallFollower(Node):
             else:
                 # Not enough centerline points — drive straight slowly
                 cmd.linear.x = 0.0
-                self.get_logger().warn('CL: too few forward midpoints, stopped')
+                self.get_logger().warn(
+                    'CL: too few forward midpoints, stopped',
+                    throttle_duration_sec=2.0)
 
         else:
             # Not in tunnel — publish zero, reset errors
