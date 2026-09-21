@@ -32,6 +32,7 @@ from .road_mask_core import (
     RoadMaskError,
     extract_corridor,
     process_bev,
+    timestamps_synchronized,
 )
 
 
@@ -123,6 +124,12 @@ class RoadMaskShadow(Node):
 
         self._bridge = CvBridge()
         self._coverage: Dict[str, Optional[Tuple[np.ndarray, float]]] = {
+            name: None for name in self._active_names
+        }
+        # Stage 1 publishes the BEV image before its same-frame coverage mask.
+        # Cache the image so the coverage callback can pair them by timestamp;
+        # otherwise every image is compared with the previous frame's mask.
+        self._pending_images: Dict[str, Optional[Image]] = {
             name: None for name in self._active_names
         }
         self._frames = {name: 0 for name in self._active_names}
@@ -314,7 +321,18 @@ class RoadMaskShadow(Node):
         except CvBridgeError as exc:
             self._last_error[name] = str(exc)
             return
-        self._coverage[name] = (mask.copy(), _stamp_seconds(msg))
+        coverage = mask.copy()
+        coverage_stamp = _stamp_seconds(msg)
+        self._coverage[name] = (coverage, coverage_stamp)
+        pending = self._pending_images[name]
+        if pending is None:
+            return
+        image_stamp = _stamp_seconds(pending)
+        if timestamps_synchronized(
+            image_stamp, coverage_stamp, self._sync_tolerance
+        ):
+            self._pending_images[name] = None
+            self._process_image(name, pending, coverage)
 
     def _seed(self, name: str) -> Tuple[float, float]:
         profile = self._profiles[name]
@@ -333,14 +351,29 @@ class RoadMaskShadow(Node):
             return
         coverage_entry = self._coverage[name]
         if coverage_entry is None:
-            self._last_error[name] = 'no coverage mask received'
+            self._pending_images[name] = msg
+            self._last_error[name] = 'waiting for matching coverage mask'
             return
         coverage, coverage_stamp = coverage_entry
         image_stamp = _stamp_seconds(msg)
-        if image_stamp > 0.0 and coverage_stamp > 0.0:
-            if abs(image_stamp - coverage_stamp) > self._sync_tolerance:
-                self._last_error[name] = 'BEV and coverage timestamps do not match'
-                return
+        if not timestamps_synchronized(
+            image_stamp, coverage_stamp, self._sync_tolerance
+        ):
+            self._pending_images[name] = msg
+            self._last_error[name] = 'waiting for matching coverage mask'
+            return
+        self._pending_images[name] = None
+        self._process_image(name, msg, coverage)
+
+    def _process_image(
+        self,
+        name: str,
+        msg: Image,
+        coverage: np.ndarray,
+    ) -> None:
+        """Process one timestamp-matched BEV image and coverage mask."""
+        profile = self._profiles[name]
+        image_stamp = _stamp_seconds(msg)
         try:
             image = self._bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             seed = self._seed(name)

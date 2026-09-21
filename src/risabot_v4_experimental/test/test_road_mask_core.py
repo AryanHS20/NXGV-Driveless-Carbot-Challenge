@@ -8,6 +8,7 @@ from risabot_v4_experimental.road_mask_core import (
     process_bev,
     seed_connected_component,
     segment_dark_road,
+    timestamps_synchronized,
 )
 
 
@@ -76,6 +77,33 @@ class RoadMaskCoreTests(unittest.TestCase):
         )
         self.assertTrue(samples)
         self.assertTrue(all(sample.left_px == 55 for sample in samples))
+
+    def test_corridor_accepts_road_inside_narrow_camera_coverage(self):
+        mask = np.zeros((40, 100), np.uint8)
+        mask[:, 42:68] = 255
+        coverage = np.zeros_like(mask)
+        coverage[:, 38:72] = 255
+        # Only 34% of the complete BEV row is visible, but the complete road
+        # segment is observed. A triangular forward-camera FOV must pass.
+        samples = extract_corridor(
+            mask,
+            coverage,
+            seed_center_x=55.0,
+            pixels_per_meter=100.0,
+            min_width_m=0.20,
+            max_width_m=0.40,
+            row_step_px=5,
+        )
+        self.assertEqual(len(samples), 8)
+        self.assertTrue(all(sample.left_px == 42 for sample in samples))
+
+    def test_timestamp_pairing_rejects_previous_frame(self):
+        self.assertFalse(timestamps_synchronized(10.2, 10.0, 0.1))
+        self.assertTrue(timestamps_synchronized(10.2, 10.2, 0.1))
+
+    def test_timestamp_pairing_accepts_unstamped_inputs(self):
+        self.assertTrue(timestamps_synchronized(0.0, 10.0, 0.1))
+        self.assertTrue(timestamps_synchronized(10.0, 0.0, 0.1))
 
 
 if __name__ == '__main__':

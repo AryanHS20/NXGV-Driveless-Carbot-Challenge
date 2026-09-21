@@ -44,7 +44,9 @@ v4_road_mask_shadow:
     morph_open_px: 3
     morph_close_px: 7
     min_component_px: 100
-    seed_radius_m: 0.10
+    # The calibrated Astra cannot see the first ~0.4 m in front of the axle;
+    # reach the nearest visible centre-road component without inventing pixels.
+    seed_radius_m: 0.35
     min_corridor_width_m: 0.12
     max_corridor_width_m: 0.80
     corridor_row_step_px: 8

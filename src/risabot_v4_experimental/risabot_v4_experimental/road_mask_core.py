@@ -11,6 +11,26 @@ class RoadMaskError(ValueError):
     """Raised when a road-mask input or configuration is invalid."""
 
 
+def timestamps_synchronized(
+    image_stamp: float,
+    coverage_stamp: float,
+    tolerance_sec: float,
+) -> bool:
+    """Return whether a BEV image and coverage mask belong to one frame.
+
+    Zero timestamps are accepted for bag and synthetic inputs that do not carry
+    a ROS clock. Live inputs with real timestamps must match within tolerance.
+    """
+    values = (float(image_stamp), float(coverage_stamp), float(tolerance_sec))
+    if not all(np.isfinite(value) for value in values):
+        return False
+    if tolerance_sec < 0.0:
+        raise RoadMaskError('timestamp tolerance must be non-negative')
+    if image_stamp <= 0.0 or coverage_stamp <= 0.0:
+        return True
+    return abs(image_stamp - coverage_stamp) <= tolerance_sec
+
+
 @dataclass(frozen=True)
 class RoadMaskConfig:
     value_min: int = 0
@@ -149,13 +169,14 @@ def extract_corridor(
     previous = float(seed_center_x)
     samples: List[CorridorSample] = []
     for row_index in range(connected_mask.shape[0] - 1, -1, -row_step_px):
-        observed = float((coverage[row_index] > 0).mean())
-        if observed < min_coverage_fraction:
-            continue
         candidates = []
         for left, right in _runs(connected_mask[row_index]):
             width = right - left + 1
-            if min_width_px <= width <= max_width_px:
+            observed = float((coverage[row_index, left:right + 1] > 0).mean())
+            if (
+                min_width_px <= width <= max_width_px
+                and observed >= min_coverage_fraction
+            ):
                 center = 0.5 * (left + right)
                 candidates.append((abs(center - previous), left, right, center, width))
         if not candidates:
