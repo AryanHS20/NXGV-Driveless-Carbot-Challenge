@@ -35,6 +35,15 @@ class PackageContractTests(unittest.TestCase):
         self.assertAlmostEqual(executor['minimum_speed_scale'], 48.0 / 65.0)
         self.assertEqual(executor['steering_slowdown_gain'], 0.85)
 
+    def test_risabot1_uses_measured_road_and_tire_width(self):
+        trajectory = track_test_overrides('risabot1')['v4_trajectory_shadow']
+        self.assertEqual(trajectory['expected_lane_width_m'], 0.31)
+        self.assertEqual(trajectory['vehicle_width_m'], 0.205)
+        self.assertEqual(trajectory['footprint_padding_m'], 0.010)
+        self.assertEqual(trajectory['cross_track_gain'], 0.75)
+        self.assertEqual(trajectory['steering_rate_rad_sec'], 2.0)
+        self.assertEqual(trajectory['boundary_recovery_error_m'], 0.020)
+
 
 if __name__ == '__main__':
     unittest.main()

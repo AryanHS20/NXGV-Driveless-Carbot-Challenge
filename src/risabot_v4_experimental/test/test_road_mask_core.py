@@ -62,6 +62,28 @@ class RoadMaskCoreTests(unittest.TestCase):
         self.assertGreater(samples[-1].center_px, samples[0].center_px + 6.0)
         self.assertTrue(all(39 <= sample.width_px <= 42 for sample in samples))
 
+    def test_dark_mask_edge_needs_painted_line_to_count_as_boundary(self):
+        coverage = np.full((80, 100), 255, np.uint8)
+        image = np.full((80, 100, 3), 130, np.uint8)
+        image[:, 30:70] = 45
+
+        def corridor():
+            return process_bev(
+                image, coverage, self.config, (50, 70), 8, 100.0,
+                min_width_m=.3, max_width_m=.5, row_step_px=8,
+            )['samples']
+
+        self.assertTrue(all(not sample.left_boundary_observed
+                            and not sample.right_boundary_observed
+                            for sample in corridor()))
+        image[:, 25:30] = 220
+        self.assertTrue(all(sample.left_boundary_observed
+                            and not sample.right_boundary_observed
+                            for sample in corridor()))
+        image[:, 70:75] = 220
+        self.assertTrue(all(sample.boundaries_observed
+                            for sample in corridor()))
+
     def test_corridor_chooses_run_nearest_previous_center(self):
         mask = np.zeros((40, 100), np.uint8)
         mask[:, 5:25] = 255

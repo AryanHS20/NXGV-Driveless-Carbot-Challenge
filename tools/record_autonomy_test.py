@@ -6,6 +6,7 @@ It stores full ROS messages in a bag and a compact JSONL stream for quick analys
 """
 
 from datetime import datetime, timezone
+import argparse
 import json
 import math
 from pathlib import Path
@@ -24,6 +25,7 @@ from std_msgs.msg import Bool, String
 ROOT = Path('/home/sunrise/track_test_run/trials')
 SESSION_LIMIT_SEC = 15 * 60
 POST_MANUAL_SEC = 3.0
+STARTUP_LIMIT_SEC = 20.0
 
 BAG_TOPICS = [
     '/camera/color/image_raw', '/camera/color/camera_info', '/scan', '/odom', '/joy',
@@ -144,6 +146,12 @@ def summarize(events, intervals, counts, duration, ready, latest, directory):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        '--continuous', action='store_true',
+        help='keep recording across MANUAL repositioning until Ctrl-C',
+    )
+    args = parser.parse_args()
     if subprocess.check_output(['hostname'], text=True).strip() not in ('risabot1', 'risabot5'):
         raise RuntimeError('this recorder must run on risabot1 or risabot5')
     directory = ROOT / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
@@ -163,7 +171,7 @@ def main():
     previous_mode = None
     ready = False
     after_manual_deadline = None
-    stream = (directory / 'events.jsonl').open('w')
+    stream = (directory / 'events.jsonl').open('w', buffering=1)
 
     def record(topic, data):
         latest[topic] = data
@@ -236,12 +244,20 @@ def main():
                     print(json.dumps({
                         'recording_ready': True, 'directory': str(directory),
                         'operator_selects_auto': True,
-                        'stops_after_manual': True,
+                        'stops_after_manual': not args.continuous,
                     }), flush=True)
+            if not ready and time.monotonic() - start > STARTUP_LIMIT_SEC:
+                raise RuntimeError(
+                    'recorder did not receive MANUAL and drive commands; '
+                    'check ROS_DOMAIN_ID and ROS_LOCALHOST_ONLY before testing'
+                )
             if (after_manual_deadline is not None
                     and time.monotonic() >= after_manual_deadline
-                    and latest.get('/auto_mode') is False):
+                    and latest.get('/auto_mode') is False
+                    and not args.continuous):
                 break
+    except KeyboardInterrupt:
+        pass
     finally:
         if active_since is not None:
             now = time.monotonic()
@@ -264,7 +280,8 @@ def main():
         (directory / 'summary.json').write_text(json.dumps(result, indent=2))
         print(json.dumps(result), flush=True)
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

@@ -79,6 +79,8 @@ class TrajectoryShadow(Node):
             ('near_center_guard_m', 0.0),
             ('near_heading_guard_rad', 0.0),
             ('near_curvature_guard_per_m', 0.0),
+            ('boundary_recovery_error_m', 0.0),
+            ('boundary_recovery_steer_rad', 0.0),
             ('heading_gain', 0.85),
             ('curvature_feedforward_gain', 0.90),
             ('reliable_support_threshold', 0.75),
@@ -211,6 +213,7 @@ class TrajectoryShadow(Node):
             'centerline_filter_alpha', 'cross_track_gain', 'heading_gain',
             'max_cross_track_feedback_m', 'near_center_guard_m',
             'near_heading_guard_rad', 'near_curvature_guard_per_m',
+            'boundary_recovery_error_m', 'boundary_recovery_steer_rad',
             'curvature_feedforward_gain', 'reliable_support_threshold',
             'minimum_observed_centerline_fraction',
             'low_support_direction_hold_sec', 'low_support_steer_decay_sec',
@@ -233,6 +236,7 @@ class TrajectoryShadow(Node):
             'centerline_filter_alpha', 'cross_track_gain', 'heading_gain',
             'max_cross_track_feedback_m', 'near_center_guard_m',
             'near_heading_guard_rad', 'near_curvature_guard_per_m',
+            'boundary_recovery_error_m', 'boundary_recovery_steer_rad',
             'curvature_feedforward_gain', 'reliable_support_threshold',
             'minimum_observed_centerline_fraction',
             'low_support_direction_hold_sec', 'low_support_steer_decay_sec',
@@ -487,6 +491,8 @@ class TrajectoryShadow(Node):
                 self._config.near_center_guard_m,
                 self._config.near_heading_guard_rad,
                 self._config.near_curvature_guard_per_m,
+                self._config.boundary_recovery_error_m,
+                self._config.boundary_recovery_steer_rad,
             )
             if self._last_control_steer_mono > 0.0:
                 control_dt = max(

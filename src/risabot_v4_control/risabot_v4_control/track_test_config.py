@@ -62,31 +62,40 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
         'v4_trajectory_shadow': {
             'enabled': True, 'track_test_mode': True, 'require_lidar': False,
             'wheelbase_m': wheelbase,
+            # Risabot 1 measurements from the track: 20.5 cm across the
+            # outside of the tires, approximately 31 cm between white edges.
+            'vehicle_width_m': 0.205 if risabot1 else 0.192,
             # Use the configured actuator range, rather than the unmeasured
             # 0.4 m radius that restricted steering to 55% of its range.
             'minimum_turn_radius_m': wheelbase / math.tan(math.radians(max_steer_deg)),
             'steering_gain': steering_gain,
-            # Keep the measured 19.2 cm body inside the dark lane surface.
-            # The steering reference remains the midpoint between two observed
-            # white boundaries.
+            # Allow for measurement and localization error beyond tire width.
             'footprint_padding_m': 0.010,
             # Prefer clearance strongly but keep steering through a brief
             # border overlap instead of stopping outside a hard mask margin.
             'road_support_cost_weight': 100.0,
-            'expected_lane_width_m': 0.32,
+            'expected_lane_width_m': 0.31 if risabot1 else 0.32,
             'centerline_filter_alpha': 0.60,
-            'cross_track_gain': 1.40 if risabot1 else 1.10,
+            # The 19.7 s corner capture showed a 6 cm error commanding about
+            # 0.31 rad, then overshooting to the opposite white line. Dampen
+            # routine centering while the boundary guard below keeps the
+            # command pointed inward near a line.
+            'cross_track_gain': 0.75 if risabot1 else 1.10,
             'max_cross_track_feedback_m': 0.14 if risabot1 else 0.0,
             'near_center_guard_m': 0.02 if risabot1 else 0.0,
             'near_heading_guard_rad': 0.05 if risabot1 else 0.0,
             'near_curvature_guard_per_m': 0.15 if risabot1 else 0.0,
+            'boundary_recovery_error_m': 0.020 if risabot1 else 0.0,
+            'boundary_recovery_steer_rad': 0.10 if risabot1 else 0.0,
             'heading_gain': 0.85,
             'curvature_feedforward_gain': 0.90,
             'reliable_support_threshold': 0.75,
             'minimum_observed_centerline_fraction': 0.50,
             'low_support_direction_hold_sec': 2.50,
             'low_support_steer_decay_sec': 1.50,
-            'steering_rate_rad_sec': 0.80,
+            # The previous 0.8 rad/s cap took roughly 0.6 s to reverse a
+            # correction; the camera showed the car crossing the lane then.
+            'steering_rate_rad_sec': 2.0 if risabot1 else 0.80,
             'plan_hold_sec': 0.60,
             'enforce_road_support_in_track_test': False,
             # Keep remembered near-field pixels from suddenly shortening the

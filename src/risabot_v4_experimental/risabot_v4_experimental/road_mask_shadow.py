@@ -469,6 +469,7 @@ class RoadMaskShadow(Node):
                     min_width_m=self._min_width_m,
                     max_width_m=self._max_width_m,
                     row_step_px=self._row_step,
+                    bev_bgr=image,
                 )
                 self._memory.integrate(
                     result['connected'],
@@ -496,8 +497,9 @@ class RoadMaskShadow(Node):
                 dtype=np.float64,
             )
             metric = bev_to_metric(profile, pixels)
-            self._last_corridor[name] = [
-                {
+            self._last_corridor[name] = []
+            for sample, point in zip(samples, metric):
+                item = {
                     'forward_m': round(float(point[0]), 4),
                     'left_m': round(float(point[1]), 4),
                     'boundaries_observed': sample.boundaries_observed,
@@ -507,8 +509,15 @@ class RoadMaskShadow(Node):
                         float(sample.width_px) / profile.pixels_per_meter, 4
                     ),
                 }
-                for sample, point in zip(samples, metric)
-            ]
+                for side, column in (
+                    ('left', sample.left_white_px),
+                    ('right', sample.right_white_px),
+                ):
+                    if column is not None:
+                        boundary = bev_to_metric(profile, np.array(
+                            [[column, sample.row_px]], dtype=np.float64))[0]
+                        item[f'{side}_boundary_m'] = round(float(boundary[1]), 4)
+                self._last_corridor[name].append(item)
         else:
             self._last_corridor[name] = []
         self._frames[name] += 1

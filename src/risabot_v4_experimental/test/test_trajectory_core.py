@@ -140,6 +140,17 @@ class TrajectoryCoreTests(unittest.TestCase):
         reference = steering_reference_from_corridor(samples, 0.32)
         self.assertTrue(all(abs(point.y) < 1e-9 for point in reference))
 
+    def test_painted_boundary_position_controls_single_edge_center(self):
+        samples = [
+            {'forward_m': x, 'left_m': 0.0, 'width_m': 0.20,
+             'left_boundary_observed': True,
+             'right_boundary_observed': False,
+             'left_boundary_m': 0.155}
+            for x in (0.40, 0.50, 0.60)
+        ]
+        reference = steering_reference_from_corridor(samples, 0.31)
+        self.assertTrue(all(abs(point.y) < 1e-9 for point in reference))
+
     def test_smoothed_centerline_controller_steers_toward_curve(self):
         straight = reference_from_corridor([
             (x, 0.0) for x in np.linspace(0.25, 0.75, 12)
@@ -209,6 +220,32 @@ class TrajectoryCoreTests(unittest.TestCase):
         )
         self.assertLessEqual(abs(diagnostics['control_lateral_error_m']), 0.0541)
         self.assertLess(abs(command), 0.25)
+
+    def test_boundary_recovery_keeps_steering_inward_when_heading_opposes_it(self):
+        # A car right of centre has a positive leftward lane error. Heading
+        # feedback can otherwise request a right turn near the white line.
+        for side in (-1.0, 1.0):
+            coefficients = (side * 0.275, -side * 0.45, 0.0)
+            reference = reference_from_corridor([
+                (x, coefficients[0] + coefficients[1] * x)
+                for x in (0.50, 0.60, 0.70)
+            ])
+            command, diagnostics = centerline_steering_command(
+                reference, coefficients, VehicleGeometry(), 0.22,
+                1.4, 0.85, 0.9, 0.31, 0.14, 0.02, 0.05, 0.15,
+                0.020, 0.10,
+            )
+            self.assertTrue(diagnostics['boundary_recovery_active'])
+            self.assertGreaterEqual(command * side, 0.10 - 1e-9)
+
+        centered = reference_from_corridor([(0.5, 0.0), (0.7, 0.0)])
+        command, diagnostics = centerline_steering_command(
+            centered, (0.0, 0.0, 0.0), VehicleGeometry(), 0.22,
+            1.4, 0.85, 0.9, 0.31, 0.14, 0.02, 0.05, 0.15,
+            0.020, 0.10,
+        )
+        self.assertEqual(command, 0.0)
+        self.assertFalse(diagnostics['boundary_recovery_active'])
 
     def test_track_mode_relaxes_mask_support_without_hiding_observed_obstacles(self):
         mask = corridor_mask(self.profile, 0.07)

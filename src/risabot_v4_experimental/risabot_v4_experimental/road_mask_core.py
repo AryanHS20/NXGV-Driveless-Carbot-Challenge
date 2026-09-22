@@ -70,6 +70,8 @@ class CorridorSample:
     boundaries_observed: bool = True
     left_boundary_observed: bool = True
     right_boundary_observed: bool = True
+    left_white_px: Optional[int] = None
+    right_white_px: Optional[int] = None
 
 
 def _validate_images(image: np.ndarray, coverage: np.ndarray) -> None:
@@ -200,6 +202,25 @@ def _runs(row: np.ndarray) -> List[Tuple[int, int]]:
     return [(int(part[0]), int(part[-1])) for part in np.split(indices, splits)]
 
 
+def _painted_inner_edge(
+    hsv: np.ndarray, coverage: np.ndarray, row: int, dark_edge: int,
+    direction: int, search_px: int = 12,
+) -> Optional[int]:
+    """Find the first contiguous bright white band outside a dark-road edge."""
+    width = hsv.shape[1]
+    for distance in range(1, search_px - 1):
+        columns = [dark_edge + direction * step
+                   for step in range(distance, distance + 3)]
+        if any(column < 0 or column >= width for column in columns):
+            break
+        if all(coverage[row, column] > 0
+               and hsv[row, column, 2] >= 155
+               and hsv[row, column, 1] <= 150
+               for column in columns):
+            return columns[0]
+    return None
+
+
 def extract_corridor(
     connected_mask: np.ndarray,
     coverage: np.ndarray,
@@ -209,6 +230,7 @@ def extract_corridor(
     max_width_m: float = 0.80,
     row_step_px: int = 8,
     min_coverage_fraction: float = 0.75,
+    bev_bgr: Optional[np.ndarray] = None,
 ) -> List[CorridorSample]:
     """Follow the contiguous road run nearest the previous centre, near to far."""
     if connected_mask is None or connected_mask.ndim != 2:
@@ -219,6 +241,11 @@ def extract_corridor(
         raise RoadMaskError('pixel scale and row step must be positive')
     if not 0.0 <= min_coverage_fraction <= 1.0:
         raise RoadMaskError('min coverage fraction must be in [0, 1]')
+    if bev_bgr is not None and (
+            bev_bgr.shape != (*connected_mask.shape, 3)):
+        raise RoadMaskError('BEV image must match the corridor mask')
+    hsv = (None if bev_bgr is None
+           else cv2.cvtColor(bev_bgr, cv2.COLOR_BGR2HSV))
     min_width_px = max(1, int(round(min_width_m * pixels_per_meter)))
     max_width_px = max(min_width_px, int(round(max_width_m * pixels_per_meter)))
     previous = float(seed_center_x)
@@ -247,10 +274,21 @@ def extract_corridor(
             right < coverage.shape[1] - 1
             and coverage[row_index, right + 1] > 0
         )
+        left_white = right_white = None
+        if hsv is not None:
+            if left_boundary_observed:
+                left_white = _painted_inner_edge(
+                    hsv, coverage, row_index, left, -1)
+            if right_boundary_observed:
+                right_white = _painted_inner_edge(
+                    hsv, coverage, row_index, right, 1)
+            left_boundary_observed = left_white is not None
+            right_boundary_observed = right_white is not None
         boundaries_observed = left_boundary_observed and right_boundary_observed
         samples.append(CorridorSample(
             row_index, left, right, center, width, bool(boundaries_observed),
-            left_boundary_observed, right_boundary_observed))
+            left_boundary_observed, right_boundary_observed,
+            left_white, right_white))
         previous = center
     return samples
 
@@ -285,6 +323,7 @@ def process_bev(
         min_width_m=min_width_m,
         max_width_m=max_width_m,
         row_step_px=row_step_px,
+        bev_bgr=bev_bgr,
     )
     return {
         'candidate': candidate,
