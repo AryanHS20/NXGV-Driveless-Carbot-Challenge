@@ -1,16 +1,17 @@
 CENTER COLUMN — CAMERA ===== -->
   <div class="col">
-    <div class="card cam-card" data-pages="drive,perception,calibration" data-panel="camera" data-span="2">
+    <div class="card cam-card" data-pages="drive,perception,calibration,v4" data-panel="camera" data-span="2">
       <h3>Camera Feed</h3>
       <button class="cam-toggle" id="camBtn" onclick="toggleCam()">📷 Enable Camera</button>
       <div class="cam-tabs" id="camSrcTabs" style="display:none;">
-        <div class="cam-tab active" onclick="setCamSource('forward', this)">Front</div>
-        <div class="cam-tab" onclick="setCamSource('second', this)">Right-Back</div>
-        <div class="cam-tab" onclick="setCamSource('third', this)">Other Side</div>
+        <div class="cam-tab active" data-camera-source="forward" onclick="setCamSource('forward', this)">Front</div>
+        <div class="cam-tab" data-camera-source="second" onclick="setCamSource('second', this)">Right-Back</div>
+        <div class="cam-tab" data-camera-source="third" onclick="setCamSource('third', this)">Other Side</div>
       </div>
       <div class="cam-tabs" id="camTabs" style="display:none;">
         <div class="cam-tab active" onclick="setCamView('raw', this)">Raw</div>
         <div class="cam-tab" onclick="setCamView('line_follower', this)">Lane Lines</div>
+        <div class="cam-tab" onclick="setCamView('road', this)">V4 Road</div>
         <div class="cam-tab" onclick="setCamView('traffic_light', this)">Traffic Light</div>
         <div class="cam-tab" onclick="setCamView('obstacle', this)">Obstacle</div>
         <div class="cam-tab" onclick="setCamView('signage', this)">Signage</div>

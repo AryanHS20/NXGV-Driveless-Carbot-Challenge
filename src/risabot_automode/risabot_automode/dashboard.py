@@ -17,6 +17,7 @@ import threading
 import time
 import os
 import yaml
+import numpy as np
 from .parameter_values import coerce_parameter_value
 
 import cv2
@@ -67,9 +68,10 @@ from .topics import (
 )
 
 try:
-    from cv_bridge import CvBridge
+    from cv_bridge import CvBridge, CvBridgeError
 except ImportError:
     CvBridge = None
+    CvBridgeError = Exception
 
 from .dashboard_panels import registry
 
@@ -111,6 +113,22 @@ _V4_DASHBOARD_SAFE_PARAMS = {
         'hill_max_speed_mps',
     },
 }
+
+_V4_COMPOSITE_TILES = (
+    ('bev', 'BEV'),
+    ('coverage', 'COVERAGE'),
+    ('candidate', 'CANDIDATE'),
+    ('connected', 'CONNECTED'),
+    ('fused', 'FUSED'),
+)
+_V4_COMPOSITE_LABELS = dict(_V4_COMPOSITE_TILES)
+_V4_COMPOSITE_NAMES = frozenset(_V4_COMPOSITE_LABELS)
+_V4_COMPOSITE_TILE_SIZE = (320, 240)
+_V4_COMPOSITE_FOOTER_HEIGHT = 32
+_V4_COMPOSITE_SYNC_WAIT_SEC = 0.15
+_V4_COMPOSITE_STALE_SEC = 1.0
+_V4_COMPOSITE_MAX_STAMP_SETS = 3
+_DASHBOARD_DIAGNOSTIC_INTERVAL_SEC = 5.0
 
 def load_default_params():
     global _DEFAULT_PARAMS, _PARAMS_SOURCE_PATH, _PARAMS_SOURCE_PATHS
@@ -171,8 +189,11 @@ class DashboardNode(Node):
         self.frame_id = 0
         self._encode_min_interval = 1.0 / max(1.0, float(self.get_parameter('cam_encode_max_hz').value))
         self._last_encode_mono = 0.0
+        self._last_camera_source_mono = 0.0
         self.active_camera_view = 'raw'
         self.active_camera_source = 'forward'  # forward | second | third
+        self._camera_selection_generation = 0
+        self._init_v4_composite_state()
         self._v4telemetry = None
         self._v4telemetry_mono = 0.0
         self.initial_joy_axes = None
@@ -324,6 +345,14 @@ class DashboardNode(Node):
         self.create_subscription(Image, MIPI_SECONDARY_TOPIC, lambda msg: self._image_cb(msg, 'second'), qos)
         self.create_subscription(Image, MIPI_TERTIARY_TOPIC, lambda msg: self._image_cb(msg, 'third'), qos)
 
+        # V4 composite view. Frames are grouped by their ROS source stamp in
+        # _v4_comp_cb; never combine the latest frame from unrelated cycles.
+        self.create_subscription(Image, '/v4_experimental/bev/primary/image', lambda msg: self._v4_comp_cb(msg, 'bev'), qos)
+        self.create_subscription(Image, '/v4_experimental/bev/primary/coverage', lambda msg: self._v4_comp_cb(msg, 'coverage'), qos)
+        self.create_subscription(Image, '/v4_experimental/road/primary/candidate', lambda msg: self._v4_comp_cb(msg, 'candidate'), qos)
+        self.create_subscription(Image, '/v4_experimental/road/primary/connected', lambda msg: self._v4_comp_cb(msg, 'connected'), qos)
+        self.create_subscription(Image, '/v4_experimental/road/primary/fused', lambda msg: self._v4_comp_cb(msg, 'fused'), qos)
+
         # Parking signboard detection flag
         self.create_subscription(Bool, PARKING_SIGN_TOPIC, self._parking_sign_cb, 10)
 
@@ -347,6 +376,9 @@ class DashboardNode(Node):
         # Renewable lease: the root manager shuts the optional MIPI pipelines
         # down if the dashboard disappears or no side-view client remains.
         self.create_timer(2.0, self._side_camera_lease_loop)
+        # Only performs work while a client is watching V4 Road. It replaces a
+        # stopped stream with an explicit stale card instead of freezing old data.
+        self.create_timer(0.25, self._v4_comp_watchdog)
 
         self.get_logger().info('Dashboard subscriptions ready')
 
@@ -416,8 +448,16 @@ class DashboardNode(Node):
                 self.topic_last_update[source_key] = time.monotonic()
 
     def _auto_mode_cb(self, msg: Bool) -> None:
-        self._set('auto_mode', msg.data, 'auto_mode')
-        mode = "AUTO" if msg.data else "MANUAL"
+        current = bool(msg.data)
+        with self.data_lock:
+            previous = bool(self.data.get('auto_mode', False))
+            self.data['auto_mode'] = current
+            # The publisher uses a heartbeat, so refresh health on every message
+            # even when the mode value itself is unchanged.
+            self.topic_last_update['auto_mode'] = time.monotonic()
+        if current == previous:
+            return
+        mode = "AUTO" if current else "MANUAL"
         self.get_logger().info(f'Mode changed: {mode}')
 
     def _lidar_cb(self, msg: Bool) -> None:
@@ -685,10 +725,247 @@ class DashboardNode(Node):
         except Exception:
             pass
 
+    def _init_v4_composite_state(self) -> None:
+        """Initialize bounded, timestamp-keyed state for the V4 Road view."""
+        self._v4_lock = threading.Lock()
+        self._v4_sets = {}
+        self._v4_last_stamp_by_name = {}
+        self._v4_render_token = None
+        self._v4_diag_last = {}
+        self._v4_sync_wait_sec = _V4_COMPOSITE_SYNC_WAIT_SEC
+        self._v4_stale_sec = _V4_COMPOSITE_STALE_SEC
+
+    def _reset_v4_composite(self) -> None:
+        """Drop cached V4 frames after a camera source or view change."""
+        with self._v4_lock:
+            self._v4_sets.clear()
+            self._v4_last_stamp_by_name.clear()
+            self._v4_render_token = None
+        self._last_camera_source_mono = 0.0
+
+    def _warn_rate_limited(self, key: str, message: str) -> None:
+        """Emit useful camera diagnostics without flooding the ROS log."""
+        now_mono = time.monotonic()
+        last = self._v4_diag_last.get(key)
+        if (last is not None
+                and now_mono - last < _DASHBOARD_DIAGNOSTIC_INTERVAL_SEC):
+            return
+        self._v4_diag_last[key] = now_mono
+        self.get_logger().warning(message)
+
+    @staticmethod
+    def _v4_stamp_ns(msg: Image):
+        """Return a valid ROS source stamp as integer nanoseconds."""
+        stamp = getattr(getattr(msg, 'header', None), 'stamp', None)
+        try:
+            sec = int(stamp.sec)
+            nanosec = int(stamp.nanosec)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if sec < 0 or not 0 <= nanosec < 1_000_000_000:
+            return None
+        total = sec * 1_000_000_000 + nanosec
+        return total if total > 0 else None
+
+    @staticmethod
+    def _v4_tile(image, label: str, status_lines=(), status_color=(80, 80, 220)):
+        """Letterbox one image into a labeled tile without changing its aspect."""
+        tile_w, tile_h = _V4_COMPOSITE_TILE_SIZE
+        header_h = 32
+        tile = np.full((tile_h, tile_w, 3), 12, dtype=np.uint8)
+        if image is not None and len(image.shape) >= 2:
+            image_h, image_w = image.shape[:2]
+            if image_h > 0 and image_w > 0:
+                available_h = tile_h - header_h
+                scale = min(tile_w / image_w, available_h / image_h)
+                render_w = max(1, int(round(image_w * scale)))
+                render_h = max(1, int(round(image_h * scale)))
+                interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+                fitted = cv2.resize(image, (render_w, render_h), interpolation=interpolation)
+                x0 = (tile_w - render_w) // 2
+                y0 = header_h + (available_h - render_h) // 2
+                tile[y0:y0 + render_h, x0:x0 + render_w] = fitted
+
+        cv2.rectangle(tile, (0, 0), (tile_w, header_h), (28, 31, 38), -1)
+        cv2.putText(
+            tile, label, (10, 23), cv2.FONT_HERSHEY_SIMPLEX,
+            0.62, (245, 245, 245), 2, cv2.LINE_AA,
+        )
+        if status_lines:
+            lines = list(status_lines)
+            first_y = 112 - (len(lines) - 1) * 16
+            for index, line in enumerate(lines):
+                text = str(line)
+                size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)[0]
+                x = max(8, (tile_w - size[0]) // 2)
+                cv2.putText(
+                    tile, text, (x, first_y + index * 32),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.58, status_color, 2,
+                    cv2.LINE_AA,
+                )
+        return tile
+
+    def _v4_snapshot(self, now_mono: float):
+        """Take a coherent newest-stamp snapshot, or defer during sync grace."""
+        with self._v4_lock:
+            if not self._v4_sets:
+                token = ('waiting',)
+                if token == self._v4_render_token:
+                    return None
+                return {
+                    'token': token, 'mode': 'waiting', 'stamp_ns': None,
+                    'age': None, 'tiles': {}, 'last_stamps': {},
+                    'source_mono': 0.0,
+                }
+
+            stamp_ns = max(self._v4_sets)
+            group = self._v4_sets[stamp_ns]
+            age = max(0.0, now_mono - group['first_received'])
+            tiles = dict(group['tiles'])
+            present = set(tiles)
+            if age > self._v4_stale_sec:
+                mode = 'stale'
+                tiles = {}
+            elif present == _V4_COMPOSITE_NAMES:
+                mode = 'fresh'
+            elif age >= self._v4_sync_wait_sec:
+                mode = 'partial'
+            else:
+                return None
+            token = (stamp_ns, mode, tuple(sorted(tiles)))
+            if token == self._v4_render_token:
+                return None
+            return {
+                'token': token, 'mode': mode, 'stamp_ns': stamp_ns,
+                'age': age, 'tiles': tiles,
+                'last_stamps': dict(self._v4_last_stamp_by_name),
+                'source_mono': group['first_received'],
+            }
+
+    def _v4_composite_image(self, snapshot):
+        """Build a five-stage V4 strip, replacing absent/stale images with cards."""
+        mode = snapshot['mode']
+        stamp_ns = snapshot['stamp_ns']
+        tiles = snapshot['tiles']
+        rendered = []
+        missing = []
+        for name, label in _V4_COMPOSITE_TILES:
+            if name in tiles:
+                rendered.append(tiles[name])
+                continue
+            missing.append(name)
+            if mode == 'stale':
+                status = ('STALE', f"{snapshot['age']:.1f} s old")
+            elif mode == 'waiting':
+                status = ('NO INPUT', 'waiting for frame')
+            else:
+                previous = snapshot['last_stamps'].get(name)
+                if previous is None:
+                    detail = 'no frame received'
+                else:
+                    behind = max(0.0, (stamp_ns - previous) * 1e-9)
+                    detail = f'last {behind:.3f} s behind'
+                status = ('MISSING', detail)
+            rendered.append(self._v4_tile(None, label, status))
+
+        if mode == 'fresh':
+            state_text = 'SYNCHRONIZED  |  5 / 5 stages'
+            state_color = (90, 210, 120)
+        elif mode == 'partial':
+            state_text = (
+                f'INCOMPLETE FRAME  |  {len(tiles)} / 5 stages  |  '
+                'missing: ' + ', '.join(missing)
+            )
+            state_color = (30, 190, 245)
+        elif mode == 'stale':
+            state_text = f"STALE INPUT  |  {snapshot['age']:.1f} s old"
+            state_color = (80, 80, 230)
+        else:
+            state_text = 'WAITING FOR V4  |  no source-timestamped input'
+            state_color = (160, 160, 160)
+        if stamp_ns is not None:
+            state_text += f'  |  source t={stamp_ns * 1e-9:.3f}'
+
+        # The reference view is a left-to-right pipeline. Keep status outside
+        # the five image stages so no diagnostic card can be mistaken for a
+        # sixth pipeline output. The footer remains readable when the wide
+        # strip is scaled down in the responsive camera card.
+        strip = cv2.hconcat(rendered)
+        footer = np.full(
+            (_V4_COMPOSITE_FOOTER_HEIGHT, strip.shape[1], 3),
+            (28, 31, 38), dtype=np.uint8,
+        )
+        cv2.putText(
+            footer, state_text, (10, 23), cv2.FONT_HERSHEY_SIMPLEX,
+            0.62, state_color, 2, cv2.LINE_AA,
+        )
+        return cv2.vconcat((strip, footer)), missing
+
+    def _maybe_publish_v4_composite(self, now_mono: float) -> None:
+        """Encode at most one bounded composite when the active viewer needs it."""
+        generation = self._camera_selection_generation
+        if self.active_camera_view != 'road' or self.active_camera_source != 'forward':
+            return
+        with self.camera_clients_lock:
+            if self.num_camera_clients == 0:
+                return
+        if now_mono - self._last_encode_mono < self._encode_min_interval:
+            return
+        snapshot = self._v4_snapshot(now_mono)
+        if snapshot is None:
+            return
+        try:
+            composite, missing = self._v4_composite_image(snapshot)
+            ok, jpeg = cv2.imencode(
+                '.jpg', composite, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            if not ok:
+                raise ValueError('cv2.imencode returned false')
+        except (cv2.error, TypeError, ValueError) as exc:
+            self._warn_rate_limited(
+                'v4_composite_encode', f'V4 Road composite encode failed: {exc}')
+            return
+
+        if (generation != self._camera_selection_generation
+                or self.active_camera_view != 'road'
+                or self.active_camera_source != 'forward'):
+            return
+
+        with self._v4_lock:
+            self._v4_render_token = snapshot['token']
+        self._last_encode_mono = now_mono
+        if snapshot['source_mono'] > 0.0:
+            self._last_camera_source_mono = snapshot['source_mono']
+        with self.jpeg_condition:
+            self.latest_jpeg = jpeg.tobytes()
+            self.frame_id += 1
+            self.jpeg_condition.notify_all()
+
+        if snapshot['mode'] == 'partial':
+            self._warn_rate_limited(
+                'v4_composite_missing',
+                'V4 Road composite is missing timestamp-matched tiles: '
+                + ', '.join(missing),
+            )
+        elif snapshot['mode'] == 'stale':
+            self._warn_rate_limited(
+                'v4_composite_stale',
+                f"V4 Road composite input is stale ({snapshot['age']:.1f} s)",
+            )
+        elif snapshot['mode'] == 'waiting':
+            self._warn_rate_limited(
+                'v4_composite_waiting',
+                'V4 Road view has no valid source-timestamped input',
+            )
+
+    def _v4_comp_watchdog(self) -> None:
+        """Expire a stopped V4 stream while a Road-view client is connected."""
+        self._maybe_publish_v4_composite(time.monotonic())
+
     def _image_cb(self, msg: Image, view_name: str) -> None:
         """Convert ROS Image to JPEG conditionally, tracking active view and clients."""
         active = self.active_camera_view
         source = self.active_camera_source
+        generation = self._camera_selection_generation
         if self.bridge is None:
             return
         if view_name in ('second', 'third'):
@@ -708,22 +985,92 @@ class DashboardNode(Node):
         now_mono = time.monotonic()
         if now_mono - self._last_encode_mono < self._encode_min_interval:
             return  # throttle MJPEG encode (dashboard only needs ~10Hz)
-        self._last_encode_mono = now_mono
-                
+
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             # Force to fixed 320x240 — prevents visual jumping when source sends varying sizes
             ih, iw = cv_image.shape[:2]
             if iw != 320 or ih != 240:
                 cv_image = cv2.resize(cv_image, (320, 240))
-            _, jpeg = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, 60])
-            
+            ok, jpeg = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            if not ok:
+                raise ValueError('cv2.imencode returned false')
+            if (generation != self._camera_selection_generation
+                    or active != self.active_camera_view
+                    or source != self.active_camera_source):
+                return
+            self._last_encode_mono = now_mono
+            self._last_camera_source_mono = now_mono
             with self.jpeg_condition:
                 self.latest_jpeg = jpeg.tobytes()
                 self.frame_id += 1
                 self.jpeg_condition.notify_all()
-        except Exception:
-            pass
+        except (cv2.error, CvBridgeError, TypeError, ValueError) as exc:
+            self._warn_rate_limited(
+                f'camera_encode_{view_name}',
+                f'Dashboard camera encode failed for {view_name}: {exc}',
+            )
+
+    def _v4_comp_cb(self, msg: Image, name: str) -> None:
+        if name not in _V4_COMPOSITE_NAMES:
+            self._warn_rate_limited(
+                'v4_composite_unknown_tile',
+                f'Ignoring unknown V4 Road tile {name!r}',
+            )
+            return
+        if (self.active_camera_view != 'road'
+                or self.active_camera_source != 'forward'
+                or self.bridge is None):
+            return
+        generation = self._camera_selection_generation
+        with self.camera_clients_lock:
+            if self.num_camera_clients == 0:
+                return
+        stamp_ns = self._v4_stamp_ns(msg)
+        if stamp_ns is None:
+            self._warn_rate_limited(
+                f'v4_composite_stamp_{name}',
+                f'Ignoring V4 Road {name} tile without a valid source timestamp',
+            )
+            self._maybe_publish_v4_composite(time.monotonic())
+            return
+        now_mono = time.monotonic()
+        try:
+            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            label = _V4_COMPOSITE_LABELS[name]
+            tile = self._v4_tile(cv_img, label)
+        except (cv2.error, CvBridgeError, TypeError, ValueError) as exc:
+            self._warn_rate_limited(
+                f'v4_composite_convert_{name}',
+                f'V4 Road {name} conversion failed: {exc}',
+            )
+            return
+
+        if (generation != self._camera_selection_generation
+                or self.active_camera_view != 'road'
+                or self.active_camera_source != 'forward'):
+            return
+
+        with self._v4_lock:
+            if self._v4_sets:
+                newest_stamp = max(self._v4_sets)
+                if stamp_ns < newest_stamp:
+                    self._warn_rate_limited(
+                        f'v4_composite_out_of_order_{name}',
+                        f'Ignoring out-of-order V4 Road {name} tile '
+                        f'({stamp_ns} < {newest_stamp})',
+                    )
+                    return
+            group = self._v4_sets.setdefault(
+                stamp_ns,
+                {'first_received': now_mono, 'tiles': {}},
+            )
+            group['tiles'][name] = tile
+            self._v4_last_stamp_by_name[name] = stamp_ns
+            for old_stamp in sorted(self._v4_sets)[:-_V4_COMPOSITE_MAX_STAMP_SETS]:
+                del self._v4_sets[old_stamp]
+
+        self._maybe_publish_v4_composite(now_mono)
 
     def get_json(self) -> str:
         with self.data_lock:
@@ -731,8 +1078,8 @@ class DashboardNode(Node):
             updates = dict(self.topic_last_update)
         d['state_time'] = int(time.time() - self._state_entry_time)
         now_mono = time.monotonic()
-        last_enc = self._last_encode_mono
-        d['cam_age_ms'] = int((now_mono - last_enc) * 1000) if last_enc > 0.0 else None
+        last_source = getattr(self, '_last_camera_source_mono', self._last_encode_mono)
+        d['cam_age_ms'] = int((now_mono - last_source) * 1000) if last_source > 0.0 else None
         stale_sec = float(self.get_parameter('freshness_stale_sec').value)
         freshness = {}
         stale_streams = []

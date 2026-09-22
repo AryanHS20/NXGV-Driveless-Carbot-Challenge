@@ -23,7 +23,7 @@ function showPage(name, updateHash=true) {
 
   // Streams are opt-in on every page. Leaving their visible workspace releases
   // the HTTP connection/animation so hidden views cannot consume stale frames.
-  const cameraPages = ['drive', 'perception', 'calibration'];
+  const cameraPages = ['drive', 'perception', 'calibration', 'v4'];
   const camBtn = document.getElementById('camBtn');
   if (!cameraPages.includes(name) && camBtn && camBtn.classList.contains('active')) toggleCam();
   const simPanel = document.getElementById('simPanel');

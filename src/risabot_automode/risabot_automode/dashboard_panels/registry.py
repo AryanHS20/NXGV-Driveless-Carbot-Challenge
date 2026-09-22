@@ -94,6 +94,10 @@ def build_teach_html() -> str:
 # (method, match-kind, pattern, module, function), evaluated in order.
 # Mirrors the original handler branch order exactly.
 ROUTES = [
+    ('GET', 'exact', '/console', 'routes_console', 'serve'),
+    ('GET', 'exact', '/console/', 'routes_console', 'serve'),
+    ('GET', 'prefix', '/api/console/', 'routes_console', 'get'),
+    ('POST', 'prefix', '/api/console/', 'routes_console', 'action'),
     ('GET', 'exact', '/data', 'routes_core', 'serve_data'),
     ('GET', 'exact', '/lidar_data', 'routes_lidar', 'serve_data'),
     ('GET', 'prefix', '/camera_feed', 'routes_camera', 'serve_feed'),

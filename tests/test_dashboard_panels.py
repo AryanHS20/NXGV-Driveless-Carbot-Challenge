@@ -49,6 +49,14 @@ class PanelAssemblyTests(unittest.TestCase):
                        'authorityReason', 'v4StageGrid', 'showPage('):
             self.assertIn(marker, html)
 
+    def test_v4_road_strip_has_scrollable_small_screen_fallback(self):
+        html = registry.build_dashboard_html()
+        for marker in (
+            '.cam-container.road-strip', 'min-width: 1200px',
+            "classList.toggle('road-strip', view === 'road')", "let camView = 'raw'",
+        ):
+            self.assertIn(marker, html)
+
     def test_v4_live_tuning_exposes_safe_controls_only(self):
         html = registry.build_dashboard_html()
         for marker in (

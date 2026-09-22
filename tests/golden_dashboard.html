@@ -498,6 +498,17 @@
     object-fit: contain;
     border-radius: 8px;
   }
+  .cam-container.road-strip {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+  .cam-container.road-strip img {
+    width: 100%;
+    min-width: 1200px;
+    max-width: none;
+    height: auto;
+    flex: 0 0 auto;
+  }
   .cam-container.active { border-color: rgba(66,165,245,0.4); box-shadow: 0 0 20px rgba(66,165,245,0.1) inset; }
   .cam-off { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 0.85em; }
   .cam-off .icon { font-size: 2em; margin-bottom: 8px; opacity: 0.5; }
@@ -1277,17 +1288,18 @@
   <!-- =====
 CENTER COLUMN — CAMERA ===== -->
   <div class="col">
-    <div class="card cam-card" data-pages="drive,perception,calibration" data-panel="camera" data-span="2">
+    <div class="card cam-card" data-pages="drive,perception,calibration,v4" data-panel="camera" data-span="2">
       <h3>Camera Feed</h3>
       <button class="cam-toggle" id="camBtn" onclick="toggleCam()">📷 Enable Camera</button>
       <div class="cam-tabs" id="camSrcTabs" style="display:none;">
-        <div class="cam-tab active" onclick="setCamSource('forward', this)">Front</div>
-        <div class="cam-tab" onclick="setCamSource('second', this)">Right-Back</div>
-        <div class="cam-tab" onclick="setCamSource('third', this)">Other Side</div>
+        <div class="cam-tab active" data-camera-source="forward" onclick="setCamSource('forward', this)">Front</div>
+        <div class="cam-tab" data-camera-source="second" onclick="setCamSource('second', this)">Right-Back</div>
+        <div class="cam-tab" data-camera-source="third" onclick="setCamSource('third', this)">Other Side</div>
       </div>
       <div class="cam-tabs" id="camTabs" style="display:none;">
         <div class="cam-tab active" onclick="setCamView('raw', this)">Raw</div>
         <div class="cam-tab" onclick="setCamView('line_follower', this)">Lane Lines</div>
+        <div class="cam-tab" onclick="setCamView('road', this)">V4 Road</div>
         <div class="cam-tab" onclick="setCamView('traffic_light', this)">Traffic Light</div>
         <div class="cam-tab" onclick="setCamView('obstacle', this)">Obstacle</div>
         <div class="cam-tab" onclick="setCamView('signage', this)">Signage</div>
@@ -1588,8 +1600,8 @@ function toggleCam() {
     s.style.display = 'flex';
     off.style.display = 'none';
     img.style.display = 'block';
-    // Trigger auto_toggle_debug on initial enable (default view is 'raw')
-    fetch('/api/set_cam_view?view=raw&source=' + encodeURIComponent(camSource));
+    setCameraLayout(camView);
+    fetch('/api/set_cam_view?view=' + encodeURIComponent(camView) + '&source=' + encodeURIComponent(camSource));
     startCamStream();
   }
 }
@@ -1710,13 +1722,21 @@ function startCamStream() {
 }
 
 let camSource = 'forward';
+let camView = 'raw';
+function setCameraLayout(view) {
+  const container = document.getElementById('camContainer');
+  if (container) container.classList.toggle('road-strip', view === 'road');
+}
+
 function setCamSource(source, btn) {
   document.querySelectorAll('#camSrcTabs .cam-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   camSource = source;
+  camView = 'raw';
   // Side sources are raw-only: reset the view tabs to Raw.
   document.querySelectorAll('#camTabs .cam-tab').forEach(t => t.classList.remove('active'));
   document.querySelector('#camTabs .cam-tab').classList.add('active');
+  setCameraLayout('raw');
   fetch('/api/set_cam_view?view=raw&source=' + encodeURIComponent(source)).then(() => {
     const img = document.getElementById('camImg');
     if (img && img.style.display !== 'none') {
@@ -1728,6 +1748,16 @@ function setCamSource(source, btn) {
 function setCamView(view, btn) {
   document.querySelectorAll('#camTabs .cam-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
+  camView = view;
+  setCameraLayout(view);
+  // Side sources are raw-only. Selecting any processed/debug view returns to
+  // the forward source and releases the side-camera lease immediately.
+  if (view !== 'raw' && camSource !== 'forward') {
+    camSource = 'forward';
+    document.querySelectorAll('#camSrcTabs .cam-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.cameraSource === 'forward');
+    });
+  }
   fetch('/api/set_cam_view?view=' + encodeURIComponent(view) + '&source=' + encodeURIComponent(camSource)).then(() => {
     // Restart the robust stream reader to pick up the new view immediately
     const img = document.getElementById('camImg');
@@ -1736,7 +1766,6 @@ function setCamView(view, btn) {
     }
   });
 }
-
 let drivevizOn = false;
 let drivevizData = null;
 let drivevizLidar = [];
@@ -2263,7 +2292,7 @@ function showPage(name, updateHash=true) {
 
   // Streams are opt-in on every page. Leaving their visible workspace releases
   // the HTTP connection/animation so hidden views cannot consume stale frames.
-  const cameraPages = ['drive', 'perception', 'calibration'];
+  const cameraPages = ['drive', 'perception', 'calibration', 'v4'];
   const camBtn = document.getElementById('camBtn');
   if (!cameraPages.includes(name) && camBtn && camBtn.classList.contains('active')) toggleCam();
   const simPanel = document.getElementById('simPanel');

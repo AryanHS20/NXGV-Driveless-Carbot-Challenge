@@ -23,8 +23,8 @@ function toggleCam() {
     s.style.display = 'flex';
     off.style.display = 'none';
     img.style.display = 'block';
-    // Trigger auto_toggle_debug on initial enable (default view is 'raw')
-    fetch('/api/set_cam_view?view=raw&source=' + encodeURIComponent(camSource));
+    setCameraLayout(camView);
+    fetch('/api/set_cam_view?view=' + encodeURIComponent(camView) + '&source=' + encodeURIComponent(camSource));
     startCamStream();
   }
 }
@@ -145,13 +145,21 @@ function startCamStream() {
 }
 
 let camSource = 'forward';
+let camView = 'raw';
+function setCameraLayout(view) {
+  const container = document.getElementById('camContainer');
+  if (container) container.classList.toggle('road-strip', view === 'road');
+}
+
 function setCamSource(source, btn) {
   document.querySelectorAll('#camSrcTabs .cam-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
   camSource = source;
+  camView = 'raw';
   // Side sources are raw-only: reset the view tabs to Raw.
   document.querySelectorAll('#camTabs .cam-tab').forEach(t => t.classList.remove('active'));
   document.querySelector('#camTabs .cam-tab').classList.add('active');
+  setCameraLayout('raw');
   fetch('/api/set_cam_view?view=raw&source=' + encodeURIComponent(source)).then(() => {
     const img = document.getElementById('camImg');
     if (img && img.style.display !== 'none') {
@@ -163,6 +171,16 @@ function setCamSource(source, btn) {
 function setCamView(view, btn) {
   document.querySelectorAll('#camTabs .cam-tab').forEach(t => t.classList.remove('active'));
   btn.classList.add('active');
+  camView = view;
+  setCameraLayout(view);
+  // Side sources are raw-only. Selecting any processed/debug view returns to
+  // the forward source and releases the side-camera lease immediately.
+  if (view !== 'raw' && camSource !== 'forward') {
+    camSource = 'forward';
+    document.querySelectorAll('#camSrcTabs .cam-tab').forEach(t => {
+      t.classList.toggle('active', t.dataset.cameraSource === 'forward');
+    });
+  }
   fetch('/api/set_cam_view?view=' + encodeURIComponent(view) + '&source=' + encodeURIComponent(camSource)).then(() => {
     // Restart the robust stream reader to pick up the new view immediately
     const img = document.getElementById('camImg');
@@ -171,4 +189,3 @@ function setCamView(view, btn) {
     }
   });
 }
-

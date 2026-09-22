@@ -498,6 +498,17 @@
     object-fit: contain;
     border-radius: 8px;
   }
+  .cam-container.road-strip {
+    justify-content: flex-start;
+    overflow-x: auto;
+  }
+  .cam-container.road-strip img {
+    width: 100%;
+    min-width: 1200px;
+    max-width: none;
+    height: auto;
+    flex: 0 0 auto;
+  }
   .cam-container.active { border-color: rgba(66,165,245,0.4); box-shadow: 0 0 20px rgba(66,165,245,0.1) inset; }
   .cam-off { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: #555; font-size: 0.85em; }
   .cam-off .icon { font-size: 2em; margin-bottom: 8px; opacity: 0.5; }
