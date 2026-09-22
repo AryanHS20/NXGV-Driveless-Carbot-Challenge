@@ -55,6 +55,9 @@ from .topics import (
 )
 
 # --- Defaults ---
+# NOTE: per-car steering trim goes in the servo_center ROS parameter, never
+# in this default. (R1 measured 110; R5 unmeasured.) Hardcoding a trim here
+# silently mis-steers every other car on a shared sync.
 DEFAULT_SERVO_STEER_ID = 4
 DEFAULT_SERVO_CENTER = 90
 DEFAULT_SERVO_RANGE_LEFT = 50   # center - 50 = 40 (physical left)
@@ -580,8 +583,8 @@ class ServoControllerV9(Node):
             steer_raw = axis(2)
             
             # Deadzone
-            if abs(throttle_raw) < 0.1: throttle_raw = 0.0
-            if abs(steer_raw) < 0.1: steer_raw = 0.0
+            if abs(throttle_raw) < 0.12: throttle_raw = 0.0
+            if abs(steer_raw) < 0.12: steer_raw = 0.0
 
             # Drive (PWM)
             if self.rp_state == 'RECORDING':
@@ -698,6 +701,14 @@ class ServoControllerV9(Node):
         motor_pwm = max(-100, min(100, int(motor_pwm)))
         steer_angle = max(self.servo_center - self.servo_range_left,
                           min(self.servo_center + self.servo_range_right, int(steer_angle)))
+        
+        # Slew rate limiter on throttle-up only: prevents motor inrush
+        # brownouts on weak supplies. Stops (including e-stop) bypass the
+        # limiter so the measured ~20 ms stop contract is preserved.
+        last_val = getattr(self, 'sent_motor_val', 0)
+        max_delta = 10
+        if motor_pwm > last_val + max_delta:
+            motor_pwm = last_val + max_delta
         self.target_motor_val = motor_pwm
         self.target_servo_val = steer_angle
         
