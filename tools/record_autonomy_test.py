@@ -143,8 +143,8 @@ def summarize(events, intervals, counts, duration, ready, latest, directory):
 
 
 def main():
-    if subprocess.check_output(['hostname'], text=True).strip() != 'risabot5':
-        raise RuntimeError('this recorder must run on risabot5')
+    if subprocess.check_output(['hostname'], text=True).strip() not in ('risabot1', 'risabot5'):
+        raise RuntimeError('this recorder must run on risabot1 or risabot5')
     directory = ROOT / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     directory.mkdir(parents=True)
     log = (directory / 'bag.log').open('w')
