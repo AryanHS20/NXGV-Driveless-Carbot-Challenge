@@ -47,8 +47,9 @@ STATUS_TOPICS = (
 
 
 def main():
-    if subprocess.check_output(['hostname'], text=True).strip() != 'risabot5':
-        raise RuntimeError('this recorder must run on risabot5')
+    hostname = subprocess.check_output(['hostname'], text=True).strip()
+    if hostname not in ('risabot1', 'risabot5'):
+        raise RuntimeError('this recorder must run on risabot1 or risabot5')
     directory = ROOT / datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
     directory.mkdir(parents=True)
     bag_log = (directory / 'bag.log').open('w')

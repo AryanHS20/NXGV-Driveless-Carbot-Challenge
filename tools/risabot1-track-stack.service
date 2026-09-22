@@ -1,0 +1,19 @@
+[Unit]
+Description=Risabot 1 autonomous track stack
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=sunrise
+Group=sunrise
+Environment=HOME=/home/sunrise
+WorkingDirectory=/home/sunrise/risabot1_track_ws
+ExecStart=/home/sunrise/run_risabot1_track_service.sh
+KillSignal=SIGINT
+TimeoutStopSec=20
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
