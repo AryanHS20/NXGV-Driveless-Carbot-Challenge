@@ -102,6 +102,33 @@ class RoadMaskCoreTests(unittest.TestCase):
         self.assertFalse(timestamps_synchronized(10.2, 10.0, 0.1))
         self.assertTrue(timestamps_synchronized(10.2, 10.2, 0.1))
 
+    def test_camera_clipping_does_not_claim_a_measured_lane_center(self):
+        # True lane is x=30..69. The near camera wedge clips its right edge,
+        # so its visible midpoint is biased left even with a centered car.
+        coverage = np.full((40, 100), 255, np.uint8)
+        coverage[20:, 60:] = 0
+        mask = np.zeros_like(coverage)
+        mask[:, 30:70] = 255
+        mask[coverage == 0] = 0
+        samples = extract_corridor(mask, coverage, 50., 100., .2, .5, 5)
+        clipped = [s for s in samples if s.row_px >= 20]
+        observed = [s for s in samples if s.row_px < 20]
+        self.assertTrue(clipped and observed)
+        self.assertTrue(all(not s.boundaries_observed for s in clipped))
+        self.assertTrue(all(s.left_boundary_observed for s in clipped))
+        self.assertTrue(all(not s.right_boundary_observed for s in clipped))
+        self.assertTrue(all(s.boundaries_observed for s in observed))
+        self.assertTrue(all(s.center_px == 49.5 for s in observed))
+
+    def test_image_border_is_not_a_measured_road_edge(self):
+        coverage = np.full((20, 100), 255, np.uint8)
+        for left, right in ((0, 30), (70, 100)):
+            mask = np.zeros_like(coverage)
+            mask[:, left:right] = 255
+            samples = extract_corridor(mask, coverage, 50., 100., .2, .5, 5)
+            self.assertTrue(samples)
+            self.assertTrue(all(not s.boundaries_observed for s in samples))
+
     def test_timestamp_pairing_accepts_unstamped_inputs(self):
         self.assertTrue(timestamps_synchronized(0.0, 10.0, 0.1))
         self.assertTrue(timestamps_synchronized(10.0, 0.0, 0.1))

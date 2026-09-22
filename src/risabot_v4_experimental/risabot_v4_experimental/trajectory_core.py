@@ -73,8 +73,19 @@ class TrajectoryConfig:
     rollout_speed_mps: float = 0.08
     steering_lag_sec: float = 0.12
     steering_rate_rad_sec: float = math.pi
+    steering_gain: float = 1.0
     footprint_sample_spacing_m: float = 0.02
     minimum_road_support: float = 0.98
+    road_support_cost_weight: float = 40.0
+    expected_lane_width_m: float = 0.32
+    centerline_filter_alpha: float = 0.60
+    cross_track_gain: float = 1.10
+    heading_gain: float = 0.85
+    curvature_feedforward_gain: float = 0.90
+    reliable_support_threshold: float = 0.75
+    minimum_observed_centerline_fraction: float = 0.50
+    low_support_direction_hold_sec: float = 2.50
+    low_support_steer_decay_sec: float = 1.50
     obstacle_margin_m: float = 0.015
     near_field_max_gap_m: float = 0.55
     near_field_settle_m: float = 0.04
@@ -90,7 +101,15 @@ class TrajectoryConfig:
             ('rollout_speed_mps', self.rollout_speed_mps),
             ('steering_lag_sec', self.steering_lag_sec),
             ('steering_rate_rad_sec', self.steering_rate_rad_sec),
+            ('steering_gain', self.steering_gain),
             ('footprint_sample_spacing_m', self.footprint_sample_spacing_m),
+            ('road_support_cost_weight', self.road_support_cost_weight),
+            ('expected_lane_width_m', self.expected_lane_width_m),
+            ('cross_track_gain', self.cross_track_gain),
+            ('heading_gain', self.heading_gain),
+            ('curvature_feedforward_gain', self.curvature_feedforward_gain),
+            ('low_support_direction_hold_sec', self.low_support_direction_hold_sec),
+            ('low_support_steer_decay_sec', self.low_support_steer_decay_sec),
             ('near_field_max_gap_m', self.near_field_max_gap_m),
             ('near_field_settle_m', self.near_field_settle_m),
         ):
@@ -98,8 +117,143 @@ class TrajectoryConfig:
                 raise TrajectoryError(f'{name} must be finite and positive')
         if not 0.0 < self.minimum_road_support <= 1.0:
             raise TrajectoryError('minimum road support must be in (0, 1]')
+        if not 0.0 < self.centerline_filter_alpha <= 1.0:
+            raise TrajectoryError('centerline filter alpha must be in (0, 1]')
+        if not 0.0 <= self.reliable_support_threshold <= 1.0:
+            raise TrajectoryError('reliable support threshold must be in [0, 1]')
+        if not 0.0 <= self.minimum_observed_centerline_fraction <= 1.0:
+            raise TrajectoryError(
+                'minimum observed centerline fraction must be in [0, 1]'
+            )
         if not math.isfinite(self.obstacle_margin_m) or self.obstacle_margin_m < 0.0:
             raise TrajectoryError('obstacle margin must be finite and non-negative')
+
+
+def steering_reference_from_corridor(
+    samples: Sequence[dict], expected_lane_width_m: float
+) -> List[PathPoint]:
+    """Build a lane-centre reference from two edges or one observed edge.
+
+    A turn can move one white boundary outside the camera coverage. In that
+    case the visible run midpoint is biased, but its remaining observed edge
+    and the measured lane width still define the lane centre.
+    """
+    if not math.isfinite(expected_lane_width_m) or expected_lane_width_m <= 0.0:
+        raise TrajectoryError('expected lane width must be finite and positive')
+    centers = []
+    for sample in samples:
+        forward = float(sample['forward_m'])
+        visible_center = float(sample['left_m'])
+        visible_width = float(sample['width_m'])
+        if not all(math.isfinite(value) for value in (
+                forward, visible_center, visible_width)) or visible_width <= 0.0:
+            continue
+        both = bool(sample.get('boundaries_observed', True))
+        left_seen = bool(sample.get('left_boundary_observed', both))
+        right_seen = bool(sample.get('right_boundary_observed', both))
+        if left_seen and right_seen:
+            center = visible_center
+        elif left_seen:
+            center = visible_center + 0.5 * visible_width - 0.5 * expected_lane_width_m
+        elif right_seen:
+            center = visible_center - 0.5 * visible_width + 0.5 * expected_lane_width_m
+        else:
+            continue
+        centers.append((forward, center))
+    return reference_from_corridor(centers)
+
+
+def smooth_centerline_reference(
+    reference: Sequence[PathPoint],
+    previous_coefficients: Sequence[float] = (),
+    alpha: float = 0.60,
+) -> Tuple[List[PathPoint], Tuple[float, float, float]]:
+    """Fit and temporally filter y=c0+c1*x+c2*x^2 in vehicle coordinates."""
+    if len(reference) < 2:
+        raise TrajectoryError('centerline smoothing requires at least two points')
+    if not math.isfinite(alpha) or not 0.0 < alpha <= 1.0:
+        raise TrajectoryError('centerline filter alpha must be in (0, 1]')
+    x = np.asarray([point.x for point in reference], dtype=np.float64)
+    y = np.asarray([point.y for point in reference], dtype=np.float64)
+    if np.unique(x).size < 2:
+        raise TrajectoryError('centerline samples need two forward positions')
+    if len(reference) >= 3:
+        design = np.column_stack((np.ones_like(x), x, x * x))
+        coefficients = np.linalg.lstsq(design, y, rcond=None)[0]
+    else:
+        design = np.column_stack((np.ones_like(x), x))
+        linear = np.linalg.lstsq(design, y, rcond=None)[0]
+        coefficients = np.asarray((linear[0], linear[1], 0.0))
+    if len(previous_coefficients) == 3 and all(
+            math.isfinite(float(value)) for value in previous_coefficients):
+        previous = np.asarray(previous_coefficients, dtype=np.float64)
+        coefficients = alpha * coefficients + (1.0 - alpha) * previous
+    smoothed = reference_from_corridor([
+        (float(value), float(coefficients[0] + coefficients[1] * value
+                             + coefficients[2] * value * value))
+        for value in x
+    ])
+    return smoothed, tuple(float(value) for value in coefficients)
+
+
+def centerline_steering_command(
+    reference: Sequence[PathPoint],
+    coefficients: Sequence[float],
+    geometry: VehicleGeometry,
+    lookahead_m: float,
+    cross_track_gain: float,
+    heading_gain: float,
+    curvature_feedforward_gain: float,
+    expected_lane_width_m: float = 0.32,
+) -> Tuple[float, dict]:
+    """Return a Stanley-style steering angle with curvature feedforward."""
+    if len(reference) < 2 or len(coefficients) != 3:
+        raise TrajectoryError('centerline control needs a fitted reference')
+    values = (lookahead_m, cross_track_gain, heading_gain,
+              curvature_feedforward_gain, expected_lane_width_m, *coefficients)
+    if not all(math.isfinite(float(value)) for value in values):
+        raise TrajectoryError('centerline control values must be finite')
+    if lookahead_m <= 0.0 or expected_lane_width_m <= 0.0 or min(cross_track_gain, heading_gain,
+                                 curvature_feedforward_gain) < 0.0:
+        raise TrajectoryError('centerline control gains are invalid')
+    c0, c1, c2 = (float(value) for value in coefficients)
+    minimum_x = min(point.x for point in reference)
+    maximum_x = max(point.x for point in reference)
+    evaluation_x = max(minimum_x, min(maximum_x, lookahead_m))
+    slope = c1 + 2.0 * c2 * evaluation_x
+    heading_error = math.atan(slope)
+    curvature = 2.0 * c2 / ((1.0 + slope * slope) ** 1.5)
+    # The closest observed corridor is commonly 35-45 cm ahead. Using the
+    # fitted intercept at x=0 extrapolates through that blind strip and can
+    # invent a very large error as a bend enters view. Track the fitted lane
+    # at the nearest evaluated lookahead and bound only the feedback term.
+    lateral_error = c0 + c1 * evaluation_x + c2 * evaluation_x * evaluation_x
+    padded_body_width = geometry.width_m + 2.0 * geometry.footprint_padding_m
+    feasible_cross_track = max(
+        0.02, 0.5 * (expected_lane_width_m - padded_body_width)
+    )
+    control_lateral_error = max(
+        -feasible_cross_track, min(feasible_cross_track, lateral_error)
+    )
+    feedforward = math.atan(geometry.wheelbase_m * curvature)
+    cross_track = math.atan2(cross_track_gain * control_lateral_error,
+                             max(0.12, evaluation_x))
+    command = (curvature_feedforward_gain * feedforward
+               + heading_gain * heading_error + cross_track)
+    maximum_steer = math.atan(
+        geometry.wheelbase_m / geometry.minimum_turn_radius_m
+    )
+    command = max(-maximum_steer, min(maximum_steer, command))
+    diagnostics = {
+        'lateral_error_m': lateral_error,
+        'control_lateral_error_m': control_lateral_error,
+        'intercept_lateral_error_m': c0,
+        'heading_error_rad': heading_error,
+        'curvature_per_m': curvature,
+        'feedforward_steer_rad': feedforward,
+        'evaluation_forward_m': evaluation_x,
+    }
+    return command, diagnostics
 
 
 @dataclass
@@ -367,6 +521,7 @@ def generate_candidates(
     config: TrajectoryConfig = TrajectoryConfig(),
     obstacles_m: Sequence[Tuple[float, float]] = (),
     near_field: Optional[NearFieldBootstrap] = None,
+    enforce_road_support: bool = True,
 ) -> List[Candidate]:
     geometry.validate()
     config.validate()
@@ -413,7 +568,9 @@ def generate_candidates(
                 geometry.wheelbase_m * 2.0 * local_y
                 / max(0.002, local_x ** 2 + local_y ** 2)
             )
-            desired = max(-maximum_steer, min(maximum_steer, desired))
+            # Apply correction gain before rolling out the trajectory: the
+            # evaluated path and the command must use the same steering.
+            desired = max(-maximum_steer, min(maximum_steer, desired * config.steering_gain))
             if step_index == 0:
                 command_steer = desired
             rate_limit = config.steering_rate_rad_sec * dt
@@ -451,10 +608,12 @@ def generate_candidates(
             supports < config.minimum_road_support
         ))
         obstacle_blocked = int(np.count_nonzero(obstacle_hits))
-        cost += float(np.sum((1.0 - supports) * 40.0))
+        cost += float(np.sum(
+            (1.0 - supports) * config.road_support_cost_weight
+        ))
 
         reasons = []
-        if road_blocked:
+        if road_blocked and enforce_road_support:
             reasons.append('swept footprint leaves observed road')
         if obstacle_blocked:
             reasons.append('obstacle intersects swept footprint')
@@ -464,7 +623,7 @@ def generate_candidates(
             points=points,
             curvatures=curvatures,
             cost=cost,
-            valid=not road_blocked and not obstacle_blocked,
+            valid=(not road_blocked or not enforce_road_support) and not obstacle_blocked,
             road_blocked=road_blocked,
             obstacle_blocked=obstacle_blocked,
             minimum_support=minimum_support,

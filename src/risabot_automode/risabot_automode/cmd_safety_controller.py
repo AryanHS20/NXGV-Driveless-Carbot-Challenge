@@ -44,6 +44,8 @@ class CmdSafetyController(Node):
         self.declare_parameter('sensor_timeout', 0.5)
         self.declare_parameter('min_scan_points', 20)
         self.declare_parameter('require_signage', True)
+        self.declare_parameter('track_test_mode', False)
+        self._track_test_mode = bool(self.get_parameter('track_test_mode').value)
         # Explicit command authority. It ships as legacy and may only be
         # changed to v4 after Stage 8 is running and its physical gates pass.
         self.declare_parameter('autonomy_source', 'legacy')
@@ -126,6 +128,8 @@ class CmdSafetyController(Node):
     def _on_params(self, params) -> SetParametersResult:
         """Update cache for dynamic params."""
         for p in params:
+            if p.name == 'track_test_mode':
+                return SetParametersResult(successful=False, reason='track_test_mode requires a node restart')
             if p.name == 'autonomy_source' and str(p.value) not in ('legacy', 'v4'):
                 return SetParametersResult(
                     successful=False, reason='autonomy_source must be legacy or v4')
@@ -241,9 +245,10 @@ class CmdSafetyController(Node):
             self.timeout_count += 1
 
         sensor_timeout = float(self._param_cache['sensor_timeout'])
-        sensors_ok = (fresh(self.last_image_t, now, sensor_timeout)
-                      and fresh(self.last_scan_t, now, sensor_timeout) and self.scan_valid)
-        if self._param_cache['require_signage']:
+        sensors_ok = fresh(self.last_image_t, now, sensor_timeout)
+        if not self._track_test_mode:
+            sensors_ok = sensors_ok and fresh(self.last_scan_t, now, sensor_timeout) and self.scan_valid
+        if not self._track_test_mode and self._param_cache['require_signage']:
             sensors_ok = sensors_ok and self.signage_valid and fresh(self.signage_stamp, now, sensor_timeout)
         if self.estop or stale or not sensors_ok:
             target_lin = 0.0
@@ -276,13 +281,16 @@ class CmdSafetyController(Node):
             out_ang = 0.0
 
         # Check the actual slew-limited command, not just the requested turn.
-        clearance_ok = self.last_scan is not None and swept_path_clear(
+        clearance_ok = self._track_test_mode or (self.last_scan is not None and swept_path_clear(
             self.last_scan, out_lin, out_ang,
             offset=float(self.get_parameter('lidar_angle_offset').value),
             half_width=float(self.get_parameter('footprint_half_width').value),
             front=float(self.get_parameter('footprint_front').value),
             rear=float(self.get_parameter('footprint_rear').value),
-            horizon=float(self.get_parameter('sweep_distance').value), **self.servo_geometry)
+            horizon=float(self.get_parameter('sweep_distance').value), **self.servo_geometry))
+        self._last_reason = ('e-stop' if self.estop else 'command stale' if stale
+                             else 'sensor stale or invalid' if not sensors_ok
+                             else 'clearance blocked' if not clearance_ok else 'ready')
         permit = sensors_ok and not self.estop and not stale and clearance_ok
         self.permit_pub.publish(Bool(data=permit))
         if not permit:
@@ -300,6 +308,10 @@ class CmdSafetyController(Node):
             'estop_count': self.estop_count,
             'limit_count': self.limit_count,
             'autonomy_source': self._param_cache['autonomy_source'],
+            'track_test_mode': self._track_test_mode,
+            'reason': getattr(self, '_last_reason', 'not evaluated'),
+            'output_linear_request': self.output_cmd.linear.x,
+            'output_steering': self.output_cmd.angular.z,
             'stamp_sec': round(time.time(), 3),
         }
         self.status_pub.publish(String(data=json.dumps(payload, separators=(',', ':'))))

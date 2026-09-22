@@ -143,6 +143,8 @@ class AutoDriver(Node):
         self.declare_parameter('parking_max_duration', 45.0)
         self.declare_parameter('lane_control_mode', 'direct')
         self.declare_parameter('lane_readiness_source', 'legacy')
+        self.declare_parameter('track_test_mode', False)
+        self._track_test_mode = bool(self.get_parameter('track_test_mode').value)
         self.declare_parameter('enable_subsumption_obstacle', True)  # fuse LiDAR + camera for obstacle
 
         # PID gains for steering angular.z
@@ -390,6 +392,8 @@ class AutoDriver(Node):
     def _on_params(self, params) -> SetParametersResult:
         """Update cached parameters when set via CLI or services."""
         for p in params:
+            if p.name == 'track_test_mode':
+                return SetParametersResult(successful=False, reason='track_test_mode requires a node restart')
             if isinstance(p.value, (float, int)) and not isinstance(p.value, bool):
                 if not math.isfinite(p.value) or p.value < 0:
                     return SetParametersResult(successful=False, reason='Finite nonnegative values required')
@@ -745,6 +749,21 @@ class AutoDriver(Node):
             if self.parking_requested:
                 self.rp_cmd_pub.publish(String(data='stop'))
                 self.mission_fault = 'Parking interrupted by manual mode'
+        elif self._track_test_mode:
+            # Lane-only test: publish mission state for V4 without waiting on
+            # signage, tunnel, gate or parking nodes that are not launched.
+            # V4 Stage 8 remains the sole selected command source.
+            cmd = Twist()
+            if self.cmd_safety_estop:
+                target, reason = ChallengeState.EMERGENCY_STOP, 'E-STOP ACTIVE'
+            elif (not self.motion_permitted or
+                  now - self.permit_stamp > float(self._param_cache['stale_timeout'])):
+                target, reason = ChallengeState.EMERGENCY_STOP, 'WAITING FOR COMMAND PERMIT'
+            elif (not self.v4_lane_ready or self.v4_lane_stamp <= 0.0 or
+                  now - self.v4_lane_stamp > float(self._param_cache['stale_timeout'])):
+                target, reason = ChallengeState.LANE_RECOVERY, 'WAITING FOR V4 LANE'
+            else:
+                target, reason = ChallengeState.LANE_FOLLOW, 'TRACK TEST'
         else:
             target, cmd, reason = select_command(self, now)
         if target != self.state:

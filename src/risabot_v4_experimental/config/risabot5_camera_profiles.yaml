@@ -1,0 +1,82 @@
+# Risabot 5 (car 2), front ground-plane calibration, 2026-09-22.
+# Native320 capture and same-session driver-published K,D; not a separate lens fit.
+# User verified sheet scale and rear-axle/forward alignment after repositioning.
+# 20 held-out corners: RMS2.230mm/max4.855mm; two printed guide marks:max7.509mm.
+# Guide checks share sheet scale/origin assumptions. Tested region approximately
+# 0.398-0.695m forward, +/-0.125m left; full output bounds are not a validation claim.
+# CameraInfo P is inconsistent with K; raw bev_core uses K,D only.
+# Secondary remains uncalibrated. No launch/central-parameter changes here.
+version: 1
+vehicle: Risabot 5 (car 2)
+profiles:
+  primary:
+    sensor: Astra
+    topic: /camera/color/image_raw
+    calibrated: true
+    calibration_status: front_ground_plane_verified_on_confirmed_floor_sheet
+    resolution:
+    - 320
+    - 240
+    camera_matrix:
+    - - 285.17110237076486
+      - 0.0
+      - 159.5
+    - - 0.0
+      - 285.17110237076486
+      - 119.5
+    - - 0.0
+      - 0.0
+      - 1.0
+    distortion_coefficients:
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    - 0.0
+    source_points_px:
+    - - 97.65982818603516
+      - 147.86246013641357
+    - - 242.5434112548828
+      - 146.53100967407227
+    - - 275.8262939453125
+      - 166.5505084991455
+    - - 70.4870376586914
+      - 168.83905410766602
+    ground_points_m:
+    - - 0.6950000000000001
+      - 0.125
+    - - 0.6950000000000001
+      - -0.125
+    - - 0.5449999999999999
+      - -0.125
+    - - 0.5449999999999999
+      - 0.125
+    ground_bounds_m:
+      forward:
+      - 0.05
+      - 1.8
+      left:
+      - -0.9
+      - 0.9
+    pixels_per_meter: 200.0
+    calibration_evidence: calibration_risabot5/front_session/final_front_calibration.json
+  secondary:
+    sensor: IMX219
+    topic: /camera/second/image_raw
+    calibrated: false
+    calibration_status: no_r5_secondary_evidence
+    resolution:
+    - 480
+    - 272
+    camera_matrix: []
+    distortion_coefficients: []
+    source_points_px: []
+    ground_points_m: []
+    ground_bounds_m:
+      forward:
+      - -0.6
+      - 0.8
+      left:
+      - -0.9
+      - 0.9
+    pixels_per_meter: 200.0

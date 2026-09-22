@@ -1,5 +1,11 @@
 # Track autonomy validation runbook
 
+> Historical runbook: the 2026-09-21 session below used the earlier car/configuration.
+> For the current Risabot 5 work, use [RISABOT5_AUTONOMY_TODO.md](RISABOT5_AUTONOMY_TODO.md)
+> and [the 2026-09-22 connection audit](AUTONOMY_CONNECTION_AUDIT_2026-09-22.md).
+> Old checked boxes, servo center 110, IP addresses and temporary launch instructions
+> do not establish current R5 readiness. The historical evidence is preserved below.
+
 This is the working checklist for promoting V4 from calibrated shadow mode to
 supervised autonomous competition use. Check an item only when its evidence has
 been saved. A green dashboard alone is not evidence that a physical gate has

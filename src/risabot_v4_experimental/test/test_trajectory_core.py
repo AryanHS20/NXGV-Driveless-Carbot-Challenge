@@ -10,11 +10,14 @@ from risabot_v4_experimental.trajectory_core import (
     TrajectoryConfig,
     TrajectoryError,
     VehicleGeometry,
+    centerline_steering_command,
     footprint_points,
     generate_candidates,
     near_field_bootstrap_from_corridor,
     reference_from_corridor,
     road_support,
+    smooth_centerline_reference,
+    steering_reference_from_corridor,
 )
 
 
@@ -104,6 +107,99 @@ class TrajectoryCoreTests(unittest.TestCase):
             near_field_bootstrap_from_corridor(
                 [(0.45, 0.0, 0.15), (0.49, 0.0, 0.15)],
                 VehicleGeometry(), maximum_gap_m=0.55, settle_m=0.04)
+
+    def test_track_gain_strengthens_both_directions_before_rollout(self):
+        for offset in (-0.05, 0.05):
+            reference = reference_from_corridor([(x, offset) for x in np.linspace(0.45, 0.90, 16)])
+            mask = corridor_mask(self.profile, 0.35)
+            base = generate_candidates(reference, mask, self.profile)[0]
+            stronger = generate_candidates(reference, mask, self.profile,
+                                           config=TrajectoryConfig(steering_gain=2.0))[0]
+            self.assertGreater(abs(stronger.command_steer_rad), abs(base.command_steer_rad) * 1.8)
+            self.assertGreater(stronger.command_steer_rad * offset, 0)
+            self.assertGreater(abs(stronger.curvatures[0]), abs(base.curvatures[0]))
+
+    def test_single_observed_edge_reconstructs_32cm_lane_center(self):
+        samples = [
+            {
+                'forward_m': forward, 'left_m': 0.055, 'width_m': 0.21,
+                'boundaries_observed': False,
+                'left_boundary_observed': True,
+                'right_boundary_observed': False,
+            }
+            for forward in (0.35, 0.45, 0.55)
+        ]
+        reference = steering_reference_from_corridor(samples, 0.32)
+        self.assertEqual(len(reference), 3)
+        self.assertTrue(all(abs(point.y) < 1e-9 for point in reference))
+
+        for sample in samples:
+            sample['left_m'] = -0.055
+            sample['left_boundary_observed'] = False
+            sample['right_boundary_observed'] = True
+        reference = steering_reference_from_corridor(samples, 0.32)
+        self.assertTrue(all(abs(point.y) < 1e-9 for point in reference))
+
+    def test_smoothed_centerline_controller_steers_toward_curve(self):
+        straight = reference_from_corridor([
+            (x, 0.0) for x in np.linspace(0.25, 0.75, 12)
+        ])
+        smoothed, coefficients = smooth_centerline_reference(straight)
+        command, diagnostics = centerline_steering_command(
+            smoothed, coefficients, VehicleGeometry(), 0.22, 1.1, 0.85, 0.9
+        )
+        self.assertAlmostEqual(command, 0.0, places=6)
+        self.assertAlmostEqual(diagnostics['lateral_error_m'], 0.0, places=6)
+
+        for direction in (-1.0, 1.0):
+            curved = reference_from_corridor([
+                (x, direction * (0.03 + 0.45 * (x - 0.25) ** 2))
+                for x in np.linspace(0.25, 0.75, 12)
+            ])
+            smoothed, coefficients = smooth_centerline_reference(curved)
+            command, diagnostics = centerline_steering_command(
+                smoothed, coefficients, VehicleGeometry(), 0.22,
+                1.1, 0.85, 0.9,
+            )
+            self.assertGreater(command * direction, 0.0)
+            self.assertGreater(diagnostics['curvature_per_m'] * direction, 0.0)
+
+    def test_centerline_coefficients_are_temporally_filtered(self):
+        left = reference_from_corridor([(0.3, 0.04), (0.5, 0.04), (0.7, 0.04)])
+        _, previous = smooth_centerline_reference(left)
+        right = reference_from_corridor([(0.3, -0.04), (0.5, -0.04), (0.7, -0.04)])
+        _, filtered = smooth_centerline_reference(right, previous, alpha=0.25)
+        self.assertGreater(filtered[0], 0.0)
+
+    def test_blind_strip_intercept_does_not_force_early_turn(self):
+        # Reconstructed from failed trial 20260922T161355Z: the polynomial
+        # intercept was 28.7 cm left, while the visible lane at 41 cm was only
+        # about 7.7 cm left. The unseen intercept must not dominate steering.
+        coefficients = (0.2867, -0.591, 0.356)
+        reference = reference_from_corridor([
+            (x, coefficients[0] + coefficients[1] * x + coefficients[2] * x * x)
+            for x in np.linspace(0.41, 0.75, 10)
+        ])
+        command, diagnostics = centerline_steering_command(
+            reference, coefficients, VehicleGeometry(footprint_padding_m=0.010), 0.22,
+            1.1, 0.85, 0.9,
+        )
+        self.assertLess(abs(diagnostics['lateral_error_m']), 0.12)
+        self.assertLess(
+            abs(diagnostics['lateral_error_m']),
+            abs(diagnostics['intercept_lateral_error_m']) * 0.5,
+        )
+        self.assertLessEqual(abs(diagnostics['control_lateral_error_m']), 0.0541)
+        self.assertLess(abs(command), 0.25)
+
+    def test_track_mode_relaxes_mask_support_without_hiding_observed_obstacles(self):
+        mask = corridor_mask(self.profile, 0.07)
+        candidates = generate_candidates(self.reference, mask, self.profile, enforce_road_support=False)
+        self.assertTrue(any(c.valid for c in candidates))
+        self.assertTrue(all(c.road_blocked > 0 for c in candidates))
+        blocked = generate_candidates(self.reference, mask, self.profile,
+                                      obstacles_m=[(0.0, 0.0)], enforce_road_support=False)
+        self.assertFalse(any(c.valid for c in blocked))
 
 
 if __name__ == '__main__':

@@ -23,9 +23,11 @@ from .trajectory_core import (
     TrajectoryConfig,
     TrajectoryError,
     VehicleGeometry,
+    centerline_steering_command,
     generate_candidates,
     near_field_bootstrap_from_corridor,
-    reference_from_corridor,
+    smooth_centerline_reference,
+    steering_reference_from_corridor,
 )
 
 
@@ -36,11 +38,15 @@ class TrajectoryShadow(Node):
     def __init__(self) -> None:
         super().__init__('v4_trajectory_shadow')
         self.declare_parameter('enabled', False)
+        self.declare_parameter('track_test_mode', False)
+        self.declare_parameter('enforce_road_support_in_track_test', False)
+        self.declare_parameter('require_lidar', True)
         self.declare_parameter('profile_path', '')
         self.declare_parameter('road_status_topic', '/v4_experimental/road/status')
         self.declare_parameter('road_mask_topic', '/v4_experimental/road/primary/fused')
         self.declare_parameter('scan_topic', '/scan')
         self.declare_parameter('road_timeout_sec', 1.10)
+        self.declare_parameter('plan_hold_sec', 0.0)
         self.declare_parameter('scan_timeout_sec', 0.50)
         self.declare_parameter('road_mask_sync_tolerance_sec', 0.02)
         self.declare_parameter('vehicle_geometry_validated', False)
@@ -62,13 +68,30 @@ class TrajectoryShadow(Node):
             ('lookahead_m', 0.095), ('rollout_speed_mps', 0.08),
             ('steering_lag_sec', 0.12),
             ('steering_rate_rad_sec', math.pi),
+            ('steering_gain', 1.0),
             ('footprint_sample_spacing_m', 0.02),
-            ('minimum_road_support', 0.98), ('obstacle_margin_m', 0.015),
+            ('minimum_road_support', 0.98),
+            ('road_support_cost_weight', 40.0),
+            ('expected_lane_width_m', 0.32),
+            ('centerline_filter_alpha', 0.60),
+            ('cross_track_gain', 1.10),
+            ('heading_gain', 0.85),
+            ('curvature_feedforward_gain', 0.90),
+            ('reliable_support_threshold', 0.75),
+            ('minimum_observed_centerline_fraction', 0.50),
+            ('low_support_direction_hold_sec', 2.50),
+            ('low_support_steer_decay_sec', 1.50),
+            ('obstacle_margin_m', 0.015),
             ('near_field_max_gap_m', 0.55), ('near_field_settle_m', 0.04),
         ):
             self.declare_parameter(name, value)
 
         self._enabled = bool(self.get_parameter('enabled').value)
+        self._track_test_mode = bool(self.get_parameter('track_test_mode').value)
+        self._enforce_track_test_road_support = bool(
+            self.get_parameter('enforce_road_support_in_track_test').value
+        )
+        self._require_lidar = bool(self.get_parameter('require_lidar').value)
         self._geometry_validated = bool(
             self.get_parameter('vehicle_geometry_validated').value
         )
@@ -79,6 +102,7 @@ class TrajectoryShadow(Node):
             self.get_parameter('lidar_extrinsics_validated').value
         )
         self._road_timeout = float(self.get_parameter('road_timeout_sec').value)
+        self._plan_hold = float(self.get_parameter('plan_hold_sec').value)
         self._scan_timeout = float(self.get_parameter('scan_timeout_sec').value)
         self._sync_tolerance = float(
             self.get_parameter('road_mask_sync_tolerance_sec').value
@@ -132,6 +156,17 @@ class TrajectoryShadow(Node):
         self._last_candidates: List[Dict[str, object]] = []
         self._selected: Optional[Dict[str, object]] = None
         self._last_error = ''
+        self._last_warning = ''
+        self._centerline_coefficients: Tuple[float, ...] = ()
+        self._last_control_diagnostics: Dict[str, object] = {}
+        self._last_control_steer_rad = 0.0
+        self._last_control_steer_mono = 0.0
+        self._reliable_steer_rad = 0.0
+        self._reliable_steer_mono = 0.0
+        self._imu_yaw_rad: Optional[float] = None
+        self._imu_mono = 0.0
+        self._hold_target_yaw_rad: Optional[float] = None
+        self._hold_feedforward_rad = 0.0
         self._processed_frames = 0
 
         self._status_pub = self.create_publisher(String, STATUS_TOPIC, 10)
@@ -153,6 +188,7 @@ class TrajectoryShadow(Node):
             self._scan_callback,
             qos_profile_sensor_data,
         )
+        self.create_subscription(String, '/imu/rpy', self._imu_callback, 10)
         self.create_timer(0.2, self._publish_status)
         state = 'enabled' if self._enabled else 'disabled'
         self.get_logger().warning(
@@ -164,8 +200,14 @@ class TrajectoryShadow(Node):
         overrides = overrides or {}
         names = (
             'horizon_m', 'step_m', 'lookahead_m', 'rollout_speed_mps',
-            'steering_lag_sec', 'steering_rate_rad_sec',
+            'steering_lag_sec', 'steering_rate_rad_sec', 'steering_gain',
             'footprint_sample_spacing_m', 'minimum_road_support',
+            'road_support_cost_weight',
+            'expected_lane_width_m',
+            'centerline_filter_alpha', 'cross_track_gain', 'heading_gain',
+            'curvature_feedforward_gain', 'reliable_support_threshold',
+            'minimum_observed_centerline_fraction',
+            'low_support_direction_hold_sec', 'low_support_steer_decay_sec',
             'obstacle_margin_m',
             'near_field_max_gap_m', 'near_field_settle_m',
         )
@@ -178,13 +220,20 @@ class TrajectoryShadow(Node):
     def _on_parameters(self, parameters) -> SetParametersResult:
         safe = {
             'horizon_m', 'step_m', 'lookahead_m', 'rollout_speed_mps',
-            'steering_lag_sec', 'steering_rate_rad_sec',
+            'steering_lag_sec', 'steering_rate_rad_sec', 'steering_gain',
             'footprint_sample_spacing_m', 'minimum_road_support',
+            'road_support_cost_weight',
+            'expected_lane_width_m',
+            'centerline_filter_alpha', 'cross_track_gain', 'heading_gain',
+            'curvature_feedforward_gain', 'reliable_support_threshold',
+            'minimum_observed_centerline_fraction',
+            'low_support_direction_hold_sec', 'low_support_steer_decay_sec',
             'obstacle_margin_m',
             'near_field_max_gap_m', 'near_field_settle_m',
         }
         protected = {
-            'enabled', 'profile_path', 'vehicle_geometry_validated',
+            'enabled', 'track_test_mode', 'enforce_road_support_in_track_test',
+            'require_lidar', 'profile_path', 'vehicle_geometry_validated',
             'minimum_turn_radius_validated', 'lidar_extrinsics_validated',
             'vehicle_length_m', 'vehicle_width_m', 'wheelbase_m',
             'rear_overhang_m', 'minimum_turn_radius_m',
@@ -192,6 +241,7 @@ class TrajectoryShadow(Node):
             'lidar_yaw_rad', 'minimum_scan_range_m', 'maximum_scan_range_m',
             'road_status_topic', 'road_mask_topic', 'scan_topic',
             'road_timeout_sec', 'scan_timeout_sec',
+            'plan_hold_sec',
             'road_mask_sync_tolerance_sec',
         }
         overrides = {}
@@ -252,6 +302,48 @@ class TrajectoryShadow(Node):
         self._scan_points = points
         self._scan_mono = time.monotonic()
 
+    def _imu_callback(self, msg: String) -> None:
+        try:
+            yaw = math.radians(float(json.loads(msg.data)['yaw']))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError):
+            return
+        if math.isfinite(yaw):
+            self._imu_yaw_rad = yaw
+            self._imu_mono = time.monotonic()
+
+    @staticmethod
+    def _angle_difference(target: float, current: float) -> float:
+        return math.atan2(math.sin(target - current), math.cos(target - current))
+
+    def _imu_plan_hold_steer(self, now: float):
+        if (self._hold_target_yaw_rad is None or self._imu_yaw_rad is None
+                or now - self._imu_mono > 0.35):
+            return None
+        heading_error = self._angle_difference(
+            self._hold_target_yaw_rad, self._imu_yaw_rad
+        )
+        maximum_steer = math.atan(
+            self._geometry.wheelbase_m / self._geometry.minimum_turn_radius_m
+        )
+        held = (self._hold_feedforward_rad
+                + self._config.heading_gain * heading_error)
+        return (
+            max(-maximum_steer, min(maximum_steer, held)),
+            heading_error,
+        )
+
+    def _apply_imu_plan_hold(self, now: float) -> None:
+        held = self._imu_plan_hold_steer(now)
+        if self._selected is None or held is None:
+            return
+        steer, heading_error = held
+        self._selected = dict(self._selected)
+        self._selected['command_steer_rad_diagnostic_only'] = round(
+            steer, 5
+        )
+        self._selected['steering_source'] = 'imu_plan_hold'
+        self._selected['imu_heading_error_rad'] = round(heading_error, 5)
+
     def _expected_road_stamp(self) -> Optional[float]:
         if self._road_status is None:
             return None
@@ -269,21 +361,21 @@ class TrajectoryShadow(Node):
         profile = self._profiles.get('primary')
         if profile is None or not profile.calibrated:
             blockers.append('primary camera profile is uncalibrated')
-        if not self._geometry_validated:
+        if not self._track_test_mode and not self._geometry_validated:
             blockers.append('vehicle geometry is not measured and validated')
-        if not self._turn_radius_validated:
+        if not self._track_test_mode and not self._turn_radius_validated:
             blockers.append('minimum turn radius is not measured and validated')
-        if not self._lidar_validated:
+        if not self._track_test_mode and not self._lidar_validated:
             blockers.append('LiDAR extrinsics are not measured and validated')
         if self._road_status is None or self._road_status_mono is None:
             blockers.append('no road status')
         elif now - self._road_status_mono > self._road_timeout:
             blockers.append('road status is stale')
-        elif not bool(self._road_status.get('thresholds_validated', False)):
+        elif not self._track_test_mode and not bool(self._road_status.get('thresholds_validated', False)):
             blockers.append('road thresholds are not validated')
-        if self._scan_mono is None:
+        if self._require_lidar and self._scan_mono is None:
             blockers.append('no LiDAR scan')
-        elif now - self._scan_mono > self._scan_timeout:
+        elif self._require_lidar and now - self._scan_mono > self._scan_timeout:
             blockers.append('LiDAR scan is stale')
         if self._mask is None or self._mask_mono is None:
             blockers.append('no road mask')
@@ -345,26 +437,80 @@ class TrajectoryShadow(Node):
             return
         try:
             raw_corridor = self._road_status.get('corridor', {}).get('primary', [])
-            reference = reference_from_corridor([
-                (float(sample['forward_m']), float(sample['left_m']))
-                for sample in raw_corridor
-            ])
-            near_field = near_field_bootstrap_from_corridor([
-                (float(sample['forward_m']), float(sample['left_m']), float(sample['width_m']))
-                for sample in raw_corridor
-            ], self._geometry, self._config.near_field_max_gap_m,
-                self._config.near_field_settle_m)
+            try:
+                near_field = near_field_bootstrap_from_corridor([
+                    (float(sample['forward_m']), float(sample['left_m']), float(sample['width_m']))
+                    for sample in raw_corridor
+                ], self._geometry, self._config.near_field_max_gap_m,
+                    self._config.near_field_settle_m)
+            except TrajectoryError:
+                if not self._track_test_mode:
+                    raise
+                near_field = None
+            # The near-field bootstrap describes footprint support, not a
+            # measured lane center. A fully observed row uses its midpoint;
+            # a turn with one edge outside the FOV uses the remaining observed
+            # edge plus the measured lane width.
+            steering_rows = [sample for sample in raw_corridor
+                             if (near_field is None or
+                              float(sample['forward_m']) >= near_field.forward_m)]
+            observed_centerline_fraction = (
+                sum(
+                    bool(sample.get('left_boundary_observed'))
+                    or bool(sample.get('right_boundary_observed'))
+                    for sample in steering_rows
+                ) / len(steering_rows)
+                if steering_rows else 0.0
+            )
+            reference = steering_reference_from_corridor(
+                steering_rows, self._config.expected_lane_width_m
+            )
+            reference, coefficients = smooth_centerline_reference(
+                reference, self._centerline_coefficients,
+                self._config.centerline_filter_alpha,
+            )
+            control_steer, control_diagnostics = centerline_steering_command(
+                reference, coefficients, self._geometry,
+                self._config.lookahead_m, self._config.cross_track_gain,
+                self._config.heading_gain,
+                self._config.curvature_feedforward_gain,
+                self._config.expected_lane_width_m,
+            )
+            if self._last_control_steer_mono > 0.0:
+                control_dt = max(
+                    0.02, min(0.50, now - self._last_control_steer_mono)
+                )
+                maximum_change = self._config.steering_rate_rad_sec * control_dt
+                control_steer = max(
+                    self._last_control_steer_rad - maximum_change,
+                    min(self._last_control_steer_rad + maximum_change,
+                        control_steer),
+                )
+            scan_fresh = (self._scan_mono is not None and
+                          now - self._scan_mono <= self._scan_timeout)
             candidates = generate_candidates(
                 reference,
                 self._mask,
                 self._profiles['primary'],
                 self._geometry,
                 self._config,
-                self._scan_points,
+                self._scan_points if scan_fresh else (),
                 near_field,
+                enforce_road_support=(
+                    not self._track_test_mode
+                    or self._enforce_track_test_road_support
+                ),
             )
         except (CalibrationError, KeyError, TrajectoryError, TypeError, ValueError) as exc:
+            if (self._selected is not None and self._last_success_mono is not None
+                    and now - self._last_success_mono <= self._plan_hold):
+                self._apply_imu_plan_hold(now)
+                self._last_error = ''
+                self._last_warning = f'{exc}; holding recent valid plan'
+                self._last_processed_stamp = expected_stamp
+                return
             self._last_error = str(exc)
+            self._last_warning = ''
             self._last_candidates = []
             self._selected = None
             return
@@ -386,8 +532,98 @@ class TrajectoryShadow(Node):
             },
         } for candidate in candidates]
         selected = next((item for item in self._last_candidates if item['valid']), None)
+        if selected is not None:
+            selected = dict(selected)
+            support = float(selected.get('minimum_support', 0.0))
+            command = float(control_steer)
+            source = 'filtered_centerline'
+            reliable_age = (
+                now - self._reliable_steer_mono
+                if self._reliable_steer_mono > 0.0 else math.inf
+            )
+            imu_heading_error = None
+            if (support < self._config.reliable_support_threshold
+                    and math.isfinite(reliable_age)):
+                if (observed_centerline_fraction >=
+                        self._config.minimum_observed_centerline_fraction):
+                    source = 'low_support_observed_centerline'
+                    self._last_warning = (
+                        'footprint support is low; following observed lane boundaries'
+                    )
+                elif reliable_age <= self._config.low_support_direction_hold_sec:
+                    imu_hold = self._imu_plan_hold_steer(now)
+                    if imu_hold is None:
+                        command = self._reliable_steer_rad
+                        source = 'low_support_direction_hold'
+                    else:
+                        command, imu_heading_error = imu_hold
+                        source = 'low_support_imu_hold'
+                    self._last_warning = (
+                        'low road support; following the recent reliable plan'
+                    )
+                else:
+                    decay_age = (
+                        reliable_age
+                        - self._config.low_support_direction_hold_sec
+                    )
+                    decay = max(
+                        0.0,
+                        1.0 - decay_age
+                        / self._config.low_support_steer_decay_sec,
+                    )
+                    command = self._reliable_steer_rad * decay
+                    source = 'low_support_steer_decay'
+                    self._last_warning = (
+                        'road support remains low; decaying steering toward straight'
+                    )
+            else:
+                self._last_warning = ''
+            selected['command_steer_rad_diagnostic_only'] = round(command, 5)
+            selected['steering_source'] = source
+            selected['observed_centerline_fraction'] = round(
+                observed_centerline_fraction, 4
+            )
+            if imu_heading_error is not None:
+                selected['imu_heading_error_rad'] = round(
+                    imu_heading_error, 5
+                )
+            selected.update({
+                name: round(float(value), 5)
+                for name, value in control_diagnostics.items()
+            })
+            body_half_width = (
+                0.5 * self._geometry.width_m
+                + self._geometry.footprint_padding_m
+            )
+            clearance = (0.5 * self._config.expected_lane_width_m
+                         - body_half_width
+                         - abs(float(control_diagnostics['lateral_error_m'])))
+            selected['boundary_clearance_m'] = round(clearance, 5)
+            selected['path_shape'] = (
+                'roundabout_like'
+                if abs(float(control_diagnostics['curvature_per_m'])) >= 1.0
+                else 'lane'
+            )
+            if support >= self._config.reliable_support_threshold:
+                self._reliable_steer_rad = command
+                self._reliable_steer_mono = now
+                if self._imu_yaw_rad is not None and now - self._imu_mono <= 0.35:
+                    self._hold_target_yaw_rad = (
+                        self._imu_yaw_rad
+                        + float(control_diagnostics['heading_error_rad'])
+                    )
+                    self._hold_feedforward_rad = (
+                        self._config.curvature_feedforward_gain
+                        * float(control_diagnostics['feedforward_steer_rad'])
+                    )
+            self._centerline_coefficients = coefficients
+            self._last_control_diagnostics = dict(control_diagnostics)
+            self._last_control_steer_rad = command
+            self._last_control_steer_mono = now
         self._selected = selected
         self._last_error = '' if selected else 'all trajectory candidates rejected'
+        if selected is None:
+            self._last_warning = ''
         self._processed_frames += 1
         self._last_processed_stamp = expected_stamp
         self._last_success_mono = now
@@ -398,6 +634,12 @@ class TrajectoryShadow(Node):
             'algorithm_stage': 4,
             'mode': 'shadow',
             'enabled': self._enabled,
+            'track_test_mode': self._track_test_mode,
+            'road_support_enforced': (
+                not self._track_test_mode
+                or self._enforce_track_test_road_support
+            ),
+            'require_lidar': self._require_lidar,
             'motion_authority': False,
             'can_publish_motion': False,
             'can_select_for_control': False,
@@ -410,6 +652,7 @@ class TrajectoryShadow(Node):
             'processed_frames': self._processed_frames,
             'obstacle_points': len(self._scan_points),
             'last_error': self._last_error,
+            'last_warning': self._last_warning,
             'selected_diagnostic_only': self._selected,
             'candidates': self._last_candidates,
         }

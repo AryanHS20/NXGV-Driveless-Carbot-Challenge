@@ -16,6 +16,11 @@
   <exec_depend>risabot_v4_experimental</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>control_servo</exec_depend>
+  <exec_depend>joy</exec_depend>
+  <exec_depend>astra_camera</exec_depend>
+  <exec_depend>ydlidar_ros2_driver</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
   <test_depend>python3-pytest</test_depend>
 

@@ -83,6 +83,9 @@ v4_pose_shadow:
 v4_trajectory_shadow:
   ros__parameters:
     enabled: false
+    track_test_mode: false
+    enforce_road_support_in_track_test: false
+    require_lidar: true
     road_status_topic: /v4_experimental/road/status
     road_mask_topic: /v4_experimental/road/primary/fused
     scan_topic: /scan
@@ -113,6 +116,16 @@ v4_trajectory_shadow:
     steering_rate_rad_sec: 3.141592653589793
     footprint_sample_spacing_m: 0.02
     minimum_road_support: 0.98
+    road_support_cost_weight: 40.0
+    expected_lane_width_m: 0.32
+    centerline_filter_alpha: 0.60
+    cross_track_gain: 1.10
+    heading_gain: 0.85
+    curvature_feedforward_gain: 0.90
+    reliable_support_threshold: 0.75
+    minimum_observed_centerline_fraction: 0.50
+    low_support_direction_hold_sec: 2.50
+    low_support_steer_decay_sec: 1.50
     obstacle_margin_m: 0.015
     # The Astra cannot observe the strip directly below the car. Continue only
     # the first stable connected-corridor row back to the current footprint;

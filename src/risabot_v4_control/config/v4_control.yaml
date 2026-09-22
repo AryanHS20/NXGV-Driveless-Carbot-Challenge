@@ -20,5 +20,15 @@ v4_motion_executor:
     path_forward_speed_mps: 0.06
     path_reverse_speed_mps: 0.05
     minimum_speed_scale: 0.40
+    steering_slowdown_gain: 0.65
+    boundary_slowdown_margin_m: 0.03
+    enable_boundary_reverse_recovery: false
+    boundary_recovery_trigger_m: 0.0
+    boundary_recovery_confirm_sec: 0.35
+    boundary_recovery_duration_sec: 0.45
+    boundary_recovery_reverse_duty_percent: 30.0
+    boundary_recovery_steering: 0.65
+    boundary_recovery_rear_clearance_m: 0.35
+    scan_timeout_sec: 0.35
     completion_distance_m: 0.04
     hill_max_speed_mps: 0.18

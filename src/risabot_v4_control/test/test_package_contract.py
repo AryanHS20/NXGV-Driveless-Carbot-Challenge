@@ -3,6 +3,8 @@ import unittest
 
 import yaml
 
+from risabot_v4_control.track_test_config import track_test_overrides
+
 
 class PackageContractTests(unittest.TestCase):
     def test_stage8_ships_disabled_with_every_gate_closed(self):
@@ -20,6 +22,18 @@ class PackageContractTests(unittest.TestCase):
         self.assertNotIn("'/cmd_vel'", source)
         self.assertNotIn("'/cmd_vel_auto'", source)
         self.assertNotIn('servo_controller', source)
+
+    def test_risabot5_track_test_holds_the_32cm_lane_center(self):
+        params = track_test_overrides('risabot5', 65.0, 2.0)
+        trajectory = params['v4_trajectory_shadow']
+        self.assertFalse(trajectory['enforce_road_support_in_track_test'])
+        self.assertEqual(trajectory['road_support_cost_weight'], 100.0)
+        self.assertEqual(trajectory['footprint_padding_m'], 0.010)
+        self.assertEqual(trajectory['expected_lane_width_m'], 0.32)
+        self.assertEqual(trajectory['plan_hold_sec'], 0.60)
+        executor = params['v4_motion_executor']
+        self.assertAlmostEqual(executor['minimum_speed_scale'], 48.0 / 65.0)
+        self.assertEqual(executor['steering_slowdown_gain'], 0.85)
 
 
 if __name__ == '__main__':

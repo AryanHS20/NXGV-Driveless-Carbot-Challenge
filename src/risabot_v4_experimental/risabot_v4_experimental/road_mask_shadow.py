@@ -68,6 +68,7 @@ class RoadMaskShadow(Node):
         self.declare_parameter('sync_tolerance_sec', 0.10)
         self.declare_parameter('odom_topic', '/odom')
         self.declare_parameter('odom_timeout_sec', 0.25)
+        self.declare_parameter('use_road_memory', True)
         self.declare_parameter('memory_cell_size_m', 0.025)
         self.declare_parameter('memory_retention_sec', 25.0)
         self.declare_parameter('memory_planning_age_sec', 2.0)
@@ -94,6 +95,7 @@ class RoadMaskShadow(Node):
         )
         self._row_step = int(self.get_parameter('corridor_row_step_px').value)
         self._odom_timeout = float(self.get_parameter('odom_timeout_sec').value)
+        self._use_road_memory = bool(self.get_parameter('use_road_memory').value)
         self._memory_age = float(
             self.get_parameter('memory_planning_age_sec').value
         )
@@ -214,7 +216,7 @@ class RoadMaskShadow(Node):
             'process_secondary', 'primary_bev_topic',
             'primary_coverage_topic', 'secondary_bev_topic',
             'secondary_coverage_topic', 'sync_tolerance_sec', 'odom_topic',
-            'odom_timeout_sec', 'memory_cell_size_m', 'memory_retention_sec',
+            'odom_timeout_sec', 'use_road_memory', 'memory_cell_size_m', 'memory_retention_sec',
         }
         proposed = {
             'value_min': self._config.value_min,
@@ -381,7 +383,7 @@ class RoadMaskShadow(Node):
             prior_mask = None
             prior_center_x = None
             if (
-                self._pose is not None
+                self._use_road_memory and self._pose is not None
                 and time.monotonic() - self._pose_mono <= self._odom_timeout
                 and int(self._memory.stats().get('cells', 0)) > 0
             ):
@@ -439,7 +441,9 @@ class RoadMaskShadow(Node):
         pose_fresh = (
             self._pose is not None and now - self._pose_mono <= self._odom_timeout
         )
-        if not pose_fresh:
+        if not self._use_road_memory:
+            self._memory_error = ''
+        elif not pose_fresh:
             self._memory_error = 'no fresh odometry; live mask only'
         else:
             try:
@@ -496,6 +500,9 @@ class RoadMaskShadow(Node):
                 {
                     'forward_m': round(float(point[0]), 4),
                     'left_m': round(float(point[1]), 4),
+                    'boundaries_observed': sample.boundaries_observed,
+                    'left_boundary_observed': sample.left_boundary_observed,
+                    'right_boundary_observed': sample.right_boundary_observed,
                     'width_m': round(
                         float(sample.width_px) / profile.pixels_per_meter, 4
                     ),
@@ -536,6 +543,7 @@ class RoadMaskShadow(Node):
             'last_image_stamp_sec': self._last_image_stamp,
             'last_error': self._last_error,
             'memory_error': self._memory_error,
+            'memory_enabled': self._use_road_memory,
             'memory_resets': self._memory_resets,
             'memory': self._memory.stats(),
             'corridor': self._last_corridor,

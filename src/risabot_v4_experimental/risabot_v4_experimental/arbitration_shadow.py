@@ -15,6 +15,7 @@ class ArbitrationShadow(Node):
     def __init__(self) -> None:
         super().__init__('v4_arbitration_shadow')
         self.declare_parameter('enabled', False)
+        self.declare_parameter('track_test_mode', False)
         gate_names = ('integration_reviewed', 'command_contract_validated',
                       'stop_preemption_validated', 'timeout_validated',
                       'physical_trials_validated')
@@ -23,6 +24,7 @@ class ArbitrationShadow(Node):
         self.declare_parameter('input_timeout_sec', 0.35)
         self.declare_parameter('lane_only', False)
         self._enabled = bool(self.get_parameter('enabled').value)
+        self._track_test_mode = bool(self.get_parameter('track_test_mode').value)
         self._lane_only = bool(self.get_parameter('lane_only').value)
         self._gates = {name: bool(self.get_parameter(name).value) for name in gate_names}
         self._timeout = float(self.get_parameter('input_timeout_sec').value)
@@ -67,7 +69,7 @@ class ArbitrationShadow(Node):
                   'timeout_validated': 'timeout handling is not validated',
                   'physical_trials_validated': 'physical trials are incomplete'}
         blockers = [label for gate, label in labels.items()
-                    if not self._gates[gate]
+                    if not self._track_test_mode and not self._gates[gate]
                     and (include_physical_trials or gate != 'physical_trials_validated')]
         blockers.extend(f'{name} input is stale' for name in self._required_inputs
                         for stamp in (self._seen[name],)
@@ -93,6 +95,7 @@ class ArbitrationShadow(Node):
 
     def _publish_status(self):
         payload = {'algorithm_stage': 7, 'mode': 'shadow', 'enabled': self._enabled,
+                   'track_test_mode': self._track_test_mode,
                    'motion_authority': False, 'can_publish_motion': False,
                    'lane_only': self._lane_only,
                    'can_execute_proposed_request': False, 'validation_gates': self._gates,

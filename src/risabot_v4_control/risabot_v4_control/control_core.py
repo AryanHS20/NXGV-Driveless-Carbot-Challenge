@@ -126,7 +126,9 @@ def path_command(points: Sequence[PathPoint], pose: Tuple[float, float, float],
 
 def trajectory_command(reference: Mapping[str, object], wheelbase: float,
                        maximum_steer_rad: float, forward_speed: float,
-                       minimum_speed_scale: float) -> CommandDecision:
+                       minimum_speed_scale: float,
+                       steering_slowdown_gain: float = 0.65,
+                       boundary_slowdown_margin_m: float = 0.03) -> CommandDecision:
     if reference.get('valid') is not True:
         raise ControlContractError('trajectory reference is not valid')
     try:
@@ -135,9 +137,31 @@ def trajectory_command(reference: Mapping[str, object], wheelbase: float,
         raise ControlContractError('trajectory steering is missing') from exc
     if not math.isfinite(steer_rad):
         raise ControlContractError('trajectory steering is non-finite')
+    values = (forward_speed, minimum_speed_scale, steering_slowdown_gain,
+              boundary_slowdown_margin_m)
+    if not all(math.isfinite(value) for value in values):
+        raise ControlContractError('trajectory speed settings must be finite')
+    if forward_speed <= 0.0 or not 0.0 < minimum_speed_scale <= 1.0:
+        raise ControlContractError('trajectory speed and minimum scale are invalid')
+    if steering_slowdown_gain < 0.0:
+        raise ControlContractError('steering slowdown gain must be non-negative')
+    if boundary_slowdown_margin_m <= 0.0:
+        raise ControlContractError('boundary slowdown margin must be positive')
     curvature = math.tan(steer_rad) / wheelbase
     steering = steering_from_curvature(curvature, wheelbase, maximum_steer_rad)
-    scale = max(minimum_speed_scale, 1.0 - 0.65 * abs(steering))
+    scale = max(minimum_speed_scale,
+                1.0 - steering_slowdown_gain * abs(steering))
+    if 'boundary_clearance_m' in reference:
+        try:
+            clearance = float(reference['boundary_clearance_m'])
+        except (TypeError, ValueError) as exc:
+            raise ControlContractError('boundary clearance is invalid') from exc
+        if not math.isfinite(clearance):
+            raise ControlContractError('boundary clearance is non-finite')
+        clearance_scale = minimum_speed_scale + (1.0 - minimum_speed_scale) * clamp(
+            clearance / boundary_slowdown_margin_m, 0.0, 1.0
+        )
+        scale = min(scale, clearance_scale)
     return CommandDecision(forward_speed * scale, steering, 'v4_trajectory', 'validated trajectory')
 
 

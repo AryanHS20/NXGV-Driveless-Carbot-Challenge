@@ -8,6 +8,11 @@ permit timeout.
 
 ## Competition behavior
 
+For a supervised lane-only test, use `track_test.launch.py` with explicit
+`vehicle`, `motor_duty` (percent), and that car's `profile_path`. See the repo's
+`TRACK_TEST_RISABOT5.md`. This launch uses a separate test mode and starts in
+MANUAL; it bypasses commissioning flags without marking them validated.
+
 - `LANE_FOLLOW`, `ROUNDABOUT`, and `HILL`: V4 trajectory steering.
 - `LANE_RECOVERY`: V4 bounded recovery path.
 - `PARALLEL_PARK` and `PERPENDICULAR_PARK`: V4 parking path when the mission

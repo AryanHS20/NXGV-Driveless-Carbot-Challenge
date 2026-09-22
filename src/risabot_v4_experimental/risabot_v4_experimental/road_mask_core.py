@@ -67,6 +67,9 @@ class CorridorSample:
     right_px: int
     center_px: float
     width_px: int
+    boundaries_observed: bool = True
+    left_boundary_observed: bool = True
+    right_boundary_observed: bool = True
 
 
 def _validate_images(image: np.ndarray, coverage: np.ndarray) -> None:
@@ -234,7 +237,20 @@ def extract_corridor(
         if not candidates:
             continue
         _, left, right, center, width = min(candidates, key=lambda item: item[0])
-        samples.append(CorridorSample(row_index, left, right, center, width))
+        # A run ending at the camera FOV is only a visible portion of the road.
+        # Its midpoint must not become a steering target: an offset lens makes
+        # even a centered car see an asymmetric clipped strip near the bumper.
+        left_boundary_observed = bool(
+            left > 0 and coverage[row_index, left - 1] > 0
+        )
+        right_boundary_observed = bool(
+            right < coverage.shape[1] - 1
+            and coverage[row_index, right + 1] > 0
+        )
+        boundaries_observed = left_boundary_observed and right_boundary_observed
+        samples.append(CorridorSample(
+            row_index, left, right, center, width, bool(boundaries_observed),
+            left_boundary_observed, right_boundary_observed))
         previous = center
     return samples
 

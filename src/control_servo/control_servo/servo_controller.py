@@ -132,6 +132,7 @@ class ServoControllerV9(Node):
         self.declare_parameter('parallel_recording', '')
         self.declare_parameter('perpendicular_recording', '')
         self.declare_parameter('motor_duty_per_mps', 255.0)
+        self.declare_parameter('auto_motor_duty_limit', 100.0)
         self.declare_parameter('unlock_requires_neutral', True)
         self.declare_parameter('unlock_neutral_threshold', 0.15)
         self.declare_parameter('hw_heartbeat_sec', 1.0)
@@ -269,6 +270,7 @@ class ServoControllerV9(Node):
         self.create_timer(1.0, self._publish_loop_stats)
         self.hw_error_count = 0
         self.hw_error_tripped = False
+        self._hw_reconnect_after = 0.0
         self.awaiting_neutral = False
         self.last_auto_cmd_time = 0.0
         self.auto_cmd_stale_reported = False
@@ -363,6 +365,8 @@ class ServoControllerV9(Node):
                 return SetParametersResult(successful=False, reason='Motor index must be 0..3')
             if p.name in ('wheel_base', 'ticks_per_meter', 'motor_duty_per_mps', 'auto_cmd_timeout') and p.value <= 0:
                 return SetParametersResult(successful=False, reason='Positive calibration required')
+            if p.name == 'auto_motor_duty_limit' and not 0 < p.value <= 100:
+                return SetParametersResult(successful=False, reason='Motor duty limit must be in (0, 100]')
         for p in params:
             if p.name in self._param_cache:
                 self._param_cache[p.name] = p.value
@@ -414,6 +418,7 @@ class ServoControllerV9(Node):
     def _publish_mode(self) -> None:
         """Heartbeat the authoritative controller mode for late/missed listeners."""
         self.auto_mode_pub.publish(Bool(data=not self.manual_mode))
+        self._update_dash()
 
     def _publish_loop_stats(self) -> None:
         """Publish loop timing diagnostics."""
@@ -586,35 +591,26 @@ class ServoControllerV9(Node):
             if abs(throttle_raw) < 0.12: throttle_raw = 0.0
             if abs(steer_raw) < 0.12: steer_raw = 0.0
 
-            # Drive (PWM)
-            if self.rp_state == 'RECORDING':
-                if throttle_raw > 0.0:
-                    motor_pwm = int(self.current_speed_limit * 2.55)
-                elif throttle_raw < 0.0:
-                    motor_pwm = -int(self.current_speed_limit * 2.55)
-                else:
-                    motor_pwm = 0
-            else:
-                motor_pwm = int(throttle_raw * self.current_speed_limit * 2.55)
+            # Drive (PWM). Recording must observe the operator's proportional
+            # command; it must never change a partial stick input to full duty.
+            motor_pwm = int(round(
+                throttle_raw * self.current_speed_limit
+            ))
             
             # Steer (Servo 4) — asymmetric left/right ranges
             # steer_raw > 0 (joystick left) → servo angle decreases → uses range_left
             # steer_raw < 0 (joystick right) → servo angle increases → uses range_right
-            if self.rp_state == 'RECORDING':
-                if steer_raw > 0.0:
-                    steer_angle = self.servo_center - self.servo_range_left
-                elif steer_raw < 0.0:
-                    steer_angle = self.servo_center + self.servo_range_right
-                else:
-                    steer_angle = self.servo_center
+            if steer_raw >= 0:
+                steer_angle = int(round(
+                    self.servo_center - (steer_raw * self.servo_range_left)
+                ))
             else:
-                if steer_raw >= 0:
-                    steer_angle = int(self.servo_center - (steer_raw * self.servo_range_left))
-                else:
-                    steer_angle = int(self.servo_center - (steer_raw * self.servo_range_right))
-                min_angle = self.servo_center - self.servo_range_left
-                max_angle = self.servo_center + self.servo_range_right
-                steer_angle = max(min_angle, min(max_angle, steer_angle))
+                steer_angle = int(round(
+                    self.servo_center - (steer_raw * self.servo_range_right)
+                ))
+            min_angle = self.servo_center - self.servo_range_left
+            max_angle = self.servo_center + self.servo_range_right
+            steer_angle = max(min_angle, min(max_angle, steer_angle))
 
             self.apply_hardware(motor_pwm, steer_angle)
 
@@ -670,7 +666,7 @@ class ServoControllerV9(Node):
         if not all(math.isfinite(v) for v in (msg.linear.x, msg.angular.z)):
             self._abort_motion('invalid_command')
             return
-        pwm_val = int(msg.linear.x * float(self.get_parameter('motor_duty_per_mps').value))
+        pwm_val = int(round(msg.linear.x * float(self.get_parameter('motor_duty_per_mps').value)))
         
         # Steering — asymmetric left/right ranges with Ackermann correction boost
         # angular_z > 0 → servo increases → physical right → uses range_right + right boost
@@ -680,10 +676,11 @@ class ServoControllerV9(Node):
             angle_offset = msg.angular.z * float(self.servo_range_right) * right_boost
         else:
             angle_offset = msg.angular.z * float(self.servo_range_left)
-        steer_angle = int(self.servo_center + angle_offset)
+        steer_angle = int(round(self.servo_center + angle_offset))
         
         # Clamp to asymmetric limits
-        pwm_val = max(-100, min(100, pwm_val))
+        duty_limit = max(0, min(100, int(self.get_parameter('auto_motor_duty_limit').value)))
+        pwm_val = max(-duty_limit, min(duty_limit, pwm_val))
         min_angle = self.servo_center - self.servo_range_left
         max_angle = self.servo_center + self.servo_range_right
         steer_angle = max(min_angle, min(max_angle, steer_angle))
@@ -702,13 +699,10 @@ class ServoControllerV9(Node):
         steer_angle = max(self.servo_center - self.servo_range_left,
                           min(self.servo_center + self.servo_range_right, int(steer_angle)))
         
-        # Slew rate limiter on throttle-up only: prevents motor inrush
-        # brownouts on weak supplies. Stops (including e-stop) bypass the
-        # limiter so the measured ~20 ms stop contract is preserved.
-        last_val = getattr(self, 'sent_motor_val', 0)
-        max_delta = 10
-        if motor_pwm > last_val + max_delta:
-            motor_pwm = last_val + max_delta
+        # Autonomous acceleration is already time-limited by cmd_safety.
+        # A second, per-callback ramp here delayed reverse-to-zero requests
+        # and made acceleration depend on message rate. Always apply its
+        # final command, including zero, without another ramp.
         self.target_motor_val = motor_pwm
         self.target_servo_val = steer_angle
         
@@ -726,8 +720,58 @@ class ServoControllerV9(Node):
             except Exception as e:
                 self.hw_error_count += 1
                 if self.hw_error_count >= int(self._param_cache['hw_fail_limit']) and not self.hw_error_tripped:
-                    self.hw_error_tripped = True
-                    self.stop_robot()
+                    self._trip_hardware_link(e)
+
+    def _trip_hardware_link(self, error: Exception) -> None:
+        """Force MANUAL and reopen Rosmaster after a USB port renumber."""
+        self.hw_error_tripped = True
+        self.target_motor_val = 0
+        self.target_servo_val = self.servo_center
+        if not self.manual_mode:
+            self.manual_mode = True
+            self.auto_mode_pub.publish(Bool(data=False))
+            self._update_dash()
+        old = self.bot
+        self.bot = None
+        try:
+            if old is not None and getattr(old, 'ser', None) is not None:
+                old.ser.close()
+        except Exception:
+            pass
+        self._hw_reconnect_after = time.monotonic() + 1.0
+        self.get_logger().error(
+            f'Rosmaster USB link lost ({error}); forced MANUAL, reconnecting'
+        )
+
+    def _reconnect_hardware(self, now: float) -> bool:
+        if self.bot is not None:
+            return True
+        if now < self._hw_reconnect_after:
+            return False
+        self._hw_reconnect_after = now + 1.0
+        try:
+            bot = Rosmaster()
+            bot.create_receive_threading()
+            bot.set_auto_report_state(True)
+            bot.set_motor(0, 0, 0, 0)
+            bot.set_pwm_servo(self.servo_steer_id, self.servo_center)
+            self.bot = bot
+            self.target_motor_val = 0
+            self.target_servo_val = self.servo_center
+            self.sent_motor_val = 0
+            self.sent_servo_val = self.servo_center
+            self.last_hw_send_time = now
+            self.hw_error_count = 0
+            self.hw_error_tripped = False
+            self.encoder_first_read = True
+            self.get_logger().info(
+                'Rosmaster USB link reconnected; remaining in MANUAL'
+            )
+            return True
+        except Exception as exc:
+            self.bot = None
+            self.get_logger().warn(f'Rosmaster reconnect pending: {exc}')
+            return False
 
     def _hardware_update_loop(self) -> None:
         """Send 10Hz heartbeat to Rosmaster, but only update on change or 1-second timeout to prevent serial spam."""
@@ -738,6 +782,8 @@ class ServoControllerV9(Node):
             'right_boost': self._param_cache['auto_right_steer_boost'],
         })))
         now = time.monotonic()
+        if not self._reconnect_hardware(now):
+            return
         if not self._motion_allowed():
             self._abort_motion('watchdog')
             return
@@ -774,12 +820,7 @@ class ServoControllerV9(Node):
                 self.hw_error_count += 1
                 self.get_logger().warn(f'Hardware send failed: {e}')
                 if self.hw_error_count >= int(self._param_cache['hw_fail_limit']) and not self.hw_error_tripped:
-                    self.hw_error_tripped = True
-                    self.get_logger().error('Hardware send failure limit reached, stopping robot')
-                    self.stop_robot()
-                    if not self.manual_mode:
-                        self.manual_mode = True
-                        self.auto_mode_pub.publish(Bool(data=False))
+                    self._trip_hardware_link(e)
 
     def _normalize_angle(self, angle: float) -> float:
         """Normalize an angle to [-180, 180]."""
@@ -814,6 +855,9 @@ class ServoControllerV9(Node):
     def _encoder_read_loop(self) -> None:
         """Read hardware encoders and compute/publish /odom"""
         self.encoder_loop_monitor.tick()
+
+        if self.bot is None:
+            return
 
         # Steady 20Hz recording loop
         if self.rp_state == 'RECORDING':

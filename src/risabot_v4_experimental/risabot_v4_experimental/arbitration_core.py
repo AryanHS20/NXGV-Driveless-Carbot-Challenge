@@ -47,6 +47,7 @@ def select_diagnostic_intent(
             return ArbitrationDecision('recovery', 'follow_path', 'valid bounded recovery proposal', selected_recovery)
         return ArbitrationDecision('hold', 'stop', 'recovery has no valid proposal', None)
     selected = trajectory_status.get('selected_diagnostic_only') if isinstance(trajectory_status, Mapping) else None
-    if isinstance(selected, Mapping) and selected.get('valid') is True:
+    if (isinstance(selected, Mapping) and selected.get('valid') is True
+            and not trajectory_status.get('blockers')):
         return ArbitrationDecision('trajectory', 'follow_curvature', 'valid forward trajectory', selected)
     return ArbitrationDecision('hold', 'stop', 'no valid proposal', None)

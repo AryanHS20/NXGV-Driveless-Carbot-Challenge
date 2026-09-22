@@ -42,6 +42,27 @@ class ControlCoreTests(unittest.TestCase):
         self.assertLess(turn.speed, straight.speed)
         self.assertGreaterEqual(turn.steering, -1.0)
 
+    def test_turn_slowdown_is_adjustable_and_never_reaches_zero(self):
+        reference = {'valid': True, 'command_steer_rad_diagnostic_only': .5}
+        gentle = trajectory_command(
+            reference, .216, math.radians(50), 65 / 255, 40 / 65, .4)
+        strong = trajectory_command(
+            reference, .216, math.radians(50), 65 / 255, 40 / 65, .85)
+        self.assertLess(strong.speed, gentle.speed)
+        self.assertGreaterEqual(strong.speed * 255, 40.0)
+
+    def test_boundary_proximity_reduces_speed_without_stopping(self):
+        near = trajectory_command({
+            'valid': True, 'command_steer_rad_diagnostic_only': .1,
+            'boundary_clearance_m': 0.0,
+        }, .216, math.radians(50), 65 / 255, 40 / 65, .85, .03)
+        clear = trajectory_command({
+            'valid': True, 'command_steer_rad_diagnostic_only': .1,
+            'boundary_clearance_m': .04,
+        }, .216, math.radians(50), 65 / 255, 40 / 65, .85, .03)
+        self.assertAlmostEqual(near.speed * 255, 40.0)
+        self.assertGreater(clear.speed, near.speed)
+
     def test_invalid_or_nonfinite_contract_is_rejected(self):
         with self.assertRaises(ControlContractError):
             proposal_contract({'source': 'trajectory', 'action': 'drive', 'reference': {}})

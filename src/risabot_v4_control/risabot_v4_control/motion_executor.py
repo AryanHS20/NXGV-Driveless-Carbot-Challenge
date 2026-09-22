@@ -11,6 +11,8 @@ from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import SetParametersResult
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import LaserScan
 from std_msgs.msg import Bool, String
 
 from .control_core import (
@@ -49,6 +51,10 @@ class MotionExecutor(Node):
     def __init__(self) -> None:
         super().__init__('v4_motion_executor')
         self.declare_parameter('enabled', False)
+        self.declare_parameter('track_test_mode', False)
+        self.declare_parameter('forward_motor_duty_percent', 65.0)
+        self.declare_parameter('motor_duty_per_mps', 255.0)
+        self.declare_parameter('enable_boundary_reverse_recovery', False)
         self._gate_names = (
             'command_contract_validated', 'stop_preemption_validated',
             'timeout_validated', 'operator_motion_authorized',
@@ -64,12 +70,30 @@ class MotionExecutor(Node):
             ('wheelbase_m', 0.210), ('maximum_steer_deg', 50.0),
             ('forward_speed_mps', 0.08), ('path_forward_speed_mps', 0.06),
             ('path_reverse_speed_mps', 0.05), ('minimum_speed_scale', 0.40),
+            ('steering_slowdown_gain', 0.65),
+            ('boundary_slowdown_margin_m', 0.03),
             ('completion_distance_m', 0.04),
             ('hill_max_speed_mps', 0.18),
+            ('boundary_recovery_trigger_m', 0.0),
+            ('boundary_recovery_confirm_sec', 0.35),
+            ('boundary_recovery_duration_sec', 0.45),
+            ('boundary_recovery_reverse_duty_percent', 30.0),
+            ('boundary_recovery_steering', 0.65),
+            ('boundary_recovery_rear_clearance_m', 0.35),
+            ('scan_timeout_sec', 0.35),
         ):
             self.declare_parameter(name, value)
 
         self._enabled = bool(self.get_parameter('enabled').value)
+        self._track_test_mode = bool(self.get_parameter('track_test_mode').value)
+        self._motor_duty = float(self.get_parameter('forward_motor_duty_percent').value)
+        self._duty_map = float(self.get_parameter('motor_duty_per_mps').value)
+        self._boundary_recovery_enabled = bool(
+            self.get_parameter('enable_boundary_reverse_recovery').value
+        )
+        if (not math.isfinite(self._motor_duty) or not 0.0 < self._motor_duty <= 100.0
+                or not math.isfinite(self._duty_map) or self._duty_map <= 0.0):
+            raise ControlContractError('motor duty must be in (0, 100] and duty map positive')
         self._gates = {name: bool(self.get_parameter(name).value) for name in self._gate_names}
         self._allow_legacy = bool(self.get_parameter('allow_legacy_challenge_passthrough').value)
         self._p = {name: float(self.get_parameter(name).value) for name in (
@@ -77,7 +101,15 @@ class MotionExecutor(Node):
             'odom_timeout_sec', 'state_timeout_sec', 'legacy_timeout_sec',
             'wheelbase_m', 'maximum_steer_deg', 'forward_speed_mps',
             'path_forward_speed_mps', 'path_reverse_speed_mps',
-            'minimum_speed_scale', 'completion_distance_m', 'hill_max_speed_mps',
+            'minimum_speed_scale', 'steering_slowdown_gain',
+            'boundary_slowdown_margin_m',
+            'completion_distance_m', 'hill_max_speed_mps',
+            'boundary_slowdown_margin_m',
+            'boundary_recovery_trigger_m', 'boundary_recovery_confirm_sec',
+            'boundary_recovery_duration_sec',
+            'boundary_recovery_reverse_duty_percent',
+            'boundary_recovery_steering',
+            'boundary_recovery_rear_clearance_m', 'scan_timeout_sec',
         )}
         self._validate_parameters()
         self.add_on_set_parameters_callback(self._on_parameters)
@@ -99,6 +131,12 @@ class MotionExecutor(Node):
         self._last_source = 'hold'
         self._last_error = ''
         self._nonzero_count = 0
+        self._rear_clearance_m = 0.0
+        self._scan_stamp = 0.0
+        self._boundary_violation_since = 0.0
+        self._boundary_recovery_until = 0.0
+        self._boundary_recovery_cooldown_until = 0.0
+        self._boundary_recovery_steer = 0.0
 
         self._cmd_pub = self.create_publisher(Twist, V4_RAW_TOPIC, 10)
         self._status_pub = self.create_publisher(String, STATUS_TOPIC, 10)
@@ -109,6 +147,9 @@ class MotionExecutor(Node):
         self.create_subscription(Bool, '/e_stop', self._estop_cb, 10)
         self.create_subscription(Odometry, '/odom', self._odom_cb, 10)
         self.create_subscription(Twist, '/cmd_vel_auto_raw', self._legacy_cb, 10)
+        self.create_subscription(
+            LaserScan, '/scan', self._scan_cb, qos_profile_sensor_data
+        )
 
         period = 1.0 / self._p['publish_hz']
         self.create_timer(period, self._control_loop)
@@ -129,18 +170,41 @@ class MotionExecutor(Node):
             raise ControlContractError('Stage 8 positive parameters must be finite and positive')
         if not 0.0 < self._p['minimum_speed_scale'] <= 1.0:
             raise ControlContractError('minimum_speed_scale must be in (0, 1]')
+        if (not math.isfinite(self._p['steering_slowdown_gain'])
+                or self._p['steering_slowdown_gain'] < 0.0):
+            raise ControlContractError('steering_slowdown_gain must be finite and non-negative')
+        if not 0.0 <= self._p['boundary_recovery_steering'] <= 1.0:
+            raise ControlContractError('boundary recovery steering must be in [0, 1]')
+        if not 0.0 < self._p['boundary_recovery_reverse_duty_percent'] <= 100.0:
+            raise ControlContractError('boundary recovery duty must be in (0, 100]')
+        for name in (
+            'boundary_recovery_confirm_sec', 'boundary_recovery_duration_sec',
+            'boundary_recovery_rear_clearance_m', 'scan_timeout_sec',
+        ):
+            if not math.isfinite(self._p[name]) or self._p[name] <= 0.0:
+                raise ControlContractError(f'{name} must be finite and positive')
+        if not math.isfinite(self._p['boundary_recovery_trigger_m']):
+            raise ControlContractError('boundary recovery trigger must be finite')
 
     def _on_parameters(self, parameters) -> SetParametersResult:
         safe = {
             'forward_speed_mps', 'path_forward_speed_mps',
             'path_reverse_speed_mps', 'minimum_speed_scale',
+            'steering_slowdown_gain', 'boundary_slowdown_margin_m',
             'hill_max_speed_mps',
         }
         protected = set(self._gate_names) | {
-            'enabled', 'allow_legacy_challenge_passthrough', 'publish_hz',
+            'enabled', 'track_test_mode', 'forward_motor_duty_percent', 'motor_duty_per_mps',
+            'enable_boundary_reverse_recovery',
+            'allow_legacy_challenge_passthrough', 'publish_hz',
             'proposal_timeout_sec', 'path_timeout_sec', 'path_max_age_sec',
             'odom_timeout_sec', 'state_timeout_sec', 'legacy_timeout_sec',
             'wheelbase_m', 'maximum_steer_deg', 'completion_distance_m',
+            'boundary_recovery_trigger_m', 'boundary_recovery_confirm_sec',
+            'boundary_recovery_duration_sec',
+            'boundary_recovery_reverse_duty_percent',
+            'boundary_recovery_steering',
+            'boundary_recovery_rear_clearance_m', 'scan_timeout_sec',
         }
         changes = {}
         for parameter in parameters:
@@ -214,11 +278,73 @@ class MotionExecutor(Node):
             self._legacy = msg
             self._legacy_stamp = time.monotonic()
 
+    def _scan_cb(self, msg: LaserScan) -> None:
+        rear = []
+        for index, range_m in enumerate(msg.ranges):
+            value = float(range_m)
+            if not math.isfinite(value) or value <= 0.0:
+                continue
+            angle = float(msg.angle_min) + index * float(msg.angle_increment)
+            if math.cos(angle) <= -0.80:
+                rear.append(value)
+        if rear:
+            self._rear_clearance_m = min(rear)
+            self._scan_stamp = time.monotonic()
+
+    def _boundary_recovery_command(
+        self, reference: Dict[str, object], now: float
+    ) -> Optional[Twist]:
+        """Return a short reverse correction only after confirmed line overlap."""
+        if not self._boundary_recovery_enabled:
+            return None
+        if now < self._boundary_recovery_until:
+            cmd = Twist()
+            cmd.linear.x = -self._p['boundary_recovery_reverse_duty_percent'] / self._duty_map
+            cmd.angular.z = self._boundary_recovery_steer
+            self._last_source = 'boundary_reverse_recovery'
+            self._last_reason = 'bounded reverse correction with rear LiDAR clearance'
+            return cmd
+        if self._boundary_recovery_until > 0.0:
+            self._boundary_recovery_until = 0.0
+            self._boundary_recovery_cooldown_until = now + 2.0
+        try:
+            clearance = float(reference['boundary_clearance_m'])
+            lateral_error = float(reference['lateral_error_m'])
+        except (KeyError, TypeError, ValueError):
+            self._boundary_violation_since = 0.0
+            return None
+        if (not math.isfinite(clearance) or not math.isfinite(lateral_error)
+                or clearance > self._p['boundary_recovery_trigger_m']
+                or now < self._boundary_recovery_cooldown_until):
+            self._boundary_violation_since = 0.0
+            return None
+        if self._boundary_violation_since <= 0.0:
+            self._boundary_violation_since = now
+            return None
+        if now - self._boundary_violation_since < self._p['boundary_recovery_confirm_sec']:
+            return None
+        scan_fresh = self._fresh(
+            self._scan_stamp, now, self._p['scan_timeout_sec']
+        )
+        if (not scan_fresh
+                or self._rear_clearance_m
+                < self._p['boundary_recovery_rear_clearance_m']):
+            return None
+        self._boundary_recovery_steer = -math.copysign(
+            self._p['boundary_recovery_steering'], lateral_error
+        )
+        self._boundary_recovery_until = (
+            now + self._p['boundary_recovery_duration_sec']
+        )
+        self._boundary_violation_since = 0.0
+        return self._boundary_recovery_command(reference, now)
+
     def _gate_blockers(self) -> list:
         blockers = []
         if not self._enabled:
             blockers.append('node disabled')
-        blockers.extend(name for name, value in self._gates.items() if not value)
+        if not self._track_test_mode:
+            blockers.extend(name for name, value in self._gates.items() if not value)
         return blockers
 
     def _stop(self, reason: str):
@@ -267,6 +393,8 @@ class MotionExecutor(Node):
         state = self._state
         if state in STOP_STATES:
             return self._stop(f'mission hold: {state or "UNKNOWN"}')
+        if self._track_test_mode and state != 'LANE_FOLLOW':
+            return self._stop('track test accepts lane following only')
         if state in LEGACY_CHALLENGE_STATES:
             if not self._allow_legacy:
                 return self._stop(f'legacy challenge passthrough disabled: {state}')
@@ -286,10 +414,16 @@ class MotionExecutor(Node):
             if state in V4_TRAJECTORY_STATES:
                 if source != 'trajectory' or action != 'follow_curvature':
                     return self._stop('trajectory state has incompatible proposal')
+                recovery = self._boundary_recovery_command(reference, now)
+                if recovery is not None:
+                    return recovery
                 decision = trajectory_command(
                     reference, self._p['wheelbase_m'],
                     math.radians(self._p['maximum_steer_deg']),
-                    self._p['forward_speed_mps'], self._p['minimum_speed_scale'],
+                    (self._motor_duty / self._duty_map if self._track_test_mode
+                    else self._p['forward_speed_mps']), self._p['minimum_speed_scale'],
+                    self._p['steering_slowdown_gain'],
+                    self._p['boundary_slowdown_margin_m'],
                 )
                 self._last_source, self._last_reason = decision.source, decision.reason
                 cmd = Twist()
@@ -321,6 +455,18 @@ class MotionExecutor(Node):
         payload = {
             'algorithm_stage': 8,
             'enabled': self._enabled,
+            'track_test_mode': self._track_test_mode,
+            'forward_motor_duty_percent': self._motor_duty if self._track_test_mode else None,
+            'minimum_turn_motor_duty_percent': (
+                self._motor_duty * self._p['minimum_speed_scale']
+                if self._track_test_mode else None
+            ),
+            'steering_slowdown_gain': self._p['steering_slowdown_gain'],
+            'boundary_reverse_recovery_enabled': self._boundary_recovery_enabled,
+            'rear_clearance_m': self._rear_clearance_m,
+            'boundary_recovery_active': (
+                time.monotonic() < self._boundary_recovery_until
+            ),
             'motion_authority': not self._gate_blockers(),
             'can_publish_motion': not self._gate_blockers(),
             'validation_gates': self._gates,

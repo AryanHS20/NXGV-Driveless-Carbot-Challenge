@@ -1,0 +1,69 @@
+{
+  "vehicle": "Risabot 5 (car 2)",
+  "profile": "primary",
+  "origin": "rear_axle_midpoint_on_ground",
+  "image_space": "raw_unrotated",
+  "image": "raw.png",
+  "image_sha256": "363a01f6dc80eb44deca0794cd8b25150a2745e537cbc56540b199cc85e64da9",
+  "camera_info": "camera_info.json",
+  "detections": "detection_recovery/detections.json",
+  "capture_provenance": "Post-realignment stationary R5 front capture, Astra serial17121320119, native320x240 color15Hz at 2026-09-22T10:23:40.003173+00:00; same-session CameraInfo/provenance.json. No inferred change of camera mode.",
+  "intrinsics_provenance": "R5 same-session driver-published CameraInfo K,D; factory-vs-FOV/default source unresolved. P is inconsistent with K; raw-image bev_core uses K,D, not P. No independent lens calibration claimed.",
+  "measurement_provenance": "../realignment_confirmed.json and ../sheet_alignment_confirmed.json: user confirmed axle/centreline alignment AFTER reported car movement and previously physically measured1000/800mm bars correct. PDF front board centre[0.620,0]m,yaw90,square50mm. Additional held-out printed centreline endpoint/arrow apex coordinates extracted from actual PDF; raw pixels manually observed, shared sheet scale/origin assumptions.",
+  "ordering_evidence": "Numbered original-pixel overlay visually inspected:0=far vehicle-left,5=far vehicle-right,23=near vehicle-right,18=near vehicle-left. User confirmed car pointing along sheet forward axis. Matches flip_cols for directed column yaw90.",
+  "corners_reviewed": true,
+  "board": {
+    "inner_corners": [
+      6,
+      4
+    ],
+    "square_m": 0.05,
+    "centre_m": [
+      0.62,
+      0.0
+    ],
+    "yaw_deg": 90.0,
+    "ordering": "flip_cols"
+  },
+  "validation": {
+    "raw_pixels": [
+      [
+        175.5,
+        185.0
+      ],
+      [
+        179.5,
+        212.0
+      ]
+    ],
+    "ground_m": [
+      [
+        0.4750000332302517,
+        0.0
+      ],
+      [
+        0.39799990980360245,
+        0.0
+      ]
+    ],
+    "source": "../sheet_reference_validation.json",
+    "kind": "held_out_printed_sheet_features_not_separate_ground_survey"
+  },
+  "target_resolution": [
+    320,
+    240
+  ],
+  "software_resize_only": false,
+  "resize_provenance": null,
+  "ground_bounds_m": {
+    "forward": [
+      0.05,
+      1.8
+    ],
+    "left": [
+      -0.9,
+      0.9
+    ]
+  },
+  "pixels_per_meter": 200.0
+}
