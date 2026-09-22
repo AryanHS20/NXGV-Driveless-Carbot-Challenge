@@ -90,6 +90,38 @@ class TrackTestPipelineTests(unittest.TestCase):
         self.assertLess(servo.target_motor_val, 65)
         self.assertLess(servo.target_servo_val, 80)
 
+    def test_risabot1_tunnel_handoff_and_hill_boost(self):
+        overrides = track_test_overrides('risabot1', minimum_turn_duty=40)
+        self.assertEqual(overrides['servo_controller']['servo_center'], 110)
+        self.assertEqual(overrides['servo_controller']['auto_motor_duty_limit'], 90.0)
+        self.assertEqual(overrides['cmd_safety_controller']['max_linear_speed'], 90 / 255)
+        merged = {name: {'ros__parameters': {
+            **ros_stub.PARAMS.get(name, {}).get('ros__parameters', {}), **values,
+        }} for name, values in overrides.items()}
+        with patch.dict(ros_stub.PARAMS, merged):
+            executor = MotionExecutor()
+            executor._state_cb(Message('LANE_FOLLOW'))
+            tunnel = Twist()
+            tunnel.linear.x = 55 / 255
+            tunnel.angular.z = -0.6
+            executor._tunnel_detected_cb(Message(True))
+            executor._tunnel_cmd_cb(tunnel)
+            selected = executor._select(100.0)
+            self.assertAlmostEqual(selected.linear.x * 255, 55)
+            self.assertAlmostEqual(selected.angular.z, -0.6)
+            self.assertEqual(executor._last_source, 'lidar_tunnel')
+            executor._tunnel_detected_cb(Message(False))
+            executor._proposal_cb(Message(json.dumps({
+                'source': 'trajectory', 'action': 'follow_curvature',
+                'reference': {'valid': True, 'command_steer_rad_diagnostic_only': 0.0},
+            })))
+            executor._imu_cb(Message(json.dumps({'pitch': 12.0})))
+            selected = executor._select(100.0)
+            self.assertAlmostEqual(selected.linear.x * 255, 90)
+            executor._imu_cb(Message(json.dumps({'pitch': 0.0})))
+            selected = executor._select(100.0)
+            self.assertAlmostEqual(selected.linear.x * 255, 65)
+
     def test_stale_camera_and_command_and_estop_still_stop(self):
         for fault in ('camera', 'command', 'estop'):
             node = CmdSafetyController()

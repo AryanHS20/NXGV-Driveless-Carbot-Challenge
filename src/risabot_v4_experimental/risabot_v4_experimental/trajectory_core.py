@@ -80,6 +80,10 @@ class TrajectoryConfig:
     expected_lane_width_m: float = 0.32
     centerline_filter_alpha: float = 0.60
     cross_track_gain: float = 1.10
+    max_cross_track_feedback_m: float = 0.0
+    near_center_guard_m: float = 0.0
+    near_heading_guard_rad: float = 0.0
+    near_curvature_guard_per_m: float = 0.0
     heading_gain: float = 0.85
     curvature_feedforward_gain: float = 0.90
     reliable_support_threshold: float = 0.75
@@ -127,6 +131,11 @@ class TrajectoryConfig:
             )
         if not math.isfinite(self.obstacle_margin_m) or self.obstacle_margin_m < 0.0:
             raise TrajectoryError('obstacle margin must be finite and non-negative')
+        for name in ('max_cross_track_feedback_m', 'near_center_guard_m',
+                     'near_heading_guard_rad', 'near_curvature_guard_per_m'):
+            value = getattr(self, name)
+            if not math.isfinite(value) or value < 0.0:
+                raise TrajectoryError(f'{name} must be finite and non-negative')
 
 
 def steering_reference_from_corridor(
@@ -205,16 +214,24 @@ def centerline_steering_command(
     heading_gain: float,
     curvature_feedforward_gain: float,
     expected_lane_width_m: float = 0.32,
+    max_cross_track_feedback_m: float = 0.0,
+    near_center_guard_m: float = 0.0,
+    near_heading_guard_rad: float = 0.0,
+    near_curvature_guard_per_m: float = 0.0,
 ) -> Tuple[float, dict]:
     """Return a Stanley-style steering angle with curvature feedforward."""
     if len(reference) < 2 or len(coefficients) != 3:
         raise TrajectoryError('centerline control needs a fitted reference')
     values = (lookahead_m, cross_track_gain, heading_gain,
-              curvature_feedforward_gain, expected_lane_width_m, *coefficients)
+              curvature_feedforward_gain, expected_lane_width_m,
+              max_cross_track_feedback_m, near_center_guard_m,
+              near_heading_guard_rad, near_curvature_guard_per_m, *coefficients)
     if not all(math.isfinite(float(value)) for value in values):
         raise TrajectoryError('centerline control values must be finite')
-    if lookahead_m <= 0.0 or expected_lane_width_m <= 0.0 or min(cross_track_gain, heading_gain,
-                                 curvature_feedforward_gain) < 0.0:
+    if lookahead_m <= 0.0 or expected_lane_width_m <= 0.0 or min(
+            cross_track_gain, heading_gain, curvature_feedforward_gain,
+            max_cross_track_feedback_m, near_center_guard_m,
+            near_heading_guard_rad, near_curvature_guard_per_m) < 0.0:
         raise TrajectoryError('centerline control gains are invalid')
     c0, c1, c2 = (float(value) for value in coefficients)
     minimum_x = min(point.x for point in reference)
@@ -232,6 +249,8 @@ def centerline_steering_command(
     feasible_cross_track = max(
         0.02, 0.5 * (expected_lane_width_m - padded_body_width)
     )
+    if max_cross_track_feedback_m > 0.0:
+        feasible_cross_track = max_cross_track_feedback_m
     control_lateral_error = max(
         -feasible_cross_track, min(feasible_cross_track, lateral_error)
     )
@@ -240,6 +259,14 @@ def centerline_steering_command(
                              max(0.12, evaluation_x))
     command = (curvature_feedforward_gain * feedforward
                + heading_gain * heading_error + cross_track)
+    near_center_guard = (
+        near_center_guard_m > 0.0
+        and abs(lateral_error) < near_center_guard_m
+        and abs(heading_error) < near_heading_guard_rad
+        and abs(curvature) < near_curvature_guard_per_m
+    )
+    if near_center_guard:
+        command = 0.0
     maximum_steer = math.atan(
         geometry.wheelbase_m / geometry.minimum_turn_radius_m
     )
@@ -252,6 +279,7 @@ def centerline_steering_command(
         'curvature_per_m': curvature,
         'feedforward_steer_rad': feedforward,
         'evaluation_forward_m': evaluation_x,
+        'near_center_guard_active': near_center_guard,
     }
     return command, diagnostics
 

@@ -171,6 +171,24 @@ class TrajectoryCoreTests(unittest.TestCase):
         _, filtered = smooth_centerline_reference(right, previous, alpha=0.25)
         self.assertGreater(filtered[0], 0.0)
 
+    def test_risabot1_feedback_corrects_large_offset_and_ignores_tiny_noise(self):
+        geometry = VehicleGeometry(footprint_padding_m=0.010)
+        reference = reference_from_corridor([(0.3, 0.12), (0.5, 0.12), (0.7, 0.12)])
+        command, diagnostic = centerline_steering_command(
+            reference, (0.12, 0.0, 0.0), geometry, 0.22,
+            1.4, 0.85, 0.9, 0.32, 0.14, 0.02, 0.05, 0.15,
+        )
+        self.assertGreater(command, 0.0)
+        self.assertAlmostEqual(diagnostic['control_lateral_error_m'], 0.12)
+        self.assertFalse(diagnostic['near_center_guard_active'])
+        reference = reference_from_corridor([(0.3, -0.015), (0.5, -0.015)])
+        command, diagnostic = centerline_steering_command(
+            reference, (-0.015, 0.0, 0.0), geometry, 0.22,
+            1.4, 0.85, 0.9, 0.32, 0.14, 0.02, 0.05, 0.15,
+        )
+        self.assertEqual(command, 0.0)
+        self.assertTrue(diagnostic['near_center_guard_active'])
+
     def test_blind_strip_intercept_does_not_force_early_turn(self):
         # Reconstructed from failed trial 20260922T161355Z: the polynomial
         # intercept was 28.7 cm left, while the visible lane at 41 cm was only

@@ -759,8 +759,10 @@ class AutoDriver(Node):
             elif (not self.motion_permitted or
                   now - self.permit_stamp > float(self._param_cache['stale_timeout'])):
                 target, reason = ChallengeState.EMERGENCY_STOP, 'WAITING FOR COMMAND PERMIT'
-            elif (not self.v4_lane_ready or self.v4_lane_stamp <= 0.0 or
-                  now - self.v4_lane_stamp > float(self._param_cache['stale_timeout'])):
+            elif (not (self.tunnel_detected and self.tunnel_last_time > 0.0 and
+                       now - self.tunnel_last_time < 0.4) and
+                  (not self.v4_lane_ready or self.v4_lane_stamp <= 0.0 or
+                   now - self.v4_lane_stamp > float(self._param_cache['stale_timeout']))):
                 target, reason = ChallengeState.LANE_RECOVERY, 'WAITING FOR V4 LANE'
             else:
                 target, reason = ChallengeState.LANE_FOLLOW, 'TRACK TEST'

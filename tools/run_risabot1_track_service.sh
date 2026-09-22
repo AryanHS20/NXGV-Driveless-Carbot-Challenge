@@ -25,7 +25,7 @@ exec ros2 launch risabot_v4_control track_test.launch.py \
   vehicle:=risabot1 \
   motor_duty:=65 \
   steering_gain:=2.8 \
-  minimum_turn_duty:=48 \
+  minimum_turn_duty:=40 \
   steering_slowdown_gain:=0.85 \
   enable_reverse_recovery:=false \
   profile_path:="$profile" \

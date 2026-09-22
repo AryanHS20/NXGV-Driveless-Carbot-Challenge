@@ -26,7 +26,8 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
             or steering_slowdown_gain < 0):
         raise ValueError('steering_slowdown_gain must be finite and nonnegative')
     duty_map = 255.0
-    request = motor_duty / duty_map
+    risabot1 = vehicle == 'risabot1'
+    hill_duty = max(90.0, motor_duty) if risabot1 else motor_duty
     wheelbase = 0.21
     max_steer_deg = 50.0
     return {
@@ -35,13 +36,13 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
         },
         'cmd_safety_controller': {
             'track_test_mode': True, 'autonomy_source': 'v4',
-            'require_signage': False, 'max_linear_speed': request,
+            'require_signage': False, 'max_linear_speed': hill_duty / duty_map,
             'max_angular_speed': 1.0, 'max_linear_accel': 0.8,
             'max_angular_accel': 8.0, 'deadband_angular': 0.0,
         },
         'servo_controller': {
             'servo_center': centers[vehicle], 'motor_duty_per_mps': duty_map,
-            'auto_motor_duty_limit': motor_duty, 'wheel_base': wheelbase,
+            'auto_motor_duty_limit': hill_duty, 'wheel_base': wheelbase,
             'steering_max_deg': max_steer_deg,
             # Manual reference laps use the full proportional stick range:
             # half stick is half duty, full stick is full duty.
@@ -74,7 +75,11 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
             'road_support_cost_weight': 100.0,
             'expected_lane_width_m': 0.32,
             'centerline_filter_alpha': 0.60,
-            'cross_track_gain': 1.10,
+            'cross_track_gain': 1.40 if risabot1 else 1.10,
+            'max_cross_track_feedback_m': 0.14 if risabot1 else 0.0,
+            'near_center_guard_m': 0.02 if risabot1 else 0.0,
+            'near_heading_guard_rad': 0.05 if risabot1 else 0.0,
+            'near_curvature_guard_per_m': 0.15 if risabot1 else 0.0,
             'heading_gain': 0.85,
             'curvature_feedforward_gain': 0.90,
             'reliable_support_threshold': 0.75,
@@ -101,5 +106,8 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
             'steering_slowdown_gain': steering_slowdown_gain,
             'boundary_slowdown_margin_m': 0.03,
             'enable_boundary_reverse_recovery': bool(enable_reverse_recovery),
+            'enable_tunnel_follow': risabot1,
+            'tunnel_motor_duty_percent': min(motor_duty, 55.0),
+            'hill_boost_motor_duty_percent': hill_duty,
         },
     }

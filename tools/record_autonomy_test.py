@@ -36,6 +36,7 @@ BAG_TOPICS = [
     '/v4_experimental/road/primary/fused',
     '/v4_experimental/road/status', '/v4_experimental/trajectory/status',
     '/v4_experimental/arbitration/status',
+    '/tunnel_detected', '/tunnel_cmd_vel', '/tunnel_debug',
 ]
 
 STATUS_TOPICS = (

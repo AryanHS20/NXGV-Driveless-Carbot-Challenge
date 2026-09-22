@@ -81,6 +81,16 @@ def _setup(context):
                 'isSingleChannel': False, 'invalid_range_is_inf': False, 'abnormal_check_count': 4,
             }],
         ))
+        if vehicle == 'risabot1':
+            actions.append(Node(
+                package='risabot_automode', executable='tunnel_wall_follower',
+                name='tunnel_wall_follower', output='screen',
+                parameters=[auto_params, {
+                    'tunnel_hysteresis_frames': 6,
+                    'forward_speed': min(float(arg('motor_duty')), 55.0) / 255.0,
+                    'lidar_angle_offset': 3.1416,
+                }],
+            ))
     for name, executable in (
         ('v4_bev_shadow', 'bev_shadow'), ('v4_road_mask_shadow', 'road_mask_shadow'),
         ('v4_pose_shadow', 'pose_shadow'), ('v4_trajectory_shadow', 'trajectory_shadow'),

@@ -55,6 +55,9 @@ class MotionExecutor(Node):
         self.declare_parameter('forward_motor_duty_percent', 65.0)
         self.declare_parameter('motor_duty_per_mps', 255.0)
         self.declare_parameter('enable_boundary_reverse_recovery', False)
+        self.declare_parameter('enable_tunnel_follow', False)
+        self.declare_parameter('tunnel_motor_duty_percent', 55.0)
+        self.declare_parameter('hill_boost_motor_duty_percent', 65.0)
         self._gate_names = (
             'command_contract_validated', 'stop_preemption_validated',
             'timeout_validated', 'operator_motion_authorized',
@@ -81,6 +84,9 @@ class MotionExecutor(Node):
             ('boundary_recovery_steering', 0.65),
             ('boundary_recovery_rear_clearance_m', 0.35),
             ('scan_timeout_sec', 0.35),
+            ('tunnel_timeout_sec', 0.35), ('imu_timeout_sec', 0.50),
+            ('hill_boost_start_pitch_deg', 5.0),
+            ('hill_boost_full_pitch_deg', 10.0),
         ):
             self.declare_parameter(name, value)
 
@@ -91,8 +97,13 @@ class MotionExecutor(Node):
         self._boundary_recovery_enabled = bool(
             self.get_parameter('enable_boundary_reverse_recovery').value
         )
+        self._tunnel_follow_enabled = bool(self.get_parameter('enable_tunnel_follow').value)
+        self._tunnel_duty = float(self.get_parameter('tunnel_motor_duty_percent').value)
+        self._hill_duty = float(self.get_parameter('hill_boost_motor_duty_percent').value)
         if (not math.isfinite(self._motor_duty) or not 0.0 < self._motor_duty <= 100.0
-                or not math.isfinite(self._duty_map) or self._duty_map <= 0.0):
+                or not math.isfinite(self._duty_map) or self._duty_map <= 0.0
+                or not self._motor_duty <= self._hill_duty <= 100.0
+                or not 0.0 < self._tunnel_duty <= self._hill_duty):
             raise ControlContractError('motor duty must be in (0, 100] and duty map positive')
         self._gates = {name: bool(self.get_parameter(name).value) for name in self._gate_names}
         self._allow_legacy = bool(self.get_parameter('allow_legacy_challenge_passthrough').value)
@@ -110,6 +121,8 @@ class MotionExecutor(Node):
             'boundary_recovery_reverse_duty_percent',
             'boundary_recovery_steering',
             'boundary_recovery_rear_clearance_m', 'scan_timeout_sec',
+            'tunnel_timeout_sec', 'imu_timeout_sec',
+            'hill_boost_start_pitch_deg', 'hill_boost_full_pitch_deg',
         )}
         self._validate_parameters()
         self.add_on_set_parameters_callback(self._on_parameters)
@@ -137,6 +150,12 @@ class MotionExecutor(Node):
         self._boundary_recovery_until = 0.0
         self._boundary_recovery_cooldown_until = 0.0
         self._boundary_recovery_steer = 0.0
+        self._tunnel_detected = False
+        self._tunnel_detected_stamp = 0.0
+        self._tunnel_cmd = Twist()
+        self._tunnel_cmd_stamp = 0.0
+        self._pitch_deg = 0.0
+        self._imu_stamp = 0.0
 
         self._cmd_pub = self.create_publisher(Twist, V4_RAW_TOPIC, 10)
         self._status_pub = self.create_publisher(String, STATUS_TOPIC, 10)
@@ -147,6 +166,9 @@ class MotionExecutor(Node):
         self.create_subscription(Bool, '/e_stop', self._estop_cb, 10)
         self.create_subscription(Odometry, '/odom', self._odom_cb, 10)
         self.create_subscription(Twist, '/cmd_vel_auto_raw', self._legacy_cb, 10)
+        self.create_subscription(Bool, '/tunnel_detected', self._tunnel_detected_cb, 10)
+        self.create_subscription(Twist, '/tunnel_cmd_vel', self._tunnel_cmd_cb, 10)
+        self.create_subscription(String, '/imu/rpy', self._imu_cb, 10)
         self.create_subscription(
             LaserScan, '/scan', self._scan_cb, qos_profile_sensor_data
         )
@@ -185,6 +207,8 @@ class MotionExecutor(Node):
                 raise ControlContractError(f'{name} must be finite and positive')
         if not math.isfinite(self._p['boundary_recovery_trigger_m']):
             raise ControlContractError('boundary recovery trigger must be finite')
+        if not 0.0 <= self._p['hill_boost_start_pitch_deg'] < self._p['hill_boost_full_pitch_deg']:
+            raise ControlContractError('hill pitch thresholds are invalid')
 
     def _on_parameters(self, parameters) -> SetParametersResult:
         safe = {
@@ -196,6 +220,10 @@ class MotionExecutor(Node):
         protected = set(self._gate_names) | {
             'enabled', 'track_test_mode', 'forward_motor_duty_percent', 'motor_duty_per_mps',
             'enable_boundary_reverse_recovery',
+            'enable_tunnel_follow', 'tunnel_motor_duty_percent',
+            'hill_boost_motor_duty_percent', 'tunnel_timeout_sec',
+            'imu_timeout_sec', 'hill_boost_start_pitch_deg',
+            'hill_boost_full_pitch_deg',
             'allow_legacy_challenge_passthrough', 'publish_hz',
             'proposal_timeout_sec', 'path_timeout_sec', 'path_max_age_sec',
             'odom_timeout_sec', 'state_timeout_sec', 'legacy_timeout_sec',
@@ -277,6 +305,24 @@ class MotionExecutor(Node):
         if all(math.isfinite(v) for v in (msg.linear.x, msg.angular.z)):
             self._legacy = msg
             self._legacy_stamp = time.monotonic()
+
+    def _tunnel_detected_cb(self, msg: Bool) -> None:
+        self._tunnel_detected = bool(msg.data)
+        self._tunnel_detected_stamp = time.monotonic()
+
+    def _tunnel_cmd_cb(self, msg: Twist) -> None:
+        if all(math.isfinite(v) for v in (msg.linear.x, msg.angular.z)):
+            self._tunnel_cmd = msg
+            self._tunnel_cmd_stamp = time.monotonic()
+
+    def _imu_cb(self, msg: String) -> None:
+        try:
+            pitch = float(json.loads(msg.data)['pitch'])
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError):
+            return
+        if math.isfinite(pitch):
+            self._pitch_deg = pitch
+            self._imu_stamp = time.monotonic()
 
     def _scan_cb(self, msg: LaserScan) -> None:
         rear = []
@@ -395,6 +441,17 @@ class MotionExecutor(Node):
             return self._stop(f'mission hold: {state or "UNKNOWN"}')
         if self._track_test_mode and state != 'LANE_FOLLOW':
             return self._stop('track test accepts lane following only')
+        if (self._track_test_mode and self._tunnel_follow_enabled and
+                self._tunnel_detected and
+                self._fresh(self._tunnel_detected_stamp, now, self._p['tunnel_timeout_sec'])):
+            if not self._fresh(self._tunnel_cmd_stamp, now, self._p['tunnel_timeout_sec']):
+                return self._stop('tunnel command is stale')
+            cmd = Twist()
+            cmd.linear.x = max(0.0, min(self._tunnel_duty / self._duty_map,
+                                        float(self._tunnel_cmd.linear.x)))
+            cmd.angular.z = max(-1.0, min(1.0, float(self._tunnel_cmd.angular.z)))
+            self._last_source, self._last_reason = 'lidar_tunnel', 'wall centerline'
+            return cmd
         if state in LEGACY_CHALLENGE_STATES:
             if not self._allow_legacy:
                 return self._stop(f'legacy challenge passthrough disabled: {state}')
@@ -428,6 +485,15 @@ class MotionExecutor(Node):
                 self._last_source, self._last_reason = decision.source, decision.reason
                 cmd = Twist()
                 speed = decision.speed
+                if (self._track_test_mode and
+                        self._fresh(self._imu_stamp, now, self._p['imu_timeout_sec']) and
+                        self._pitch_deg > self._p['hill_boost_start_pitch_deg']):
+                    ramp = min(1.0, (self._pitch_deg - self._p['hill_boost_start_pitch_deg']) /
+                               (self._p['hill_boost_full_pitch_deg'] -
+                                self._p['hill_boost_start_pitch_deg']))
+                    duty = self._motor_duty + ramp * (self._hill_duty - self._motor_duty)
+                    speed = max(speed, duty / self._duty_map)
+                    self._last_reason = f'uphill pitch {self._pitch_deg:.1f} deg'
                 if (state == 'HILL'
                         and self._fresh(self._legacy_stamp, now, self._p['legacy_timeout_sec'])
                         and self._legacy.linear.x > 0.0):
@@ -462,6 +528,11 @@ class MotionExecutor(Node):
                 if self._track_test_mode else None
             ),
             'steering_slowdown_gain': self._p['steering_slowdown_gain'],
+            'tunnel_follow_enabled': self._tunnel_follow_enabled,
+            'tunnel_detected': self._tunnel_detected,
+            'hill_boost_motor_duty_percent': self._hill_duty,
+            'pitch_deg': self._pitch_deg if self._fresh(
+                self._imu_stamp, time.monotonic(), self._p['imu_timeout_sec']) else None,
             'boundary_reverse_recovery_enabled': self._boundary_recovery_enabled,
             'rear_clearance_m': self._rear_clearance_m,
             'boundary_recovery_active': (
