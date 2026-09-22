@@ -1,0 +1,269 @@
+v4_shadow_monitor:
+  ros__parameters:
+    # Must be set true explicitly when launching the isolated monitor.
+    enabled: false
+
+    primary_camera_topic: /camera/color/image_raw
+    secondary_camera_topic: /camera/second/image_raw
+    scan_topic: /scan
+    odom_topic: /odom
+    uwb_topic: /v4_experimental/uwb/fix
+
+    camera_timeout_sec: 0.45
+    scan_timeout_sec: 0.50
+    odom_timeout_sec: 0.25
+    uwb_timeout_sec: 1.00
+
+    # The V4 simulator assumes three cameras. The first hardware adaptation is
+    # deliberately two-camera-only; calibration and coverage must be measured.
+    require_secondary_camera: true
+    require_uwb: false
+
+v4_bev_shadow:
+  ros__parameters:
+    # The separate Stage 1 launch also defaults this to false.
+    enabled: false
+    primary_camera_topic: /camera/color/image_raw
+    secondary_camera_topic: /camera/second/image_raw
+    process_secondary: true
+    max_hz: 5.0
+
+v4_road_mask_shadow:
+  ros__parameters:
+    enabled: false
+    process_secondary: true
+    # Keep false until thresholds are measured on recorded competition surface.
+    thresholds_validated: false
+    primary_bev_topic: /v4_experimental/bev/primary/image
+    primary_coverage_topic: /v4_experimental/bev/primary/coverage
+    secondary_bev_topic: /v4_experimental/bev/secondary/image
+    secondary_coverage_topic: /v4_experimental/bev/secondary/coverage
+    value_min: 0
+    value_max: 135
+    saturation_max: 255
+    morph_open_px: 3
+    morph_close_px: 7
+    min_component_px: 100
+    # The calibrated Astra cannot see the first ~0.4 m in front of the axle;
+    # reach the nearest visible centre-road component without inventing pixels.
+    seed_radius_m: 0.35
+    min_corridor_width_m: 0.12
+    max_corridor_width_m: 0.80
+    corridor_row_step_px: 8
+    sync_tolerance_sec: 0.10
+    odom_topic: /odom
+    odom_timeout_sec: 0.25
+    memory_cell_size_m: 0.025
+    memory_retention_sec: 25.0
+    memory_planning_age_sec: 2.0
+    memory_planning_distance_m: 0.50
+    memory_reset_jump_m: 0.50
+    memory_reset_yaw_rad: 1.0
+
+v4_pose_shadow:
+  ros__parameters:
+    enabled: false
+    odom_topic: /odom
+    uwb_topic: /v4_experimental/uwb/fix
+    odom_timeout_sec: 0.25
+    uwb_timeout_sec: 1.00
+    # Keep closed until the UWB and odometry axes are measured together.
+    uwb_frame_alignment_validated: false
+    uwb_frame_yaw_rad: 0.0
+    initial_offset_sigma_m: 0.75
+    process_sigma_m_per_s: 0.015
+    process_sigma_m_per_m: 0.04
+    default_uwb_sigma_m: 0.20
+    minimum_uwb_sigma_m: 0.03
+    maximum_uwb_sigma_m: 2.0
+    innovation_gate: 13.82
+    odom_reset_jump_m: 0.50
+    odom_reset_yaw_rad: 1.0
+
+v4_trajectory_shadow:
+  ros__parameters:
+    enabled: false
+    track_test_mode: false
+    enforce_road_support_in_track_test: false
+    require_lidar: true
+    road_status_topic: /v4_experimental/road/status
+    road_mask_topic: /v4_experimental/road/primary/fused
+    scan_topic: /scan
+    # Measured X5 road-mask gaps peak just below 1.0 s under the full lane stack.
+    road_timeout_sec: 1.10
+    scan_timeout_sec: 0.75
+    road_mask_sync_tolerance_sec: 0.02
+    # These three gates remain false until measured on the physical car.
+    vehicle_geometry_validated: false
+    minimum_turn_radius_validated: false
+    lidar_extrinsics_validated: false
+    vehicle_length_m: 0.300
+    vehicle_width_m: 0.192
+    wheelbase_m: 0.210
+    rear_overhang_m: 0.042
+    minimum_turn_radius_m: 0.400
+    footprint_padding_m: 0.005
+    lidar_x_m: 0.0
+    lidar_y_m: 0.0
+    lidar_yaw_rad: 3.141592653589793
+    minimum_scan_range_m: 0.03
+    maximum_scan_range_m: 2.0
+    horizon_m: 0.55
+    step_m: 0.01
+    lookahead_m: 0.095
+    rollout_speed_mps: 0.08
+    steering_lag_sec: 0.12
+    steering_rate_rad_sec: 3.141592653589793
+    footprint_sample_spacing_m: 0.02
+    minimum_road_support: 0.98
+    road_support_cost_weight: 40.0
+    expected_lane_width_m: 0.32
+    centerline_filter_alpha: 0.60
+    cross_track_gain: 1.10
+    heading_gain: 0.85
+    curvature_feedforward_gain: 0.90
+    reliable_support_threshold: 0.75
+    minimum_observed_centerline_fraction: 0.50
+    low_support_direction_hold_sec: 2.50
+    low_support_steer_decay_sec: 1.50
+    obstacle_margin_m: 0.015
+    # The Astra cannot observe the strip directly below the car. Continue only
+    # the first stable connected-corridor row back to the current footprint;
+    # never extrapolate when that row starts farther than this bound.
+    near_field_max_gap_m: 0.55
+    near_field_settle_m: 0.04
+
+v4_parking_shadow:
+  ros__parameters:
+    enabled: false
+    goal_topic: /v4_experimental/parking/goal
+    road_status_topic: /v4_experimental/road/status
+    parking_mask_topic: /v4_experimental/road/secondary/fused
+    scan_topic: /scan
+    required_goal_frame: base_link
+    goal_timeout_sec: 0.50
+    road_timeout_sec: 0.35
+    scan_timeout_sec: 0.50
+    sync_tolerance_sec: 0.10
+    maximum_plan_hz: 0.5
+    minimum_goal_confidence: 0.75
+    slot_clearance_m: 0.005
+
+    # Every physical gate remains closed until measured on the replica.
+    parking_goal_source_validated: false
+    slot_geometry_validated: false
+    rear_coverage_validated: false
+    vehicle_geometry_validated: false
+    minimum_turn_radius_validated: false
+    lidar_extrinsics_validated: false
+
+    vehicle_length_m: 0.300
+    vehicle_width_m: 0.192
+    wheelbase_m: 0.210
+    rear_overhang_m: 0.042
+    minimum_turn_radius_m: 0.400
+    footprint_padding_m: 0.005
+    lidar_x_m: 0.0
+    lidar_y_m: 0.0
+    lidar_yaw_rad: 3.141592653589793
+    minimum_scan_range_m: 0.03
+    maximum_scan_range_m: 2.0
+
+    sample_step_m: 0.006
+    footprint_sample_spacing_m: 0.02
+    minimum_road_support: 0.98
+    obstacle_margin_m: 0.015
+    maximum_gear_changes: 4
+    maximum_reverse_distance_m: 1.20
+
+v4_recovery_shadow:
+  ros__parameters:
+    enabled: false
+    request_topic: /v4_experimental/recovery/request
+    road_status_topic: /v4_experimental/road/status
+    trajectory_status_topic: /v4_experimental/trajectory/status
+    road_mask_topic: /v4_experimental/road/secondary/fused
+    rear_coverage_topic: /v4_experimental/bev/secondary/coverage
+    scan_topic: /scan
+    request_timeout_sec: 0.35
+    road_timeout_sec: 0.35
+    trajectory_timeout_sec: 0.35
+    scan_timeout_sec: 0.50
+    sync_tolerance_sec: 0.10
+    maximum_plan_hz: 0.5
+
+    # The planner remains inert until every physical and policy source is proven.
+    recovery_request_source_validated: false
+    hard_hold_source_validated: false
+    forward_status_source_validated: false
+    rear_coverage_validated: false
+    vehicle_geometry_validated: false
+    minimum_turn_radius_validated: false
+    lidar_extrinsics_validated: false
+    road_tolerance_validated: false
+
+    vehicle_length_m: 0.300
+    vehicle_width_m: 0.192
+    wheelbase_m: 0.210
+    rear_overhang_m: 0.042
+    minimum_turn_radius_m: 0.400
+    footprint_padding_m: 0.005
+    lidar_x_m: 0.0
+    lidar_y_m: 0.0
+    lidar_yaw_rad: 3.141592653589793
+    minimum_scan_range_m: 0.03
+    maximum_scan_range_m: 2.0
+
+    sample_step_m: 0.006
+    footprint_sample_spacing_m: 0.02
+    minimum_road_support: 0.98
+    obstacle_margin_m: 0.015
+    minimum_reverse_distance_m: 0.03
+    maximum_reverse_distance_m: 0.20
+    maximum_path_length_m: 1.60
+    minimum_rear_evidence_fraction: 0.55
+    road_tolerance_m: 0.05
+    first_goal_distance_m: 0.25
+    goal_spacing_m: 0.15
+    maximum_goal_count: 5
+    maximum_attempts: 3
+
+v4_parking_goal_source:
+  ros__parameters:
+    enabled: false
+    image_topic: /v4_experimental/bev/secondary/image
+    coverage_topic: /v4_experimental/bev/secondary/coverage
+    goal_topic: /v4_experimental/parking/goal
+    marking_thresholds_validated: false
+    slot_geometry_validated: false
+    rear_coverage_validated: false
+    sync_tolerance_sec: 0.10
+    parking_kind: parallel
+    preferred_yaw_rad: 0.0
+    value_min: 180
+    saturation_max: 90
+    morph_close_px: 9
+
+v4_recovery_request_source:
+  ros__parameters:
+    enabled: false
+    policy_source_validated: false
+    stopped_detection_validated: false
+    attempt_counter_validated: false
+    trajectory_topic: /v4_experimental/trajectory/status
+    road_topic: /v4_experimental/road/status
+    dashboard_topic: /dashboard_state
+    odom_topic: /odom
+    request_topic: /v4_experimental/recovery/request
+    input_timeout_sec: 0.35
+
+v4_arbitration_shadow:
+  ros__parameters:
+    enabled: false
+    lane_only: false
+    integration_reviewed: false
+    command_contract_validated: false
+    stop_preemption_validated: false
+    timeout_validated: false
+    physical_trials_validated: false
+    input_timeout_sec: 0.75

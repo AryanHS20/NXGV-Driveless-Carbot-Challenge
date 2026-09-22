@@ -10,7 +10,8 @@ from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
-from sensor_msgs.msg import Joy
+from sensor_msgs.msg import Joy, Image, LaserScan
+from .control_contract import valid_scan
 from std_msgs.msg import Bool, Float32, String
 
 from .topics import (
@@ -48,6 +49,8 @@ class HealthMonitor(Node):
         self.health_pub = self.create_publisher(String, HEALTH_STATUS_TOPIC, 10)
 
         self.auto_mode = False
+        self.scan_valid = False
+        self.signage_valid = False
         self.last_seen: Dict[str, float] = {}
         self.watch_timeouts: Dict[str, float] = {}
         self._refresh_timeouts()
@@ -67,6 +70,9 @@ class HealthMonitor(Node):
         self.create_subscription(Joy, JOY_TOPIC, lambda _: self._touch('joy'), sensor_qos)
         self.create_subscription(Twist, AUTO_CMD_VEL_TOPIC, lambda _: self._touch('cmd_vel_auto'), 10)
         self.create_subscription(String, CMD_SAFETY_STATUS_TOPIC, lambda _: self._touch('cmd_safety_status'), 10)
+        self.create_subscription(Image, '/camera/color/image_raw', lambda _: self._touch('camera_frame'), sensor_qos)
+        self.create_subscription(LaserScan, '/scan', self._scan_cb, sensor_qos)
+        self.create_subscription(Bool, '/signage_valid', self._signage_cb, 10)
 
         period = float(self.get_parameter('publish_period').value)
         self.create_timer(period, self._publish_health)
@@ -81,6 +87,11 @@ class HealthMonitor(Node):
         odom = float(self.get_parameter('timeout_odom').value)
         joy = float(self.get_parameter('timeout_joy').value)
         self.watch_timeouts = {
+            'camera_frame': perception,
+            'scan': perception,
+            'signage': perception,
+            'cmd_vel_auto': control,
+            'boom_gate': perception,
             'lane_error': perception,
             'obstacle_front': perception,
             'obstacle_camera': perception,
@@ -95,6 +106,14 @@ class HealthMonitor(Node):
     def _touch(self, key: str) -> None:
         """Mark a topic as freshly received."""
         self.last_seen[key] = time.monotonic()
+
+    def _scan_cb(self, msg):
+        self.scan_valid = valid_scan(msg)
+        self._touch('scan')
+
+    def _signage_cb(self, msg):
+        self.signage_valid = bool(msg.data)
+        self._touch('signage')
 
     def _auto_mode_cb(self, msg: Bool) -> None:
         """Track current auto mode and freshness of auto_mode stream."""
@@ -118,13 +137,18 @@ class HealthMonitor(Node):
                 required = key in ('odom', 'dashboard_state')
             else:
                 # In auto mode, active perception and control safety are required
-                required = key in ('lane_error', 'odom', 'dashboard_state', 'cmd_safety_status')
+                required = key in ('lane_error', 'odom', 'dashboard_state', 'cmd_safety_status',
+                                   'camera_frame', 'scan', 'signage', 'cmd_vel_auto', 'boom_gate')
 
             if age is None and required:
                 stale.append(key)
             elif age is not None and required and age > timeout:
                 stale.append(key)
 
+        if self.auto_mode and not self.scan_valid:
+            stale.append('scan_invalid')
+        if self.auto_mode and not self.signage_valid:
+            stale.append('signage_invalid')
         ok = len(stale) == 0
         summary = 'ok' if ok else ('stale:' + ','.join(stale))
         payload = {

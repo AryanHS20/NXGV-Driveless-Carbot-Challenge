@@ -3,7 +3,7 @@
 RISA-bot Bulk Setup & Configuration Utility
 =============================================================================
 Automates running setup_mdns.sh, setup_wifi.sh, and install_bashalias.sh
-across multiple robots simultaneously via SSH using paramiko (no password prompts).
+across multiple robots via SSH using paramiko (credentials are prompted once).
 
 Requirements:
   pip install paramiko
@@ -15,6 +15,7 @@ Usage:
 import sys
 import os
 import time
+import getpass
 
 # ANSI color codes
 GREEN  = "\033[92m"
@@ -192,9 +193,10 @@ def main():
         print("Password must be at least 8 characters. Exit.")
         return
 
-    # SSH password is hardcoded to 'sunrise' (default for all robots)
-    ssh_password = "sunrise"
-    print(f"{CYAN}SSH password is set to 'sunrise' for all robots.{RESET}")
+    ssh_password = getpass.getpass(f"{BOLD}Enter robot SSH Password: {RESET}")
+    if not ssh_password:
+        print("SSH password cannot be empty. Exit.")
+        return
 
     print(f"\n{BOLD}Enter robot IP addresses (separated by commas):{RESET}")
     print("Example: 192.168.68.57, 192.168.68.58, 192.168.68.61")
@@ -218,7 +220,7 @@ def main():
     print(f"\n{BOLD}{CYAN}Summary of Planned Operations:{RESET}")
     print(f"  WiFi SSID:     {ssid}")
     print(f"  WiFi Password: {'*' * len(wifi_password)}")
-    print(f"  SSH Password:  sunrise (hardcoded)")
+    print(f"  SSH Password:  {'*' * len(ssh_password)}")
     print(f"  Target Robots:")
     for idx, ip in enumerate(robot_ips):
         print(f"    - {ip} -> risabot{start_idx + idx}  (http://risabot{start_idx + idx}.local:8080)")

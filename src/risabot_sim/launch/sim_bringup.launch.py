@@ -12,6 +12,7 @@ def generate_launch_description():
     # We use the main params.yaml from risabot_automode.
     # Can merge with sim_params.yaml if needed later.
     params_file = os.path.join(risabot_pkg, 'config', 'params.yaml')
+    sim_params = os.path.join(sim_pkg, 'config', 'sim_params.yaml')
 
     return LaunchDescription([
         # 1. Sim Servo Bridge (replaces real servo controller, publishes /auto_mode and handles joy toggles)
@@ -38,7 +39,7 @@ def generate_launch_description():
             executable='obstacle_avoidance',
             name='obstacle_avoidance_node',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, sim_params]
         ),
 
         # 4. Camera obstacle detection
@@ -47,7 +48,7 @@ def generate_launch_description():
             executable='obstacle_avoidance_camera',
             name='obstacle_avoidance_camera',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, sim_params]
         ),
 
         # 5. Line follower camera (lane tracking)
@@ -56,7 +57,7 @@ def generate_launch_description():
             executable='line_follower_camera',
             name='line_follower_camera',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, sim_params]
         ),
 
         # 6. Tunnel wall follower
@@ -65,7 +66,7 @@ def generate_launch_description():
             executable='tunnel_wall_follower',
             name='tunnel_wall_follower',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, sim_params]
         ),
 
         # 7. Heading & Odometry Fusion (consumes JSON /imu/rpy + /odom)
@@ -74,7 +75,7 @@ def generate_launch_description():
             executable='heading_fusion',
             name='heading_fusion',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, sim_params]
         ),
 
         # 8. Dynamic VFH+ Obstruction Avoidance
@@ -83,7 +84,7 @@ def generate_launch_description():
             executable='obstruction_avoidance',
             name='obstruction_avoidance',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, sim_params]
         ),
 
         # 9. Closed-Loop Parking Controller
@@ -92,7 +93,7 @@ def generate_launch_description():
             executable='parking_controller',
             name='parking_controller',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, sim_params]
         ),
 
         # ==================== CONTROL ====================
@@ -103,7 +104,7 @@ def generate_launch_description():
             executable='auto_driver',
             name='auto_driver',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, sim_params]
         ),
 
         # 11. Command safety controller (emits final /cmd_vel that Gazebo Ackermann plugin consumes)
@@ -112,6 +113,6 @@ def generate_launch_description():
             executable='cmd_safety_controller',
             name='cmd_safety_controller',
             output='screen',
-            parameters=[params_file]
+            parameters=[params_file, sim_params]
         ),
     ])

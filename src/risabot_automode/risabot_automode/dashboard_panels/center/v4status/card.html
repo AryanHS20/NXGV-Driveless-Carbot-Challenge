@@ -1,0 +1,23 @@
+    <!-- V4 stage readiness. Status only; controls remain guarded in ROS. -->
+    <div class="card" data-pages="v4,calibration" data-panel="v4status" data-span="3">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;">
+        <h3 style="margin:0;">V4 Pipeline Readiness</h3>
+        <span id="v4Summary" class="v4-stage-state v4-waiting">WAITING FOR STATUS</span>
+      </div>
+      <div class="v4-stage-grid" id="v4StageGrid">
+        <div class="v4-stage" data-v4-stage="bev"><div class="v4-stage-name">1 · BEV</div><div class="v4-stage-state v4-waiting">WAITING</div><div class="v4-stage-detail">No status received</div></div>
+        <div class="v4-stage" data-v4-stage="road"><div class="v4-stage-name">2 · Road</div><div class="v4-stage-state v4-waiting">WAITING</div><div class="v4-stage-detail">No status received</div></div>
+        <div class="v4-stage" data-v4-stage="pose"><div class="v4-stage-name">3 · Pose</div><div class="v4-stage-state v4-waiting">WAITING</div><div class="v4-stage-detail">No status received</div></div>
+        <div class="v4-stage" data-v4-stage="uwb"><div class="v4-stage-name">3 · UWB</div><div class="v4-stage-state v4-waiting">WAITING</div><div class="v4-stage-detail">No status received</div></div>
+        <div class="v4-stage" data-v4-stage="trajectory"><div class="v4-stage-name">4 · Trajectory</div><div class="v4-stage-state v4-waiting">WAITING</div><div class="v4-stage-detail">No status received</div></div>
+        <div class="v4-stage" data-v4-stage="parking"><div class="v4-stage-name">5 · Parking</div><div class="v4-stage-state v4-waiting">WAITING</div><div class="v4-stage-detail">No status received</div></div>
+        <div class="v4-stage" data-v4-stage="recovery"><div class="v4-stage-name">6 · Recovery</div><div class="v4-stage-state v4-waiting">WAITING</div><div class="v4-stage-detail">No status received</div></div>
+        <div class="v4-stage" data-v4-stage="arbitration"><div class="v4-stage-name">7 · Arbitration</div><div class="v4-stage-state v4-waiting">WAITING</div><div class="v4-stage-detail">No status received</div></div>
+        <div class="v4-stage" data-v4-stage="control"><div class="v4-stage-name">8 · Motion</div><div class="v4-stage-state v4-waiting">WAITING</div><div class="v4-stage-detail">No status received</div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:12px;">
+        <span id="v4Blocker" style="font-size:.68em;color:var(--muted);">Start the V4 nodes to inspect their validation gates.</span>
+        <button class="param-refresh-btn" onclick="toggleParamDrawer()">Open parameters</button>
+      </div>
+    </div>
+  </div>

@@ -1,0 +1,6 @@
+{
+  "tools/calibrate_risabot5_camera.py": "87ef56d9d60be97d64593a43ab7170862930690635aafed34c078987229d8798",
+  "src/risabot_v4_experimental/config/risabot5_camera_profiles.yaml": "fe599255c1ebdb6c03e50f216f534db1a7e29e7795bad179d38d4fe771326a99",
+  "tests/test_risabot5_calibration.py": "3f99bab05d984c4fdaba9e24cc007d4c1d39ef687c12e5597c84d4f186becafb",
+  "RISABOT5_CALIBRATION.md": "5a5da7394b4090dbc4fbbb7f7706b828d71f568be914e436b7bad4e27e9ee9d4"
+}

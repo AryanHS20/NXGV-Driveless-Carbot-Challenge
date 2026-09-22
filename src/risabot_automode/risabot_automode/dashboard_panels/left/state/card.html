@@ -1,0 +1,34 @@
+  <!-- ===== LEFT COLUMN ===== -->
+  <div class="col">
+
+    <!-- State Machine -->
+    <div class="card" data-pages="drive" data-panel="state">
+      <h3 style="display:flex;align-items:center;justify-content:space-between;">State Machine <span class="mode-badge" id="modeBadge">MANUAL</span></h3>
+      <div style="margin-top:4px;">
+        <span class="state-badge" id="stateBadge">—</span>
+      </div>
+      <div style="margin-top:8px;">
+        <span class="lap-badge" id="lapBadge">Lap —</span>
+      </div>
+      <div class="info-row">
+        <span>⏱️ <span id="stateTime">0</span>s</span>
+        <span>📝 <span id="stateDist">0.00</span>m</span>
+        <span>⏱️ <span id="lapTimer" style="font-variant-numeric:tabular-nums;">00:00</span></span>
+      </div>
+      <div id="stopReasonRow" style="margin-top:6px;">
+        <span id="stopBadge" style="display:inline-block;padding:3px 10px;border-radius:4px;font-size:0.75em;font-weight:700;letter-spacing:0.5px;background:rgba(166,227,161,0.15);color:#a6e3a1;">DRIVING</span>
+      </div>
+
+      <!-- Reset & Lap Override Buttons -->
+      <div style="margin-top:14px; display:flex; gap:6px;">
+        <button class="state-action-btn reset" onclick="sendCompCmd('RESET')" style="flex:1; padding:6px 4px; border-radius:6px; border:1px solid rgba(223,142,29,0.3); font-size:0.7em; font-weight:700; cursor:pointer; background:rgba(223,142,29,0.08); color:var(--warning); font-family:inherit; text-transform:uppercase; letter-spacing:0.5px; transition:all 0.2s;">
+          Reset
+        </button>
+        <button class="state-action-btn lap1" onclick="sendCompCmd('LAP1')" style="flex:1; padding:6px 4px; border-radius:6px; border:1px solid rgba(30,102,245,0.3); font-size:0.7em; font-weight:700; cursor:pointer; background:rgba(30,102,245,0.08); color:var(--accent); font-family:inherit; text-transform:uppercase; letter-spacing:0.5px; transition:all 0.2s;">
+          Lap 1
+        </button>
+        <button class="state-action-btn lap2" onclick="sendCompCmd('LAP2')" style="flex:1; padding:6px 4px; border-radius:6px; border:1px solid rgba(66,165,245,0.3); font-size:0.7em; font-weight:700; cursor:pointer; background:rgba(66,165,245,0.08); color:#42a5f5; font-family:inherit; text-transform:uppercase; letter-spacing:0.5px; transition:all 0.2s;">
+          Lap 2
+        </button>
+      </div>
+    </div>

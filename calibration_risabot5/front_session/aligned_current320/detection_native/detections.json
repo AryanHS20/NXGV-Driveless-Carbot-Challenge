@@ -1,0 +1,29 @@
+{
+  "opencv": "4.12.0",
+  "numpy": "2.2.6",
+  "detector_sha256": "635b0abf8849372b7cac81cca2e8093e19a9fbf0e90cc22bb176d2501a0ed2c2",
+  "images": [
+    {
+      "image": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\NXGV-Driveless-Carbot-Challenge\\calibration_risabot5\\front_session\\aligned_current320\\raw.png",
+      "sha256": "363a01f6dc80eb44deca0794cd8b25150a2745e537cbc56540b199cc85e64da9",
+      "resolution": [
+        320,
+        240
+      ],
+      "roi_xywh": [
+        0,
+        0,
+        320,
+        240
+      ],
+      "processed_resolution": [
+        320,
+        240
+      ],
+      "found": false,
+      "method": "bundled detect_chessboard(fast=False): SB then classic",
+      "diagnostic_resampling": false,
+      "corners_raw_px": null
+    }
+  ]
+}

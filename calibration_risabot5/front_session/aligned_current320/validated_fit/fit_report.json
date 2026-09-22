@@ -1,0 +1,425 @@
+{
+  "created_utc": "2026-09-22T10:27:00.619308+00:00",
+  "opencv": "4.12.0",
+  "vehicle": "Risabot 5 (car 2)",
+  "calibrated": false,
+  "geometry_pass": true,
+  "maximum_error_threshold_m": 0.02,
+  "source_resolution": [
+    320,
+    240
+  ],
+  "target_resolution": [
+    320,
+    240
+  ],
+  "construction_indices": [
+    0,
+    5,
+    23,
+    18
+  ],
+  "held_out_indices": [
+    1,
+    2,
+    3,
+    4,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    19,
+    20,
+    21,
+    22
+  ],
+  "checks": {
+    "construction": {
+      "rms_m": 4.8784014685566325e-08,
+      "max_m": 8.632716043058462e-08,
+      "per_point_m": [
+        8.632716043058462e-08,
+        1.0928726310925422e-08,
+        1.86125708237604e-08,
+        4.001595776574264e-08
+      ],
+      "predicted_ground_m": [
+        [
+          0.6949999139091683,
+          0.12499999361663815
+        ],
+        [
+          0.6949999999151611,
+          -0.124999989071603
+        ],
+        [
+          0.5449999817932185,
+          -0.12499999613465355
+        ],
+        [
+          0.5450000395656792,
+          0.12499999401385781
+        ]
+      ]
+    },
+    "held_out_board": {
+      "rms_m": 0.0022295106074306133,
+      "max_m": 0.00485501909766506,
+      "per_point_m": [
+        0.00032765038983041135,
+        0.002520279007787573,
+        0.00485501909766506,
+        0.001338454292375969,
+        0.0019076729704653754,
+        0.004523599506920879,
+        0.0015704370278705273,
+        0.0018411054849453335,
+        0.0015319546509468876,
+        0.002236568500414966,
+        0.002915354990891288,
+        0.0007103091960121552,
+        0.001809792161615706,
+        0.0018617968983599246,
+        0.0011196763870894987,
+        0.002121914950661004,
+        0.001128054453495219,
+        0.0018042739555613329,
+        0.0016886678198357755,
+        0.00118495041344291
+      ],
+      "predicted_ground_m": [
+        [
+          0.6952922547303113,
+          0.07485187184411221
+        ],
+        [
+          0.6926779471777127,
+          0.025979733110393834
+        ],
+        [
+          0.6902231132684244,
+          -0.024132495768085654
+        ],
+        [
+          0.6961990463802396,
+          -0.07440523309539432
+        ],
+        [
+          0.6431218061076334,
+          0.1246659283536114
+        ],
+        [
+          0.6404826246566898,
+          0.0752372182679893
+        ],
+        [
+          0.6461977118511404,
+          0.02601575527571592
+        ],
+        [
+          0.6433938164903539,
+          -0.024100086704156122
+        ],
+        [
+          0.6435764741819207,
+          -0.07443390875486432
+        ],
+        [
+          0.6470335083398221,
+          -0.12593117264184603
+        ],
+        [
+          0.5920853797607517,
+          0.12493455090620095
+        ],
+        [
+          0.5944046438996382,
+          0.07538741485219526
+        ],
+        [
+          0.5936763626169764,
+          0.026234233262599996
+        ],
+        [
+          0.5963140614657526,
+          -0.023681087510497127
+        ],
+        [
+          0.5956962955160504,
+          -0.07412316035323793
+        ],
+        [
+          0.5928788651675644,
+          -0.12494246670123194
+        ],
+        [
+          0.5440380135114243,
+          0.07558914246651248
+        ],
+        [
+          0.5461820271936628,
+          0.026363164047412627
+        ],
+        [
+          0.5442922492987959,
+          -0.023466804659968542
+        ],
+        [
+          0.5450460029063701,
+          -0.07381594290047988
+        ]
+      ]
+    },
+    "independent_markers": {
+      "rms_m": 0.0055372156210041,
+      "max_m": 0.007508645448147562,
+      "per_point_m": [
+        0.002223006342995122,
+        0.007508645448147562
+      ],
+      "predicted_ground_m": [
+        [
+          0.47348194037200264,
+          0.001623930809711351
+        ],
+        [
+          0.40530150718972713,
+          0.0017511230901693705
+        ]
+      ]
+    }
+  },
+  "runtime_agreement_max_m": 3.1053262021383055e-07,
+  "homography_undistorted_to_ground": [
+    [
+      1.5558387651285078e-05,
+      -0.0018842994887682573,
+      -0.07045446473334918
+    ],
+    [
+      0.0008556126926654071,
+      -0.0001486238437330376,
+      -0.12409249322742918
+    ],
+    [
+      -4.565186041612323e-05,
+      -0.01011491899979693,
+      1.0
+    ]
+  ],
+  "inputs": {
+    "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\NXGV-Driveless-Carbot-Challenge\\calibration_risabot5\\front_session\\aligned_current320\\validated_session.json": "764fb1d840bd6fd83eadb80f49eecd7af61d9bda0dbe6869b1ba75eb402c6f7e",
+    "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\NXGV-Driveless-Carbot-Challenge\\calibration_risabot5\\front_session\\aligned_current320\\raw.png": "363a01f6dc80eb44deca0794cd8b25150a2745e537cbc56540b199cc85e64da9",
+    "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\NXGV-Driveless-Carbot-Challenge\\calibration_risabot5\\front_session\\aligned_current320\\camera_info.json": "a499f27f56975159292d9a95332aa341026580fe8274650cf2371e1221873839",
+    "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\NXGV-Driveless-Carbot-Challenge\\calibration_risabot5\\front_session\\aligned_current320\\detection_recovery\\detections.json": "797c0ab191fafceb2b25df13c967abede41024a0c2a7dbb10ac8ecdb80955cb6",
+    "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\NXGV-Driveless-Carbot-Challenge\\tools\\calibrate_risabot5_camera.py": "09f0caaf520309cd382823f0538d8f95669edda642c17ea27f323e737528dcd2"
+  },
+  "session": {
+    "vehicle": "Risabot 5 (car 2)",
+    "profile": "primary",
+    "origin": "rear_axle_midpoint_on_ground",
+    "image_space": "raw_unrotated",
+    "image": "raw.png",
+    "image_sha256": "363a01f6dc80eb44deca0794cd8b25150a2745e537cbc56540b199cc85e64da9",
+    "camera_info": "camera_info.json",
+    "detections": "detection_recovery/detections.json",
+    "capture_provenance": "Post-realignment stationary R5 front capture, Astra serial17121320119, native320x240 color15Hz at 2026-09-22T10:23:40.003173+00:00; same-session CameraInfo/provenance.json. No inferred change of camera mode.",
+    "intrinsics_provenance": "R5 same-session driver-published CameraInfo K,D; factory-vs-FOV/default source unresolved. P is inconsistent with K; raw-image bev_core uses K,D, not P. No independent lens calibration claimed.",
+    "measurement_provenance": "../realignment_confirmed.json and ../sheet_alignment_confirmed.json: user confirmed axle/centreline alignment AFTER reported car movement and previously physically measured1000/800mm bars correct. PDF front board centre[0.620,0]m,yaw90,square50mm. Additional held-out printed centreline endpoint/arrow apex coordinates extracted from actual PDF; raw pixels manually observed, shared sheet scale/origin assumptions.",
+    "ordering_evidence": "Numbered original-pixel overlay visually inspected:0=far vehicle-left,5=far vehicle-right,23=near vehicle-right,18=near vehicle-left. User confirmed car pointing along sheet forward axis. Matches flip_cols for directed column yaw90.",
+    "corners_reviewed": true,
+    "board": {
+      "inner_corners": [
+        6,
+        4
+      ],
+      "square_m": 0.05,
+      "centre_m": [
+        0.62,
+        0.0
+      ],
+      "yaw_deg": 90.0,
+      "ordering": "flip_cols"
+    },
+    "validation": {
+      "raw_pixels": [
+        [
+          175.5,
+          185.0
+        ],
+        [
+          179.5,
+          212.0
+        ]
+      ],
+      "ground_m": [
+        [
+          0.4750000332302517,
+          0.0
+        ],
+        [
+          0.39799990980360245,
+          0.0
+        ]
+      ],
+      "source": "../sheet_reference_validation.json",
+      "kind": "held_out_printed_sheet_features_not_separate_ground_survey"
+    },
+    "target_resolution": [
+      320,
+      240
+    ],
+    "software_resize_only": false,
+    "resize_provenance": null,
+    "ground_bounds_m": {
+      "forward": [
+        0.05,
+        1.8
+      ],
+      "left": [
+        -0.9,
+        0.9
+      ]
+    },
+    "pixels_per_meter": 200.0
+  },
+  "detection": {
+    "image": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\NXGV-Driveless-Carbot-Challenge\\calibration_risabot5\\front_session\\aligned_current320\\raw.png",
+    "sha256": "363a01f6dc80eb44deca0794cd8b25150a2745e537cbc56540b199cc85e64da9",
+    "resolution": [
+      320,
+      240
+    ],
+    "roi_xywh": [
+      5,
+      135,
+      315,
+      52
+    ],
+    "processed_resolution": [
+      315,
+      208
+    ],
+    "found": true,
+    "method": "bundled detect_chessboard(fast=False): SB then classic",
+    "diagnostic_resampling": true,
+    "corners_raw_px": [
+      [
+        97.65982818603516,
+        147.86246013641357
+      ],
+      [
+        127.06449890136719,
+        147.56392288208008
+      ],
+      [
+        155.4943084716797,
+        147.55643272399902
+      ],
+      [
+        184.78048706054688,
+        147.52661895751953
+      ],
+      [
+        213.42298889160156,
+        146.68363571166992
+      ],
+      [
+        242.5434112548828,
+        146.53100967407227
+      ],
+      [
+        90.5132064819336,
+        153.54628562927246
+      ],
+      [
+        122.57088470458984,
+        153.55380630493164
+      ],
+      [
+        154.80516052246094,
+        152.55510330200195
+      ],
+      [
+        187.07977294921875,
+        152.57509803771973
+      ],
+      [
+        219.3175048828125,
+        152.24009704589844
+      ],
+      [
+        251.4361572265625,
+        151.52138137817383
+      ],
+      [
+        81.24485778808594,
+        160.5711612701416
+      ],
+      [
+        117.98193359375,
+        159.83845329284668
+      ],
+      [
+        153.70799255371094,
+        159.5785427093506
+      ],
+      [
+        189.642578125,
+        158.8128261566162
+      ],
+      [
+        225.74937438964844,
+        158.5318088531494
+      ],
+      [
+        262.5188903808594,
+        158.5712432861328
+      ],
+      [
+        70.4870376586914,
+        168.83905410766602
+      ],
+      [
+        111.57569122314453,
+        168.56940460205078
+      ],
+      [
+        152.49624633789062,
+        167.69596481323242
+      ],
+      [
+        193.4600830078125,
+        167.60585021972656
+      ],
+      [
+        234.42697143554688,
+        167.00303649902344
+      ],
+      [
+        275.8262939453125,
+        166.5505084991455
+      ]
+    ],
+    "row_spacing_px_min_median_max": [
+      5.045952084919609,
+      9.064372747445312,
+      15.51630313466498
+    ],
+    "annotation": "00_raw_corners.png"
+  },
+  "remaining_review": [
+    "identity and intrinsic source",
+    "physical corner orientation",
+    "straight-line undistortion",
+    "useful-area coverage and extrapolation"
+  ]
+}

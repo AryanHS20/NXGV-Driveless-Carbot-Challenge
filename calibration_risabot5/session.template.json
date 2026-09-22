@@ -1,0 +1,31 @@
+{
+  "vehicle": "Risabot 5 (car 2)",
+  "profile": "primary",
+  "origin": "rear_axle_midpoint_on_ground",
+  "image_space": "raw_unrotated",
+  "image": "inputs/front.png",
+  "image_sha256": null,
+  "camera_info": "inputs/front_camera_info.yaml",
+  "detections": "session_detection/detections.json",
+  "capture_provenance": null,
+  "intrinsics_provenance": null,
+  "measurement_provenance": null,
+  "ordering_evidence": null,
+  "corners_reviewed": false,
+  "board": {
+    "inner_corners": [6, 4],
+    "square_m": null,
+    "centre_m": [null, null],
+    "yaw_deg": null,
+    "ordering": null
+  },
+  "validation": {
+    "raw_pixels": [],
+    "ground_m": []
+  },
+  "target_resolution": null,
+  "software_resize_only": false,
+  "resize_provenance": null,
+  "ground_bounds_m": {"forward": [0.05, 1.80], "left": [-0.90, 0.90]},
+  "pixels_per_meter": 200.0
+}

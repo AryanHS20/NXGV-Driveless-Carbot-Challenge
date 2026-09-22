@@ -1,0 +1,153 @@
+[
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\front_floor_sheet_20260921.png",
+    "snapshot": "inputs\\front_floor_sheet_20260921.png",
+    "sha256": "7b09b0b207807749c92b8baa2989afd16eb7d0e17cc2b0dfd5db3e2d0bf4a586"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\front_floor_sheet_640x480_20260921.png",
+    "snapshot": "inputs\\front_floor_sheet_640x480_20260921.png",
+    "sha256": "7c84fbc79434018cfd1d15644b655ae4c86239883ca1d43fe43894d9e3c9f577"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\front_floor_sheet_detected_640x480.png",
+    "snapshot": "inputs\\front_floor_sheet_detected_640x480.png",
+    "sha256": "086c11917f783132b1901e49b8e215f8a967d8a28289a50974acb73b3f29795a"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\front_floor_sheet_final_640x480.png",
+    "snapshot": "inputs\\front_floor_sheet_final_640x480.png",
+    "sha256": "fa4422cda785ba065f5684333cb5162b70ef258b9d8bb912c71f19711bcbf34c"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\front_floor_sheet_final_640x480_new.png",
+    "snapshot": "inputs\\front_floor_sheet_final_640x480_new.png",
+    "sha256": "fa4422cda785ba065f5684333cb5162b70ef258b9d8bb912c71f19711bcbf34c"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\front_floor_sheet_moved25_320x240.png",
+    "snapshot": "inputs\\front_floor_sheet_moved25_320x240.png",
+    "sha256": "c9f172700a92c4917c5a25c1050159fd42bc42afdfb5045badb15e8ac2514e22"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\front_floor_sheet_moved25_640x480.png",
+    "snapshot": "inputs\\front_floor_sheet_moved25_640x480.png",
+    "sha256": "51ff5dc8cb66858229b51624fe685c96146de58216b31635390e9427170fdbc2"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\r5_burst_0.png",
+    "snapshot": "inputs\\r5_burst_0.png",
+    "sha256": "b4464c84936b6527e3a5e126089830673a2d36229903408ce3592a18af55fd87"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\r5_burst_1.png",
+    "snapshot": "inputs\\r5_burst_1.png",
+    "sha256": "75e78d21542b13a6b065dae3562a460631071902fba5506a52e1f1126b17a22d"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\r5_burst_2.png",
+    "snapshot": "inputs\\r5_burst_2.png",
+    "sha256": "2573efd9fde18150cf81202a9a05a06e840f4c70316bc586694a580f8ba76390"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\r5_front_detected_640x480.png",
+    "snapshot": "inputs\\r5_front_detected_640x480.png",
+    "sha256": "5c8c8ca0729aa77553c4342efcc21dd5a584c9ca9b3327ad6dc23a9753cdb61b"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\r5_front_floor_640x480.png",
+    "snapshot": "inputs\\r5_front_floor_640x480.png",
+    "sha256": "9035bbea874ff38f4ce3667dd53b0c98c78ff41352d10182c0f3d031c9f3ce25"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\r5_front_floor_640x480_new.png",
+    "snapshot": "inputs\\r5_front_floor_640x480_new.png",
+    "sha256": "5ce8accd553ea7e861d75e79c7cf66f92b51741cab47589525316a9b5e83a45b"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\front_floor_sheet_fit_report.json",
+    "snapshot": "inputs\\front_floor_sheet_fit_report.json",
+    "sha256": "cb7bc897d1b9e8730e90c7b13ae9888b0ca8a3cb53e488e6213ddd3327fb0c9f"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\_tmp_fit_front_floor.py",
+    "snapshot": "inputs\\_tmp_fit_front_floor.py.txt",
+    "sha256": "ab6b9cb7d9071847565a85a9fae82a8a65b17cc08f867e7300cb8a67dfab7211"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\_tmp_capture_front_calib.sh",
+    "snapshot": "inputs\\_tmp_capture_front_calib.sh.txt",
+    "sha256": "58fa17bc5880b6bbf78f8d6ad562c2014f37b85ac15d6101c04ad7f561979509"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\_tmp_capture_front_calib_640.sh",
+    "snapshot": "inputs\\_tmp_capture_front_calib_640.sh.txt",
+    "sha256": "5eb05264cabb6cc8341059c0eb3332f93588198d992da7565863e2b0099fc7d5"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\_tmp_capture_calibration_frame.py",
+    "snapshot": "inputs\\_tmp_capture_calibration_frame.py.txt",
+    "sha256": "d50af6cc7eeba36f90d76224c36afd69bc27e9775e8458806e9fc6cf62e70b99"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\_tmp_capture_ros_topic.py",
+    "snapshot": "inputs\\_tmp_capture_ros_topic.py.txt",
+    "sha256": "80d6ccdb5dd4bcfb89fcabaf4dbc2df5768345039af49e7fe4caadb55088ea7a"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\_tmp_extract_camera_info.py",
+    "snapshot": "inputs\\_tmp_extract_camera_info.py.txt",
+    "sha256": "5edae932f83b42f2235392c1f785bcf03578e1461608f4b64f27b4827c67c470"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\test_cv.py",
+    "snapshot": "inputs\\test_cv.py.txt",
+    "sha256": "2ee773566135dbb606e386675a9198dfc73717e06e5791f28b1a5861e12cbc6e"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\test_cv2.py",
+    "snapshot": "inputs\\test_cv2.py.txt",
+    "sha256": "b70a436c1714b2bdc7fa584eb6ad278c690b5c3090a6d92f834ed8645fbe0341"
+  },
+  {
+    "source": "C:\\Users\\Aryan\\OneDrive\\Desktop\\Competition\\test_cv3.py",
+    "snapshot": "inputs\\test_cv3.py.txt",
+    "sha256": "7cb803ebc1c6f1184958900235003a0c0df33884e5e1ff7de5ebc9b274ac6117"
+  },
+  {
+    "source": "HANDOVER_CALIBRATION_2-4.md",
+    "sha256": "6436644c29a2240e9edd9fea36a38b01622d2c0ec2d26247eae54dbb058d1d3e"
+  },
+  {
+    "source": "TRACK_AUTONOMY_TODO.md",
+    "sha256": "d364251ef55080fdf096894b6cd79dbbc4be6a53b7cb87adbf686c8d6ae1d579"
+  },
+  {
+    "source": "src/risabot_v4_experimental/config/camera_profiles.yaml",
+    "sha256": "a1a7b687f7dfa4ed8b8e2bba5e6451bb1d5b7bc3231df34b9aca2c1f3dcb9da4"
+  },
+  {
+    "source": "src/risabot_v4_experimental/risabot_v4_experimental/bev_core.py",
+    "sha256": "adf9927bad0632479a05356ba4d2acd6c60cce171a2a5c9d57bf3b10a8f0676c"
+  },
+  {
+    "source": "carbot_calibration_2-4/src/carbot_perception/carbot_perception/calib_core.py",
+    "sha256": "635b0abf8849372b7cac81cca2e8093e19a9fbf0e90cc22bb176d2501a0ed2c2"
+  },
+  {
+    "source": "carbot_calibration_2-4/src/carbot_perception/carbot_perception/camera_model.py",
+    "sha256": "35ab52869fd3236bd6be4e96ad26a652b1e06638bb0d4bf3db57771febb2f94d"
+  },
+  {
+    "source": "carbot_calibration_2-4/src/carbot_perception/carbot_perception/calib_intrinsics.py",
+    "sha256": "ed6a36c9975d144dca4779d725d750941eceea9c44ff20df3bf9f7707ce43cfb"
+  },
+  {
+    "source": "carbot_calibration_2-4/src/carbot_bringup/config/data/calibration_steps.yaml",
+    "sha256": "42ef3ada88615be2fd8508827298f5b2aa0481d15277c64c2f3ceeab9837a914"
+  },
+  {
+    "source": "carbot_calibration_2-4/tools/calibration/make_boards.py",
+    "sha256": "b72a914131c3fa60ae6fbea385705dc8f391eda533377db52faca671cac867f5"
+  }
+]

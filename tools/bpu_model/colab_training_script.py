@@ -21,8 +21,12 @@
 from roboflow import Roboflow
 import os
 
-# Initialize Roboflow client.
-rf = Roboflow(api_key="wSO9oU6yFMszgFn0Aulv")
+# Initialize Roboflow client. Set this in the Colab environment or secret store;
+# never commit a project key to the repository.
+api_key = os.environ.get("ROBOFLOW_API_KEY")
+if not api_key:
+    raise RuntimeError("Set ROBOFLOW_API_KEY before downloading the dataset")
+rf = Roboflow(api_key=api_key)
 
 # Download project dataset in YOLOv5 format
 project = rf.workspace("shamsuls-workspace").project("risabot")

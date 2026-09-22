@@ -16,6 +16,7 @@ cmd_vel source for each challenge phase.
 """
 
 import json
+import math
 import time
 from enum import Enum
 from typing import Dict
@@ -29,6 +30,7 @@ from rclpy.qos import QoSPresetProfiles
 from std_msgs.msg import Bool, Float32, String
 
 from .loop_monitor import LoopMonitor
+from .mission_logic import reset_mission, select_command
 from .topics import (
     AUTO_CMD_VEL_RAW_TOPIC,
     AUTO_MODE_TOPIC,
@@ -43,6 +45,7 @@ from .topics import (
     OBSTACLE_CAMERA_TOPIC,
     OBSTACLE_FUSED_TOPIC,
     OBSTACLE_LIDAR_TOPIC,
+    OBSTACLE_SIGN_TOPIC,
     ODOM_TOPIC,
     OBSTRUCTION_ACTIVE_TOPIC,
     OBSTRUCTION_CMD_TOPIC,
@@ -108,6 +111,8 @@ class AutoDriver(Node):
         self.lidar_obstacle = False
         self.camera_obstacle = False
         self.obstacle_active = False
+        self.obstacle_sign_active = False
+        self.obstacle_sign_stamp = 0.0
         self.stop_reason = ''
         self.lane_error = 0.0
         self.lane_lost = False
@@ -129,11 +134,17 @@ class AutoDriver(Node):
         # Tunable parameters
         self.declare_parameter('forward_speed', 0.15)  # m/s maximum forward speed (straight)
         self.declare_parameter('stale_timeout', 3.0)   # seconds before treating module data as stale
+        self.declare_parameter('traffic_unresolved_hold_sec', 1.0)
         self.declare_parameter('max_odom_speed', 1.0)  # ignore odom speed spikes beyond this
         self.declare_parameter('min_state_dwell_sec', 0.25)
         self.declare_parameter('publish_loop_stats', True)
         self.declare_parameter('parking_idle_duration', 2.0)
         self.declare_parameter('current_lap', 1)
+        self.declare_parameter('parking_max_duration', 45.0)
+        self.declare_parameter('lane_control_mode', 'direct')
+        self.declare_parameter('lane_readiness_source', 'legacy')
+        self.declare_parameter('track_test_mode', False)
+        self._track_test_mode = bool(self.get_parameter('track_test_mode').value)
         self.declare_parameter('enable_subsumption_obstacle', True)  # fuse LiDAR + camera for obstacle
 
         # PID gains for steering angular.z
@@ -229,6 +240,9 @@ class AutoDriver(Node):
             Bool, OBSTACLE_CAMERA_TOPIC, self.camera_callback,
             QoSPresetProfiles.SENSOR_DATA.value
         )
+        self.create_subscription(
+            Bool, OBSTACLE_SIGN_TOPIC, self.obstacle_sign_callback, 10
+        )
         self.mode_sub = self.create_subscription(
             Bool, AUTO_MODE_TOPIC, self.mode_callback, 10
         )
@@ -239,6 +253,12 @@ class AutoDriver(Node):
         self.lane_lost_sub = self.create_subscription(
             Bool, LANE_LOST_TOPIC, self.lane_lost_callback,
             QoSPresetProfiles.SENSOR_DATA.value
+        )
+        self.v4_lane_ready = False
+        self.v4_lane_stamp = 0.0
+        self.create_subscription(
+            String, '/v4_experimental/trajectory/status',
+            self.v4_lane_status_callback, 10
         )
         self.pitch_sub = self.create_subscription(
             Float32, IMU_PITCH_TOPIC, self.pitch_callback,
@@ -311,6 +331,17 @@ class AutoDriver(Node):
 
         self.get_logger().info(f'State: {self.state.name}')
         self.create_timer(1.0, self._publish_loop_stats)
+        reset_mission(self)
+        self.lane_stamp = self.lane_lost_stamp = self.pitch_stamp = 0.0
+        self.obstruction_cmd_stamp = self.tunnel_cmd_stamp = 0.0
+        self.permit_stamp = 0.0
+        self.motion_permitted = False
+        self.route_pub = self.create_publisher(String, '/lane_route', 10)
+        self.create_subscription(Bool, '/motion_permitted', self._permit_cb, 10)
+        self.create_subscription(String, '/parking_sign_kind', self._parking_kind_cb, 10)
+        self.create_subscription(Bool, '/roundabout_detected', self._roundabout_cb, 10)
+        self.create_subscription(String, '/lane_route_confirmed', self._route_cb, 10)
+        self.create_subscription(Bool, '/traffic_warning_detected', self._warning_cb, 10)
 
 
 
@@ -319,6 +350,7 @@ class AutoDriver(Node):
         self._param_cache = {
             'forward_speed': float(self.get_parameter('forward_speed').value),
             'stale_timeout': float(self.get_parameter('stale_timeout').value),
+            'traffic_unresolved_hold_sec': float(self.get_parameter('traffic_unresolved_hold_sec').value),
             'dist_lap_complete': float(self.get_parameter('dist_lap_complete').value),
             'enable_subsumption_obstacle': bool(self.get_parameter('enable_subsumption_obstacle').value),
             'max_odom_speed': float(self.get_parameter('max_odom_speed').value),
@@ -326,6 +358,11 @@ class AutoDriver(Node):
             'publish_loop_stats': bool(self.get_parameter('publish_loop_stats').value),
             'parking_idle_duration': float(self.get_parameter('parking_idle_duration').value),
             'current_lap': int(self.get_parameter('current_lap').value),
+            'parking_max_duration': float(self.get_parameter('parking_max_duration').value),
+            'lane_control_mode': str(self.get_parameter('lane_control_mode').value),
+            'lane_readiness_source': str(
+                self.get_parameter('lane_readiness_source').value
+            ),
             # PID
             'pid_kp':            float(self.get_parameter('pid_kp').value),
             'pid_ki':            float(self.get_parameter('pid_ki').value),
@@ -355,6 +392,16 @@ class AutoDriver(Node):
     def _on_params(self, params) -> SetParametersResult:
         """Update cached parameters when set via CLI or services."""
         for p in params:
+            if p.name == 'track_test_mode':
+                return SetParametersResult(successful=False, reason='track_test_mode requires a node restart')
+            if isinstance(p.value, (float, int)) and not isinstance(p.value, bool):
+                if not math.isfinite(p.value) or p.value < 0:
+                    return SetParametersResult(successful=False, reason='Finite nonnegative values required')
+            if p.name == 'lane_control_mode' and p.value not in ('direct', 'legacy_pid'):
+                return SetParametersResult(successful=False, reason='Use direct or legacy_pid')
+            if p.name == 'lane_readiness_source' and p.value not in ('legacy', 'v4'):
+                return SetParametersResult(successful=False, reason='Use legacy or v4')
+        for p in params:
             if p.name in self._param_cache:
                 self._param_cache[p.name] = p.value
         return SetParametersResult(successful=True)
@@ -369,11 +416,41 @@ class AutoDriver(Node):
         self.camera_obstacle = msg.data
         self.update_combined_obstacle_state()
 
+    def obstacle_sign_callback(self, msg: Bool) -> None:
+        """Store the signage advisory separately from physical obstacle sensors."""
+        self.obstacle_sign_active = bool(msg.data)
+        self.obstacle_sign_stamp = time.monotonic()
+
     def lane_callback(self, msg: Float32) -> None:
+        if not math.isfinite(msg.data):
+            self.lane_stamp = 0.0
+            return
         self.lane_error = msg.data
+        self.lane_stamp = time.monotonic()
 
     def lane_lost_callback(self, msg: Bool) -> None:
         self.lane_lost = msg.data
+        self.lane_lost_stamp = time.monotonic()
+
+    def v4_lane_status_callback(self, msg: String) -> None:
+        """Accept lane readiness only from a current, fully valid V4 plan."""
+        self.v4_lane_ready = False
+        self.v4_lane_stamp = time.monotonic()
+        try:
+            payload = json.loads(msg.data)
+            selected = payload.get('selected_diagnostic_only')
+            blockers = payload.get('blockers', [])
+            self.v4_lane_ready = bool(
+                isinstance(payload, dict)
+                and payload.get('enabled') is True
+                and isinstance(selected, dict)
+                and selected.get('valid') is True
+                and isinstance(blockers, list)
+                and not blockers
+                and not payload.get('last_error')
+            )
+        except (AttributeError, json.JSONDecodeError, TypeError):
+            self.v4_lane_ready = False
 
     def _fused_heading_callback(self, msg: Float32) -> None:
         self.fused_heading_rad = msg.data
@@ -383,6 +460,28 @@ class AutoDriver(Node):
 
     def pitch_callback(self, msg: Float32) -> None:
         self.current_pitch = msg.data
+        self.pitch_stamp = time.monotonic()
+
+    def _permit_cb(self, msg):
+        self.motion_permitted = bool(msg.data)
+        self.permit_stamp = time.monotonic()
+
+    def _parking_kind_cb(self, msg):
+        self.parking_kind = msg.data if msg.data in ('parallel', 'perpendicular') else ''
+        self.parking_kind_stamp = time.monotonic()
+
+    def _roundabout_cb(self, msg):
+        self.roundabout_active = bool(msg.data)
+        self.roundabout_stamp = time.monotonic()
+
+    def _route_cb(self, msg):
+        self.route_confirmed = msg.data
+        self.route_stamp = time.monotonic()
+
+    def _warning_cb(self, msg):
+        # An advance warning is advisory, not evidence of a lamp or red light.
+        if msg.data:
+            self.light_expected = True
 
     def mode_callback(self, msg: Bool) -> None:
         """Store auto/manual mode flag."""
@@ -407,6 +506,7 @@ class AutoDriver(Node):
     def tunnel_cmd_callback(self, msg: Twist) -> None:
         """Store tunnel follower command."""
         self.tunnel_cmd = msg
+        self.tunnel_cmd_stamp = time.monotonic()
 
     def obstruction_active_callback(self, msg: Bool) -> None:
         """Store obstruction avoidance active flag with timestamp."""
@@ -416,6 +516,7 @@ class AutoDriver(Node):
     def obstruction_cmd_callback(self, msg: Twist) -> None:
         """Store obstruction avoidance command."""
         self.obstruction_cmd = msg
+        self.obstruction_cmd_stamp = time.monotonic()
 
     def parking_complete_callback(self, msg: Bool) -> None:
         """Latch parking completion."""
@@ -459,15 +560,18 @@ class AutoDriver(Node):
         try:
             payload = json.loads(msg.data)
             self.rp_state = payload.get('state', 'IDLE')
+            self.parking_result = payload.get('result', '')
+            self.parking_result_kind = payload.get('kind', '')
+            self.parking_result_stamp = time.monotonic()
         except Exception:
             pass
 
     def hill_sign_callback(self, msg: Bool) -> None:
         """Receive hill sign detection from signage_detector.
         
-        When the hill sign is detected, open a 'prime window' that:
-        - Lowers the effective pitch threshold (robot reacts earlier on the slope)
-        - Tells the dashboard that a hill is coming
+        When the hill sign is detected, open a 'prime window' that tells the
+        dashboard a hill is coming. (Threshold reduction is reserved for
+        future validation; today the window is a flag and notice only.)
         """
         self.hill_sign_detected = msg.data
         if msg.data:
@@ -511,6 +615,8 @@ class AutoDriver(Node):
     def reset_competition(self) -> None:
         """Reset the competition to the beginning of Lap 1."""
         self.get_logger().info('Resetting competition to Lap 1 Start')
+        self.rp_cmd_pub.publish(String(data='stop'))
+        reset_mission(self)
         self.current_lap = 1
         self._param_cache['current_lap'] = 1
         self.set_parameters([rclpy.Parameter('current_lap', rclpy.Parameter.Type.INTEGER, 1)])
@@ -535,6 +641,8 @@ class AutoDriver(Node):
         self.reset_competition()
 
     def set_lap_2(self) -> None:
+        self.rp_cmd_pub.publish(String(data='stop'))
+        reset_mission(self)
         self.get_logger().info('Setting competition to Lap 2 Start')
         self.current_lap = 2
         self._param_cache['current_lap'] = 2
@@ -606,8 +714,9 @@ class AutoDriver(Node):
         kd = self._param_cache['pid_kd']
         angular_z = kp * error + ki * self._pid_integral + kd * derivative
         # Heading feedforward from fused_heading (corrects drift on straights)
-        if abs(self.lane_curvature) < self._param_cache['straight_curvature_threshold']:
-            angular_z += self._param_cache['heading_gain'] * self.fused_heading_rad
+        # Absolute world heading is not lane-heading error. No heading bias.
+        if self._param_cache['lane_control_mode'] == 'direct':
+            angular_z = error
         # Hard clamp so we never command an impossible turn rate
         angular_z = max(-2.0, min(2.0, angular_z))
 
@@ -631,248 +740,47 @@ class AutoDriver(Node):
         return cmd
 
     def publish_cmd_vel(self) -> None:
-        """Main control loop: selects behavior and publishes cmd_vel."""
+        """Select a maneuver, enforce stop constraints, then publish once."""
         self.loop_monitor.tick()
-        self.current_lap = int(self._param_cache.get('current_lap', self.current_lap))
-        cmd = Twist()
-        self.stop_reason = ''
-        target_state = ChallengeState.LANE_FOLLOW
-
-        # Priority 1: Manual Mode Override
+        now = time.monotonic()
+        self.current_lap = int(self._param_cache['current_lap'])
         if not self.in_auto_mode:
-            if self.state != ChallengeState.MANUAL:
-                self.state_entry_time = time.monotonic()
-                self.state_entry_dist = self.distance
-            self.state = ChallengeState.MANUAL
-            self.stop_reason = 'MANUAL MODE'
-            self._publish_dash_state()
-            return
-
-        # Handle Stale Data Safety Fallbacks
-        if self._is_stale(self.obstruction_last_time):
-            self.obstruction_active = False
-        if self._is_stale(self.tunnel_last_time):
-            self.tunnel_detected = False
-        if self._is_stale(self.traffic_light_last_time):
-            self.traffic_light_state = 'unknown'
-        if self._is_stale(self.boom_gate_last_time):
-            self.boom_gate_open = True
-
-        # Lap Sequence Tracking (trigger Lap 2 immediately on green light from AI signage detector)
-        if self.current_lap == 1 and self._tl_armed and self.distance > 5.0:
-            if self.traffic_light_state == 'green':
-                self.get_logger().info('Green light detected -> starting Lap 2')
-                self.current_lap = 2
-                self._param_cache['current_lap'] = 2
-                self.set_parameters([rclpy.Parameter('current_lap', rclpy.Parameter.Type.INTEGER, 2)])
-                self.lap_1_complete = False
-                self._parking_parallel_sent = False
-                self._parking_perp_sent = False
-                self.parallel_done = False
-                self.perpendicular_done = False
-                self.parking_sequence_active = False
-                # Reset sequencing flags for Lap 2
-                self._boom_gate_armed = False
-                self._tl_armed = False
-                self._obs_cleared_dist = None
-                self._obs_was_active = False
-
-
-        # ── Obstruction edge detection (runs every tick) ──
-        if self.obstruction_active:
-            self._obs_was_active = True
-        elif self._obs_was_active:
-            # Falling edge: obstacle just cleared
-            self._obs_cleared_dist = self.distance
-            self._obs_was_active = False
-            self.get_logger().info('Obstruction cleared → roundabout countdown started')
-
-        # ── Update hill prime state ──
-        prime_sec = float(self._param_cache['hill_sign_prime_sec'])
-        if self._hill_primed and (time.monotonic() - self._hill_sign_last_time) > prime_sec:
-            self._hill_primed = False
-            self.get_logger().info('⛰ Hill prime window expired')
-
-        # Determine effective pitch threshold (lower when hill sign has been seen recently)
-        effective_threshold = float(self._param_cache['hill_pitch_threshold'])
-        if self._hill_primed:
-            reduction = float(self._param_cache['hill_sign_prime_threshold_reduction'])
-            effective_threshold = max(1.0, effective_threshold - reduction)
-
-        # Determine if we are on the hill (with hysteresis to prevent rapid flapping)
-        hysteresis = float(self._param_cache['hill_pitch_hysteresis'])
-        is_on_hill = False
-        if self.state == ChallengeState.HILL:
-            # Stay in HILL until pitch drops well below threshold
-            is_on_hill = (self.current_pitch >= (effective_threshold - hysteresis))
-        else:
-            # Enter HILL only when pitch clearly exceeds threshold
-            is_on_hill = (self.current_pitch >= effective_threshold)
-
-        # --- Priority Evaluation Engine (Sequenced) ---
-
-        # Priority 2: Hard Safety (E-Stop)
-        if self.cmd_safety_estop:
-            target_state = ChallengeState.EMERGENCY_STOP
-            self.stop_reason = 'E-STOP ACTIVE'
-
-        # Priority 3: Obstruction — Challenge 1 (reactive)
-        elif self.obstruction_active:
-            target_state = ChallengeState.OBSTRUCTION
-            cmd = self.obstruction_cmd
-
-        # Priority 3.5: Front obstacle backup (unchanged)
-        elif self.obstacle_active:
-            target_state = ChallengeState.REVERSE_ADJUST
-            self.stop_reason = 'TOO CLOSE TO OBSTACLE'
-            cmd.linear.x = -self._param_cache['forward_speed'] * 0.8
-            cmd.angular.z = 0.0
-
-        # Priority 4: Roundabout — Challenge 2 (distance-gated)
-        elif (self._obs_cleared_dist is not None
-              and not self._boom_gate_armed
-              and (self.distance - self._obs_cleared_dist) >= self._param_cache['dist_post_obstacle_clear']):
-            target_state = ChallengeState.ROUNDABOUT
-            cmd = self._lane_follow_cmd()  # Roundabout has painted lane lines
-            # Check exit: dwell distance expired
-            if self.state == ChallengeState.ROUNDABOUT:
-                dist_in_roundabout = self.distance - self.state_entry_dist
-                if dist_in_roundabout >= self._param_cache['dist_roundabout']:
-                    target_state = ChallengeState.LANE_FOLLOW
-                    cmd = self._lane_follow_cmd()
-                    self._boom_gate_armed = True
-                    self._obs_cleared_dist = None  # prevent re-entry
-                    self.get_logger().info('Roundabout complete → boom gate armed')
-
-        # Priority 5: Parking — Lap 2 only, triggered by parking sign detection
-        # _parking_done latches True after first playback to prevent immediate re-trigger.
-        # Call reset_competition() to allow a new parking sequence.
-        elif self.current_lap == 2 and not self._parking_done and (self.parking_sequence_active or self.signboard_detected):
-            self.parking_sequence_active = True
-            if self.state not in (ChallengeState.PARKING_IDLE, ChallengeState.PARKING_PLAYBACK):
-                target_state = ChallengeState.PARKING_IDLE
-                cmd = Twist()  # stop
-            elif self.state == ChallengeState.PARKING_IDLE:
-                target_state = ChallengeState.PARKING_IDLE
-                cmd = Twist()  # stop
-                # Check if we should transition to playback
-                idle_dur = float(self._param_cache.get('parking_idle_duration', 2.0))
-                if (time.monotonic() - self.state_entry_time) >= idle_dur:
-                    # Trigger playback in servo_controller
-                    self.get_logger().info('Parking idle complete. Triggering preset playback!')
-                    rp_cmd = String()
-                    rp_cmd.data = 'playback'
-                    self.rp_cmd_pub.publish(rp_cmd)
-                    target_state = ChallengeState.PARKING_PLAYBACK
-            else:  # ChallengeState.PARKING_PLAYBACK
-                target_state = ChallengeState.PARKING_PLAYBACK
-                cmd = Twist()  # keep commanding 0 so servo_controller can override with playback values
-                # Check if playback is finished
-                dwell = time.monotonic() - self.state_entry_time
-                if dwell > 0.5 and self.rp_state == 'IDLE':
-                    self.get_logger().info('Parking playback complete — resuming lane follow')
-                    self._parking_done = True       # prevent re-trigger until manual reset
-                    self.parking_sequence_active = False
-                    self.signboard_detected = False  # clear stale flag
-                    target_state = ChallengeState.LANE_FOLLOW
-
-        # Priority 6: Tunnel — Challenge 3 (reactive)
-        elif self.tunnel_detected:
-            target_state = ChallengeState.TUNNEL
-            cmd = self.tunnel_cmd
-
-        # Priority 7: Boom Gate — Challenge 4 (GATED: only after roundabout)
-        # TODO: Enable when boom gate is on the test field
-        elif not self.boom_gate_open and self._boom_gate_armed:
-            target_state = ChallengeState.BOOM_GATE
-            self.stop_reason = 'BOOM GATE CLOSED'
-
-        # Priority 8: Traffic Light — Challenge 5 (GATED: only after tunnel)
-        # TODO: Enable when traffic light is on the test field
-        elif self.traffic_light_state in ('red', 'yellow') and self._tl_armed:
-            target_state = ChallengeState.TRAFFIC_LIGHT
-            self.stop_reason = f'TRAFFIC LIGHT {self.traffic_light_state.upper()}'
-
-        # Priority 8.2: Hill Climb — adaptive speed proportional to pitch
-        elif is_on_hill:
-            target_state = ChallengeState.HILL
-            # Adaptive speed: base speed + bonus per extra degree of pitch
-            # This ensures the robot pushes harder as the slope gets steeper
-            pitch_above_thresh = max(0.0, self.current_pitch - float(self._param_cache['hill_pitch_threshold']))
-            hill_speed = (float(self._param_cache['hill_base_speed'])
-                          + float(self._param_cache['hill_speed_per_degree']) * pitch_above_thresh)
-            hill_speed = min(hill_speed, float(self._param_cache['hill_max_speed']))
-            cmd.linear.x = hill_speed
-            self.stop_reason = f'HILL ({self.current_pitch:.1f}° → {hill_speed:.3f}m/s{" PRIMED" if self._hill_primed else ""})'
-            # Keep lane-follow steering scaled down (robot needs to stay straight on the hill)
-            steer_scale = float(self._param_cache['hill_steer_scale'])
-            if steer_scale > 0.0:
-                lf_cmd = self._lane_follow_cmd()
-                cmd.angular.z = lf_cmd.angular.z * steer_scale
+            target, cmd, reason = ChallengeState.MANUAL, Twist(), 'MANUAL MODE'
+            if self.parking_requested:
+                self.rp_cmd_pub.publish(String(data='stop'))
+                self.mission_fault = 'Parking interrupted by manual mode'
+        elif self._track_test_mode:
+            # Lane-only test: publish mission state for V4 without waiting on
+            # signage, tunnel, gate or parking nodes that are not launched.
+            # V4 Stage 8 remains the sole selected command source.
+            cmd = Twist()
+            if self.cmd_safety_estop:
+                target, reason = ChallengeState.EMERGENCY_STOP, 'E-STOP ACTIVE'
+            elif (not self.motion_permitted or
+                  now - self.permit_stamp > float(self._param_cache['stale_timeout'])):
+                target, reason = ChallengeState.EMERGENCY_STOP, 'WAITING FOR COMMAND PERMIT'
+            elif (not (self.tunnel_detected and self.tunnel_last_time > 0.0 and
+                       now - self.tunnel_last_time < 0.4) and
+                  (not self.v4_lane_ready or self.v4_lane_stamp <= 0.0 or
+                   now - self.v4_lane_stamp > float(self._param_cache['stale_timeout']))):
+                target, reason = ChallengeState.LANE_RECOVERY, 'WAITING FOR V4 LANE'
             else:
-                cmd.angular.z = 0.0
-            # On exit (pitch drops back): log it
-            if self.state == ChallengeState.HILL and not is_on_hill:
-                self.get_logger().info(f'⛰ Hill climb complete — pitch back to {self.current_pitch:.1f}°')
-
-        # Priority 8.5: Lane recovery (lost lane)
-        # Stop in place instead of reversing — safer for testing.
-        # Re-enable reverse by uncommenting the two lines below.
-        elif self.lane_lost:
-            target_state = ChallengeState.LANE_RECOVERY
-            self.stop_reason = 'LANE LOST - STOPPED'
-            cmd.linear.x = 0.0
-            cmd.angular.z = 0.0
-
-        # Priority 9: Default — Lane Follow
+                target, reason = ChallengeState.LANE_FOLLOW, 'TRACK TEST'
         else:
-            target_state = ChallengeState.LANE_FOLLOW
-            cmd = self._lane_follow_cmd()
-
-        # ── Arm traffic light on tunnel exit (edge detect) ──
-        if self.state == ChallengeState.TUNNEL and target_state != ChallengeState.TUNNEL:
-            self._tl_armed = True
-            self.get_logger().info('Tunnel exited → traffic light armed')
-
-        # Update and publish
-        if self.state != target_state:
-            now = time.monotonic()
-            dwell = now - self.state_entry_time
-            min_dwell = float(self._param_cache['min_state_dwell_sec'])
-            immediate_states = {
-                ChallengeState.MANUAL,
-                ChallengeState.FINISHED,
-                ChallengeState.TRAFFIC_LIGHT,
-                ChallengeState.BOOM_GATE,
-                ChallengeState.REVERSE_ADJUST,
-                ChallengeState.EMERGENCY_STOP,
-                ChallengeState.HILL,
-                ChallengeState.PARKING_IDLE,
-                ChallengeState.PARKING_PLAYBACK,
-                ChallengeState.OBSTRUCTION,
-            }
-            allow_switch = (
-                target_state in immediate_states
-                or self.state in immediate_states
-                or dwell >= min_dwell
-            )
-            if allow_switch:
-                self.get_logger().info(f'Behavior switch: {self.state.name} -> {target_state.name}')
-                if target_state == ChallengeState.LANE_FOLLOW:
-                    self._pid_integral = 0.0
-                self.state = target_state
-                self.state_entry_time = now
-                self.state_entry_dist = self.distance
-            else:
-                target_state = self.state
-                cmd = self.last_cmd
-
-        self.cmd_vel_pub.publish(cmd)
+            target, cmd, reason = select_command(self, now)
+        if target != self.state:
+            self._pid_integral = 0.0
+            self._pid_prev_error = self.lane_error
+            self._pid_last_time = now
+            self.state_entry_time = now
+            self.state_entry_dist = self.distance
+        self.state = target
+        self.stop_reason = reason
+        if cmd.linear.x == 0.0:
+            self._prev_angular_z = 0.0
         self.last_cmd = cmd
+        self.cmd_vel_pub.publish(cmd)
         self._publish_dash_state()
-
-        # Debug
-        self.get_logger().debug(f"Lap{self.current_lap} | {self.state.name} | err: {self.lane_error:.2f} | obs: {self.obstruction_active}")
 
     def update_combined_obstacle_state(self) -> None:
         """Fuse LiDAR and camera obstacle flags with optional subsumption."""

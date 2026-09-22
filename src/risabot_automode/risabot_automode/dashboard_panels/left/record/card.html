@@ -1,0 +1,41 @@
+    <!-- Record & Playback -->
+    <div class="card" data-pages="runs" data-panel="record">
+      <h3 style="display:flex;align-items:center;justify-content:space-between;">🎬 Record &amp; Playback <span class="rp-state-badge idle" id="rpStateBadge">IDLE</span></h3>
+      
+      <!-- Control Buttons -->
+      <div class="rp-buttons" style="display:flex; gap:8px; margin-top:10px;">
+        <button class="rp-btn record" id="rpBtnRecord" onclick="rpCmd('record')" style="flex:1; padding:8px 4px; border-radius:8px; border:1px solid rgba(255,82,82,0.3); font-size:0.8em; font-weight:700; cursor:pointer; background:rgba(255,82,82,0.1); color:#d20f39; display:flex; flex-direction:column; align-items:center; gap:4px; font-family:inherit;">
+          <span class="icon">🔴</span>
+          <span class="label" style="font-size:0.7em; letter-spacing:0.5px; text-transform:uppercase;">Record</span>
+        </button>
+        <button class="rp-btn stop" id="rpBtnStop" onclick="rpCmd('stop')" style="flex:1; padding:8px 4px; border-radius:8px; border:1px solid rgba(255,215,64,0.3); font-size:0.8em; font-weight:700; cursor:pointer; background:rgba(255,215,64,0.1); color:#df8e1d; display:flex; flex-direction:column; align-items:center; gap:4px; font-family:inherit;">
+          <span class="icon">⏹</span>
+          <span class="label" style="font-size:0.7em; letter-spacing:0.5px; text-transform:uppercase;">Stop</span>
+        </button>
+        <button class="rp-btn play" id="rpBtnPlay" onclick="rpCmd('playback')" style="flex:1; padding:8px 4px; border-radius:8px; border:1px solid rgba(105,240,174,0.3); font-size:0.8em; font-weight:700; cursor:pointer; background:rgba(105,240,174,0.1); color:#40a02b; display:flex; flex-direction:column; align-items:center; gap:4px; font-family:inherit;">
+          <span class="icon">▶</span>
+          <span class="label" style="font-size:0.7em; letter-spacing:0.5px; text-transform:uppercase;">Play</span>
+        </button>
+        <button class="rp-btn save" id="rpBtnSave" onclick="rpCmd('save')" style="flex:1; padding:8px 4px; border-radius:8px; border:1px solid rgba(30,144,255,0.3); font-size:0.8em; font-weight:700; cursor:pointer; background:rgba(30,144,255,0.1); color:#1e90ff; display:flex; flex-direction:column; align-items:center; gap:4px; font-family:inherit;">
+          <span class="icon">💾</span>
+          <span class="label" style="font-size:0.7em; letter-spacing:0.5px; text-transform:uppercase;">Save</span>
+        </button>
+      </div>
+
+      <!-- Progress Bar (visible during playback) -->
+      <div class="progress-track" id="rpProgress" style="display:none; height:6px; background:var(--surface2); border-radius:3px; overflow:hidden; margin-top:10px; margin-bottom:10px;">
+        <div class="progress-fill" id="rpProgressFill" style="width:0%; height:100%; border-radius:3px; background:linear-gradient(90deg, var(--accent), #40a02b); transition:width 0.15s ease;"></div>
+      </div>
+
+      <!-- Buffer / Progress Info -->
+      <div class="rp-info" style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px;">
+        <div class="rp-info-item" style="background:var(--surface2); border-radius:8px; padding:8px; text-align:center;">
+          <div class="value" id="rpBufferSize" style="font-family:'JetBrains Mono',monospace; font-size:1.4em; font-weight:800; color:var(--accent); line-height:1.2;">0</div>
+          <div class="label" style="font-size:0.65em; color:#666; text-transform:uppercase; letter-spacing:1px; margin-top:2px;">Samples</div>
+        </div>
+        <div class="rp-info-item" style="background:var(--surface2); border-radius:8px; padding:8px; text-align:center;">
+          <div class="value" id="rpDuration" style="font-family:'JetBrains Mono',monospace; font-size:1.4em; font-weight:800; color:var(--accent); line-height:1.2;">0.0</div>
+          <div class="label" style="font-size:0.65em; color:#666; text-transform:uppercase; letter-spacing:1px; margin-top:2px;">Duration (s)</div>
+        </div>
+      </div>
+    </div>

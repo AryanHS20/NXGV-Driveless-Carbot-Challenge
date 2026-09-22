@@ -24,6 +24,8 @@ is no last-publisher-wins race between the two nodes.
 """
 
 import math
+import time
+from .control_contract import fresh, valid_scan
 from typing import Dict, List, Tuple
 
 import numpy as np
@@ -89,6 +91,7 @@ class TunnelWallFollower(Node):
         self.last_cmd = Twist()
         self.last_in_tunnel = False
         self.last_centerline = []
+        self.scan_stamp = 0.0
 
         # Hysteresis counters
         self._tunnel_on_count = 0
@@ -133,6 +136,9 @@ class TunnelWallFollower(Node):
         return SetParametersResult(successful=True)
 
     def _heartbeat_publish(self) -> None:
+        if not fresh(self.scan_stamp, time.monotonic(), 0.5):
+            self.last_cmd = Twist()
+            self.last_in_tunnel = False
         self.in_tunnel_pub.publish(Bool(data=self.last_in_tunnel))
         self.cmd_vel_pub.publish(self.last_cmd)
 
@@ -185,6 +191,11 @@ class TunnelWallFollower(Node):
 
     def scan_callback(self, msg: LaserScan) -> None:
         """Process each LiDAR scan: classify walls, compute centerline, PD control."""
+        self.scan_stamp = time.monotonic()
+        if not valid_scan(msg):
+            self.scan_stamp = 0.0
+            self._heartbeat_publish()
+            return
         offset = self._param_cache['lidar_angle_offset']
         l_min = self._param_cache['left_angle_min']
         l_max = self._param_cache['left_angle_max']
@@ -208,6 +219,8 @@ class TunnelWallFollower(Node):
 
             x = r * math.cos(angle)
             y = r * math.sin(angle)
+            if x <= 0.02:
+                continue
 
             if l_min <= angle <= l_max:
                 left_xy.append((x, y))
@@ -320,7 +333,8 @@ class TunnelWallFollower(Node):
                 self.get_logger().info(
                     f'CL: lat:{lateral_error:.3f} head:{math.degrees(heading_error):.1f}° '
                     f'ω:{angular_z:.2f} ({direction}) '
-                    f'L~{avg_l:.2f}m R~{avg_r:.2f}m pts:{len(centerline)}')
+                    f'L~{avg_l:.2f}m R~{avg_r:.2f}m pts:{len(centerline)}',
+                    throttle_duration_sec=2.0)
 
                 # Publish debug: JSON with all info including centerline
                 import json
@@ -334,8 +348,10 @@ class TunnelWallFollower(Node):
 
             else:
                 # Not enough centerline points — drive straight slowly
-                cmd.linear.x = float(self._param_cache['forward_speed']) * 0.5
-                self.get_logger().info('CL: too few midpoints, creeping forward')
+                cmd.linear.x = 0.0
+                self.get_logger().warn(
+                    'CL: too few forward midpoints, stopped',
+                    throttle_duration_sec=2.0)
 
         else:
             # Not in tunnel — publish zero, reset errors

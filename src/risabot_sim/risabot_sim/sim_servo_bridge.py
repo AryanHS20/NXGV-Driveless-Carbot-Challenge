@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 import rclpy
+import math
+import time
+from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from sensor_msgs.msg import Joy
 from std_msgs.msg import Bool, String
@@ -13,6 +16,10 @@ class SimServoBridge(Node):
         )
         self.pub_auto = self.create_publisher(Bool, '/auto_mode', 10)
         self.pub_challenge = self.create_publisher(String, '/set_challenge', 10)
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.create_subscription(Twist, '/cmd_vel_auto', self._cmd_callback, 10)
+        self.last_cmd_stamp = 0.0
+        self.create_timer(.05, self._watchdog)
         
         self.auto_mode = True
         self.prev_buttons = [0] * 15
@@ -27,7 +34,23 @@ class SimServoBridge(Node):
         msg.data = self.auto_mode
         self.pub_auto.publish(msg)
 
+    def _cmd_callback(self, msg):
+        self.last_cmd_stamp = time.monotonic()
+        out = Twist()
+        if self.auto_mode and all(math.isfinite(x) for x in (msg.linear.x, msg.angular.z)):
+            out.linear.x = msg.linear.x
+            steering = msg.angular.z*1.3 if msg.angular.z > 0 else msg.angular.z
+            angle = -max(-1., min(1., steering))*math.radians(50.)
+            out.angular.z = out.linear.x*math.tan(angle)/.14
+        self.cmd_pub.publish(out)
+
+    def _watchdog(self):
+        if not self.auto_mode or time.monotonic()-self.last_cmd_stamp > .4:
+            self.cmd_pub.publish(Twist())
+
     def joy_callback(self, msg: Joy):
+        if len(msg.buttons) < 12:
+            return
         if not self.prev_buttons:
             self.prev_buttons = list(msg.buttons)
             return

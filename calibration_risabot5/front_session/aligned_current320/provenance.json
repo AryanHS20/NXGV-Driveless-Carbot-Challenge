@@ -1,0 +1,21 @@
+{
+  "host": "risabot5",
+  "captured_utc": "2026-09-22T10:23:40.003173+00:00",
+  "image_topic": "/camera/color/image_raw",
+  "camera_info_topic": "/camera/color/camera_info",
+  "ros_domain_id": "1",
+  "image_header": {
+    "stamp": {
+      "sec": 1790072619,
+      "nanosec": 910182489
+    },
+    "frame_id": "camera_color_optical_frame"
+  },
+  "image_encoding": "bgr8",
+  "resolution": [
+    320,
+    240
+  ],
+  "camera_info_stamp_difference_sec": 0.06925821304321289,
+  "motion_command_published": false
+}

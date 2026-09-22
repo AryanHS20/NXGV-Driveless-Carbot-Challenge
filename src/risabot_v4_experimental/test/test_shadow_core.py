@@ -1,0 +1,127 @@
+from pathlib import Path
+import unittest
+
+import yaml
+
+from risabot_v4_experimental.shadow_core import evaluate_inputs
+
+
+class ShadowCoreTests(unittest.TestCase):
+    def test_missing_and_stale_inputs_block_shadow_readiness(self):
+        report = evaluate_inputs(
+            now=10.0,
+            last_seen={'camera': 9.0, 'scan': None, 'odom': 9.9},
+            timeouts={'camera': 0.45, 'scan': 0.5, 'odom': 0.25},
+            required=['camera', 'scan', 'odom'],
+        )
+        self.assertFalse(report['ready_for_shadow_evaluation'])
+        self.assertEqual(report['missing'], ['scan'])
+        self.assertEqual(report['stale'], ['camera'])
+        self.assertFalse(report['motion_authority'])
+
+    def test_fresh_inputs_only_enable_evaluation(self):
+        report = evaluate_inputs(
+            now=10.0,
+            last_seen={'camera': 9.8, 'scan': 9.7, 'odom': 9.9},
+            timeouts={'camera': 0.45, 'scan': 0.5, 'odom': 0.25},
+            required=['camera', 'scan', 'odom'],
+        )
+        self.assertTrue(report['ready_for_shadow_evaluation'])
+        self.assertFalse(report['motion_authority'])
+
+    def test_package_has_no_motion_message_or_command_topic(self):
+        source_dir = Path(__file__).parents[1] / 'risabot_v4_experimental'
+        node_source = '\n'.join(
+            path.read_text(encoding='utf-8')
+            for path in sorted(source_dir.glob('*.py'))
+        )
+        self.assertNotIn('geometry_msgs', node_source)
+        self.assertNotIn("'/cmd_vel", node_source)
+        self.assertNotIn('"/cmd_vel', node_source)
+        self.assertNotIn('AckermannDrive', node_source)
+        self.assertNotIn('/parking_command', node_source)
+        self.assertNotIn('/parking_cmd_vel', node_source)
+        self.assertNotIn('/recovery_command', node_source)
+        self.assertNotIn('/recovery_cmd_vel', node_source)
+
+    def test_stage4_physical_validation_gates_ship_closed(self):
+        config_path = Path(__file__).parents[1] / 'config' / 'v4_experimental.yaml'
+        config = yaml.safe_load(config_path.read_text(encoding='utf-8'))
+        params = config['v4_trajectory_shadow']['ros__parameters']
+        self.assertFalse(params['enabled'])
+        self.assertFalse(params['vehicle_geometry_validated'])
+        self.assertFalse(params['minimum_turn_radius_validated'])
+        self.assertFalse(params['lidar_extrinsics_validated'])
+
+        pose_params = config['v4_pose_shadow']['ros__parameters']
+        self.assertFalse(pose_params['enabled'])
+        self.assertFalse(pose_params['uwb_frame_alignment_validated'])
+        self.assertEqual(pose_params['uwb_topic'], '/v4_experimental/uwb/fix')
+
+        uwb_config_path = Path(__file__).parents[1] / 'config' / 'uwb.yaml'
+        uwb_config = yaml.safe_load(uwb_config_path.read_text(encoding='utf-8'))
+        uwb_params = uwb_config['v4_uwb_bridge_shadow']['ros__parameters']
+        self.assertFalse(uwb_params['enabled'])
+        self.assertEqual(uwb_params['fix_topic'], '/v4_experimental/uwb/fix')
+        for gate in ('anchor_geometry_validated', 'range_offsets_validated',
+                     'antenna_heights_validated'):
+            self.assertFalse(uwb_params[gate])
+
+        parking_params = config['v4_parking_shadow']['ros__parameters']
+        self.assertFalse(parking_params['enabled'])
+        for gate in (
+            'parking_goal_source_validated', 'slot_geometry_validated',
+            'rear_coverage_validated', 'vehicle_geometry_validated',
+            'minimum_turn_radius_validated', 'lidar_extrinsics_validated',
+        ):
+            self.assertFalse(parking_params[gate])
+
+        recovery_params = config['v4_recovery_shadow']['ros__parameters']
+        self.assertFalse(recovery_params['enabled'])
+        for gate in (
+            'recovery_request_source_validated', 'hard_hold_source_validated',
+            'forward_status_source_validated',
+            'rear_coverage_validated', 'vehicle_geometry_validated',
+            'minimum_turn_radius_validated', 'lidar_extrinsics_validated',
+            'road_tolerance_validated',
+        ):
+            self.assertFalse(recovery_params[gate])
+
+        goal_params = config['v4_parking_goal_source']['ros__parameters']
+        request_params = config['v4_recovery_request_source']['ros__parameters']
+        arbitration_params = config['v4_arbitration_shadow']['ros__parameters']
+        self.assertFalse(goal_params['enabled'])
+        self.assertFalse(request_params['enabled'])
+        self.assertFalse(arbitration_params['enabled'])
+        for params, gates in (
+            (goal_params, ('marking_thresholds_validated', 'slot_geometry_validated',
+                           'rear_coverage_validated')),
+            (request_params, ('policy_source_validated', 'stopped_detection_validated',
+                              'attempt_counter_validated')),
+            (arbitration_params, ('integration_reviewed', 'command_contract_validated',
+                                  'stop_preemption_validated', 'timeout_validated',
+                                  'physical_trials_validated')),
+        ):
+            for gate in gates:
+                self.assertFalse(params[gate])
+
+    def test_lane_shadow_excludes_optional_motion_and_side_camera_stages(self):
+        launch_path = Path(__file__).parents[1] / 'launch' / 'lane_shadow.launch.py'
+        source = launch_path.read_text(encoding='utf-8')
+        for executable in (
+            'shadow_monitor', 'bev_shadow', 'road_mask_shadow',
+            'pose_shadow', 'trajectory_shadow', 'arbitration_shadow',
+        ):
+            self.assertIn(f"executable='{executable}'", source)
+        self.assertIn("'process_secondary': False", source)
+        self.assertIn("'require_secondary_camera': False", source)
+        self.assertIn("'lane_only': True", source)
+        for excluded in (
+            "executable='parking_shadow'", "executable='recovery_shadow'",
+            "executable='motion_executor'",
+        ):
+            self.assertNotIn(excluded, source)
+
+
+if __name__ == '__main__':
+    unittest.main()

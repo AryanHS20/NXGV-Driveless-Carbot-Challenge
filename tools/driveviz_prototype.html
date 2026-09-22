@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RISA Drive Viz — prototype</title>
+<!--
+  Standalone Tesla-style driving visualization (display only, never commands).
+  Data source: tries live /data + /lidar_data (works when served from the
+  robot dashboard); falls back to built-in mock telemetry on file://.
+  Planned home once approved: dashboard V4 Views plugin (see tools/REPLAY_FORMAT.md).
+-->
+<style>
+  :root {
+    --bg: #07090d;
+    --panel: #0e131b;
+    --line: rgba(148, 163, 184, 0.14);
+    --text: #f1f5f9;
+    --dim: #8b93a5;
+    --blue: #3b82f6;
+    --cyan: #22d3ee;
+    --green: #22c55e;
+    --amber: #f59e0b;
+    --red: #ef4444;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: radial-gradient(1200px 800px at 50% -10%, #101724 0%, var(--bg) 60%);
+    color: var(--text);
+    font-family: Inter, -apple-system, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    padding: 22px 12px;
+  }
+  .dash { width: 400px; max-width: 94vw; }
+  .topbar {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding: 6px 6px 14px;
+  }
+  .speed { font-size: 64px; font-weight: 800; letter-spacing: -3px; line-height: 1;
+    font-variant-numeric: tabular-nums; }
+  .speed small { font-size: 15px; font-weight: 600; color: var(--dim); letter-spacing: 2px; }
+  .mid { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .roundel {
+    width: 56px; height: 56px; border-radius: 50%;
+    border: 3px solid var(--blue);
+    box-shadow: 0 0 18px rgba(59, 130, 246, 0.55), inset 0 0 12px rgba(59,130,246,0.25);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(59, 130, 246, 0.08);
+  }
+  .roundel b { font-size: 19px; }
+  .roundel span { font-size: 8px; letter-spacing: 1.5px; color: var(--dim); }
+  .mode {
+    font-size: 11px; font-weight: 800; letter-spacing: 2px;
+    padding: 4px 12px; border-radius: 20px;
+    background: rgba(34, 197, 94, 0.14); color: var(--green);
+    border: 1px solid rgba(34, 197, 94, 0.4);
+  }
+  .mode.manual { background: rgba(139, 147, 165, 0.12); color: var(--dim); border-color: var(--line); }
+  .lampbox { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+  .lamp {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: #232b38; border: 1px solid var(--line);
+    transition: all 0.25s;
+  }
+  .lamp.red { background: var(--red); box-shadow: 0 0 22px var(--red); border-color: transparent; }
+  .lamp.yellow { background: var(--amber); box-shadow: 0 0 22px var(--amber); border-color: transparent; }
+  .lamp.green { background: var(--green); box-shadow: 0 0 22px var(--green); border-color: transparent; }
+  .lampname { font-size: 10px; font-weight: 700; letter-spacing: 1.5px; color: var(--dim); }
+  .stage {
+    position: relative;
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    background: #0a0e14;
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  }
+  canvas { display: block; width: 100%; }
+  .banner {
+    margin: 12px 6px 0;
+    padding: 11px 14px;
+    border-radius: 12px;
+    font-size: 13px; font-weight: 600; text-align: center;
+    background: rgba(16, 22, 32, 0.9);
+    border: 1px solid var(--line);
+    color: var(--dim);
+    min-height: 42px;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.25s;
+  }
+  .banner.alert { color: #fff; background: rgba(120, 12, 20, 0.85); border-color: var(--red);
+    box-shadow: 0 0 24px rgba(239, 68, 68, 0.35); }
+  .banner.warn { color: #ffe9c4; background: rgba(80, 50, 8, 0.85); border-color: var(--amber); }
+  .tele {
+    display: flex; justify-content: space-between;
+    margin: 10px 6px 0;
+    font-size: 11px; color: var(--dim);
+    font-variant-numeric: tabular-nums;
+  }
+  .src { text-align: center; margin-top: 8px; font-size: 10px; letter-spacing: 1.5px; color: #3d4757; }
+</style>
+</head>
+<body>
+<div class="dash">
+  <div class="topbar">
+    <div class="speed"><span id="speedNum">0.0</span><br><small>M/S</small></div>
+    <div class="mid">
+      <div class="roundel"><b id="gearNum">–</b><span>GEAR</span></div>
+      <div class="mode manual" id="modePill">MANUAL</div>
+    </div>
+    <div class="lampbox">
+      <div class="lamp" id="lampDot"></div>
+      <div class="lampname" id="lampName">UNKNOWN</div>
+    </div>
+  </div>
+  <div class="stage"><canvas id="scene" width="400" height="520"></canvas></div>
+  <div class="banner" id="banner">Waiting for telemetry…</div>
+  <div class="tele">
+    <span id="teleLane">lane err —</span>
+    <span id="teleOdom">x — · y —</span>
+    <span id="teleFps">— fps</span>
+  </div>
+  <div class="src" id="srcLabel">MOCK TELEMETRY</div>
+</div>
+<script>
+(function() {
+  'use strict';
+  if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+      r = Math.min(typeof r === 'number' ? r : 4, w / 2, h / 2);
+      this.moveTo(x + r, y);
+      this.arcTo(x + w, y, x + w, y + h, r);
+      this.arcTo(x + w, y + h, x, y + h, r);
+      this.arcTo(x, y + h, x, y, r);
+      this.arcTo(x, y, x + w, y, r);
+      this.closePath();
+      return this;
+    };
+  }
+
+  const canvas = document.getElementById('scene');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const CX = W / 2, HORIZON = 132, ROAD_BOT = H - 56;
+
+  const S = {
+    speed: 0, gear: null, auto: false, lamp: 'unknown',
+    err: 0, errShown: 0, laneLost: false, state: '',
+    stale: [], lidar: [], odom: null, live: false,
+    dash: 0, frames: 0, fpsT: performance.now(), fps: 0,
+  };
+
+  function pt(raw) {
+    if (Array.isArray(raw)) return {x: +raw[0] || 0, y: +raw[1] || 0};
+    return {x: +raw.x || 0, y: +raw.y || 0};
+  }
+
+  // Project ground (x forward m, y left m) onto the scene.
+  function project(x, y, latShift) {
+    const t = Math.max(0, Math.min(1, 1 - x / 7));
+    return {
+      sx: CX + (y / 4.2) * 150 - (latShift || 0) * (1 - t * 0.75),
+      sy: ROAD_BOT - t * (ROAD_BOT - HORIZON),
+      t: t,
+    };
+  }
+
+  function lanePath(side, latShift) {
+    // side: -1 left boundary, +1 right boundary of the ego corridor.
+    const pts = [];
+    for (let i = 0; i <= 24; i++) {
+      const x = 0.2 + (i / 24) * 6.5;
+      pts.push(project(x, side * (0.55 + x * 0.045), latShift));
+    }
+    return pts;
+  }
+
+  function strokeLane(points, color, width, glow, dashOffset) {
+    ctx.save();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (glow) { ctx.shadowColor = color; ctx.shadowBlur = 14; }
+    if (dashOffset !== undefined) ctx.setLineDash([26, 30]);
+    if (dashOffset !== undefined) ctx.lineDashOffset = -dashOffset;
+    ctx.beginPath();
+    points.forEach((p, i) => { i ? ctx.lineTo(p.sx, p.sy) : ctx.moveTo(p.sx, p.sy); });
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  function drawCar() {
+    const w = 64, h = 108;
+    const x = CX - w / 2, y = ROAD_BOT - h + 16;
+    ctx.save();
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.beginPath(); ctx.roundRect(x + 4, y + 7, w, h, 16); ctx.fill();
+    const body = ctx.createLinearGradient(x, y, x + w, y);
+    body.addColorStop(0, '#8f9bb0');
+    body.addColorStop(0.5, '#e9eef5');
+    body.addColorStop(1, '#7c8a9f');
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.roundRect(x, y, w, h, 15); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.roundRect(x + 1, y + 1, w - 2, h - 2, 14); ctx.stroke();
+    // Glasshouse.
+    const glass = ctx.createLinearGradient(0, y + 20, 0, y + 58);
+    glass.addColorStop(0, '#0d1626');
+    glass.addColorStop(1, '#1d2f47');
+    ctx.fillStyle = glass;
+    ctx.beginPath(); ctx.roundRect(x + 10, y + 20, w - 20, 38, 10); ctx.fill();
+    ctx.fillStyle = 'rgba(140,200,255,0.25)';
+    ctx.beginPath(); ctx.roundRect(x + 14, y + 24, w - 28, 12, 6); ctx.fill();
+    // Wheels.
+    ctx.fillStyle = '#0b0e13';
+    [[-7, 12], [w - 5, 12], [-7, h - 20], [w - 5, h - 20]].forEach(p => {
+      ctx.beginPath(); ctx.roundRect(x + p[0], y + p[1], 12, 16, 4); ctx.fill();
+    });
+    // Headlight glow.
+    ctx.fillStyle = 'rgba(190,225,255,0.9)';
+    ctx.shadowColor = '#bfe1ff'; ctx.shadowBlur = 12;
+    ctx.beginPath(); ctx.roundRect(x + 12, y + h - 7, w - 24, 4, 2); ctx.fill();
+    ctx.restore();
+  }
+
+  function drawObstacles(latShift) {
+    S.lidar.forEach(raw => {
+      const p = pt(raw);
+      if (p.x < -0.6 || p.x > 7 || Math.abs(p.y) > 4.2) return;
+      const s = project(p.x, p.y, latShift);
+      const dist = Math.hypot(p.x, p.y);
+      const size = 4 + s.t * 22;
+      if (dist < 1.1) {
+        const col = dist < 0.45 ? '#ef4444' : '#f59e0b';
+        ctx.save();
+        ctx.fillStyle = col;
+        ctx.shadowColor = col;
+        ctx.shadowBlur = 16;
+        ctx.beginPath();
+        ctx.roundRect(s.sx - size / 2, s.sy - size, size, size * 1.25, 4);
+        ctx.fill();
+        ctx.restore();
+      } else {
+        ctx.save();
+        ctx.fillStyle = 'rgba(34,197,94,0.8)';
+        ctx.shadowColor = '#22c55e';
+        ctx.shadowBlur = 6;
+        ctx.beginPath(); ctx.arc(s.sx, s.sy, 2.6, 0, Math.PI * 2); ctx.fill();
+        ctx.restore();
+      }
+    });
+  }
+
+  function frame(now) {
+    S.frames++;
+    if (now - S.fpsT >= 1000) {
+      S.fps = Math.round(S.frames * 1000 / (now - S.fpsT));
+      S.frames = 0; S.fpsT = now;
+      document.getElementById('teleFps').textContent = S.fps + ' fps';
+    }
+    S.errShown += (S.err - S.errShown) * 0.12;
+    S.dash += S.speed * 2.2;
+
+    const bad = S.stale.length > 0;
+    const latShift = Math.max(-1, Math.min(1, S.errShown)) * 52;
+    const laneCol = (bad || S.laneLost) ? '#ef4444' : '#3b82f6';
+
+    // Backdrop.
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#070a10');
+    bg.addColorStop(0.28, '#0b1119');
+    bg.addColorStop(1, '#0d131c');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+    // Horizon glow.
+    const hg = ctx.createLinearGradient(0, HORIZON - 46, 0, HORIZON + 30);
+    hg.addColorStop(0, 'rgba(59,130,246,0)');
+    hg.addColorStop(0.55, 'rgba(59,130,246,0.16)');
+    hg.addColorStop(1, 'rgba(59,130,246,0)');
+    ctx.fillStyle = hg;
+    ctx.fillRect(0, HORIZON - 46, W, 76);
+    // Ground grid drift lines.
+    ctx.save();
+    ctx.strokeStyle = 'rgba(148,163,184,0.10)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 7; i++) {
+      const t = ((i / 7) + (S.dash % 40) / 40 / 7) % 1;
+      const y = ROAD_BOT - t * t * (ROAD_BOT - HORIZON);
+      ctx.globalAlpha = 0.25 + t * 0.75;
+      ctx.beginPath(); ctx.moveTo(14, y); ctx.lineTo(W - 14, y); ctx.stroke();
+    }
+    ctx.restore();
+
+    // Lane corridor (dashed center guide + glowing boundaries).
+    const guide = [];
+    for (let i = 0; i <= 24; i++) {
+      const x = 0.2 + (i / 24) * 6.5;
+      guide.push(project(x, S.errShown * 0.4, latShift));
+    }
+    strokeLane(guide, 'rgba(148,163,184,0.35)', 2, false, S.dash);
+    strokeLane(lanePath(-1, latShift), laneCol, 5, true);
+    strokeLane(lanePath(1, latShift), laneCol, 5, true);
+
+    drawObstacles(latShift);
+    drawCar();
+
+    // Vignette.
+    const vg = ctx.createRadialGradient(CX, H / 2, H * 0.32, CX, H / 2, H * 0.75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(0,0,0,0.42)');
+    ctx.fillStyle = vg;
+    ctx.fillRect(0, 0, W, H);
+
+    requestAnimationFrame(frame);
+  }
+
+  function render() {
+    document.getElementById('speedNum').textContent = S.speed.toFixed(1);
+    document.getElementById('gearNum').textContent = S.gear === null ? '–' : S.gear;
+    const pill = document.getElementById('modePill');
+    pill.textContent = S.auto ? 'AUTO' : 'MANUAL';
+    pill.classList.toggle('manual', !S.auto);
+    const dot = document.getElementById('lampDot');
+    dot.className = 'lamp' + (['red', 'yellow', 'green'].includes(S.lamp) ? ' ' + S.lamp : '');
+    document.getElementById('lampName').textContent = S.lamp.toUpperCase();
+    const banner = document.getElementById('banner');
+    let text = 'Systems nominal — enjoy the drive', cls = 'banner';
+    if (S.state === 'EMERGENCY_STOP') {
+      text = 'EMERGENCY STOP'; cls += ' alert';
+    } else if (S.stale.length > 0) {
+      text = 'Take over — ' + S.stale.slice(0, 2).join(', ') + ' stale'; cls += ' alert';
+    } else if (S.laneLost) {
+      text = 'Lane lost — be ready to take over'; cls += ' warn';
+    }
+    banner.textContent = text;
+    banner.className = cls;
+    document.getElementById('teleLane').textContent =
+      'lane err ' + (S.err === null ? '—' : S.err.toFixed(3));
+    document.getElementById('teleOdom').textContent =
+      S.odom ? ('x ' + S.odom.x.toFixed(2) + ' · y ' + S.odom.y.toFixed(2)) : 'x — · y —';
+  }
+
+  let mockT = 0;
+  function mockTick() {
+    mockT += 0.5;
+    S.speed = Math.max(0, 0.16 + 0.05 * Math.sin(mockT * 0.5));
+    S.gear = 25;
+    S.auto = true;
+    S.lamp = ['green', 'green', 'yellow', 'red'][Math.floor(mockT / 8) % 4];
+    S.err = Math.sin(mockT * 0.7) * 0.35;
+    S.laneLost = false;
+    S.state = '';
+    S.stale = (Math.sin(mockT * 0.23) > 0.75) ? ['camera_frame'] : [];
+    S.odom = {x: mockT * 0.08, y: Math.sin(mockT * 0.3) * 0.2};
+    const lidar = [];
+    for (let i = 0; i < 40; i++) {
+      const a = (i / 40) * Math.PI * 2;
+      const r = 1.4 + (i % 5) * 0.55;
+      lidar.push([Math.cos(a) * r + 2.2, Math.sin(a) * r]);
+    }
+    lidar.push([0.35, -0.3]);
+    S.lidar = lidar;
+    render();
+  }
+
+  function liveTick() {
+    const get = (url) => fetch(url).then(r => {
+      if (!r.ok) throw new Error('http ' + r.status);
+      return r.json();
+    });
+    get('/data').then(d => {
+      S.live = true;
+      document.getElementById('srcLabel').textContent = 'LIVE ROBOT DATA';
+      S.speed = +d.speed || 0;
+      S.gear = (typeof d.speed_pct === 'number') ? d.speed_pct : null;
+      S.auto = !!d.auto_mode;
+      S.lamp = String(d.traffic_light || 'unknown');
+      S.err = (typeof d.lane_error === 'number') ? d.lane_error : 0;
+      S.laneLost = d.lane_lost === true;
+      S.state = String(d.state || '');
+      S.stale = [].concat(d.stale_streams || [], d.health_stale || []);
+      S.odom = (typeof d.odom_x === 'number')
+        ? {x: d.odom_x, y: d.odom_y} : null;
+      render();
+    }).catch(() => { S.live = false; });
+    get('/lidar_data').then(d => {
+      S.lidar = d.points || [];
+    }).catch(() => {});
+  }
+
+  // file:// fetch always fails -> mock mode; http(s) tries live first.
+  const isFile = window.location.protocol === 'file:';
+  if (isFile) {
+    setInterval(mockTick, 500);
+    mockTick();
+  } else {
+    setInterval(liveTick, 500);
+    liveTick();
+    setInterval(() => { if (!S.live) mockTick(); }, 3000);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>

@@ -1,4 +1,6 @@
 @echo off
+echo LEGACY YOLOv5 compiler: output is incompatible with the current YOLO11 decoder.
+if /I not "%~1"=="--legacy-yolov5" exit /b 2
 echo ==============================================================
 echo RISAbot BPU Model Compilation Tool (RDK X5)
 echo ==============================================================

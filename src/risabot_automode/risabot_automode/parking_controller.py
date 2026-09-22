@@ -17,6 +17,8 @@ from typing import Dict
 
 import rclpy
 import math
+import time
+from .control_contract import valid_scan, fresh, normalized_angle
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 from rcl_interfaces.msg import SetParametersResult
@@ -118,6 +120,9 @@ class ParkingController(Node):
         self.current_command = 'none'
         self.rear_wall_dist = 999.0
         self.front_wall_dist = 999.0
+        self.scan_stamp = self.odom_stamp = 0.0
+        self.last_yaw = None
+        self.scan_valid = False
 
         # Timer for control loop
         self.timer = self.create_timer(0.05, self.control_loop)  # 20 Hz
@@ -149,6 +154,8 @@ class ParkingController(Node):
     def scan_callback(self, msg: LaserScan) -> None:
         """Monitor front and rear wall distances using LiDAR."""
         offset = float(self._param_cache['lidar_angle_offset'])
+        self.scan_stamp = time.monotonic()
+        self.scan_valid = valid_scan(msg)
         min_front = 999.0
         min_rear = 999.0
 
@@ -174,11 +181,21 @@ class ParkingController(Node):
     def odom_callback(self, msg: Odometry) -> None:
         """Track distance from odometry."""
         speed = msg.twist.twist.linear.x
+        if not math.isfinite(speed):
+            self.odom_stamp = 0.0
+            return
+        q = msg.pose.pose.orientation
+        yaw = math.atan2(2*(q.w*q.z+q.x*q.y), 1-2*(q.y*q.y+q.z*q.z))
+        if self.last_yaw is not None:
+            self.cumulative_yaw += abs(normalized_angle(yaw-self.last_yaw))
+        self.last_yaw = yaw
+        self.odom_stamp = time.monotonic()
         now = self.get_clock().now()
         dt = (now - self.last_odom_time).nanoseconds / 1e9
         self.last_odom_time = now
         self.current_speed = speed
-        self.distance_traveled += abs(speed) * dt
+        if 0 < dt <= 0.2:
+            self.distance_traveled += abs(speed) * dt
 
     def dash_state_callback(self, msg: String) -> None:
         """Listen to auto_driver state to know which lap we are on."""
@@ -228,6 +245,17 @@ class ParkingController(Node):
         drive_speed = self._param_cache['drive_speed']
         reverse_speed = self._param_cache['reverse_speed']
         lidar_stop = self._param_cache['lidar_stop_dist']
+        original_phase = self.phase
+        if self.phase != ParkingPhase.IDLE:
+            if not (self.scan_valid and fresh(self.scan_stamp, time.monotonic(), .5)
+                    and fresh(self.odom_stamp, time.monotonic(), .5)):
+                self._fail('sensor_stale')
+                return
+            # Timeout is a failure, never proof that the maneuver succeeded.
+            moving = self.phase not in (ParkingPhase.PARALLEL_WAIT, ParkingPhase.PERP_WAIT)
+            if moving and self._time_since_phase() > 8.0:
+                self._fail('timeout')
+                return
 
         if self.phase == ParkingPhase.IDLE:
             self.cmd_vel_pub.publish(cmd)  # zero velocity
@@ -237,23 +265,23 @@ class ParkingController(Node):
         elif self.phase == ParkingPhase.PARALLEL_FORWARD:
             # Drive forward past the slot
             cmd.linear.x = drive_speed
-            if self._dist_since_phase() >= self._param_cache['parallel_forward_dist'] or self._time_since_phase() >= 3.0:
+            if self._dist_since_phase() >= self._param_cache['parallel_forward_dist']:
                 self._start_phase(ParkingPhase.PARALLEL_STEER_REVERSE)
 
         elif self.phase == ParkingPhase.PARALLEL_STEER_REVERSE:
             # Reverse while steering into the slot — stop on LiDAR back wall OR distance timeout
             cmd.linear.x = reverse_speed
-            cmd.angular.z = -self._param_cache['parallel_steer_angle']  # steer right
+            cmd.angular.z = self._param_cache['parallel_steer_angle']  # physical right
             reached_wall = (self.rear_wall_dist <= lidar_stop)
             dist_exceeded = (self._dist_since_phase() >= self._param_cache['parallel_reverse_dist'])
-            if reached_wall or dist_exceeded or self._time_since_phase() >= 4.0:
+            if reached_wall or dist_exceeded:
                 self._start_phase(ParkingPhase.PARALLEL_STRAIGHTEN)
 
         elif self.phase == ParkingPhase.PARALLEL_STRAIGHTEN:
             # Brief forward to straighten
             cmd.linear.x = drive_speed * 0.5
-            cmd.angular.z = self._param_cache['parallel_steer_angle'] * 0.5  # counter-steer
-            if self._dist_since_phase() >= 0.10 or self._time_since_phase() >= 1.5:
+            cmd.angular.z = -self._param_cache['parallel_steer_angle'] * 0.5  # counter-steer
+            if self._dist_since_phase() >= 0.10:
                 self._start_phase(ParkingPhase.PARALLEL_WAIT)
 
         elif self.phase == ParkingPhase.PARALLEL_WAIT:
@@ -265,15 +293,16 @@ class ParkingController(Node):
         elif self.phase == ParkingPhase.PARALLEL_EXIT:
             # Drive forward out of slot
             cmd.linear.x = drive_speed
-            cmd.angular.z = self._param_cache['parallel_steer_angle'] * 0.5  # steer left to exit
-            if self._dist_since_phase() >= 0.30 or self._time_since_phase() >= 3.0:
+            cmd.angular.z = -self._param_cache['parallel_steer_angle'] * 0.5  # physical left
+            if self._dist_since_phase() >= 0.30:
                 self._finish()
 
         # --- PERPENDICULAR PARKING ---
         elif self.phase == ParkingPhase.PERP_TURN_IN:
             # Turn 90° into slot
-            cmd.angular.z = 0.5  # turn left
-            if self._time_since_phase() >= (self._param_cache['perp_turn_angle'] / 0.5):
+            cmd.linear.x = drive_speed
+            cmd.angular.z = -0.5  # Ackermann left turn requires forward motion
+            if self.cumulative_yaw >= self._param_cache['perp_turn_angle']:
                 self._start_phase(ParkingPhase.PERP_FORWARD)
 
         elif self.phase == ParkingPhase.PERP_FORWARD:
@@ -281,7 +310,7 @@ class ParkingController(Node):
             cmd.linear.x = drive_speed
             reached_front = (self.front_wall_dist <= lidar_stop)
             dist_exceeded = (self._dist_since_phase() >= self._param_cache['perp_forward_dist'])
-            if reached_front or dist_exceeded or self._time_since_phase() >= 3.0:
+            if reached_front or dist_exceeded:
                 self._start_phase(ParkingPhase.PERP_WAIT)
 
         elif self.phase == ParkingPhase.PERP_WAIT:
@@ -293,10 +322,16 @@ class ParkingController(Node):
         elif self.phase == ParkingPhase.PERP_REVERSE_OUT:
             # Reverse out
             cmd.linear.x = reverse_speed
-            if self._dist_since_phase() >= self._param_cache['perp_forward_dist'] or self._time_since_phase() >= 3.0:
+            if self._dist_since_phase() >= self._param_cache['perp_forward_dist']:
                 self._finish()
 
         # Publish command
+        if self.phase != original_phase:
+            cmd = Twist()
+        if ((cmd.linear.x > 0 and self.front_wall_dist <= lidar_stop)
+                or (cmd.linear.x < 0 and self.rear_wall_dist <= lidar_stop)):
+            self._fail('clearance')
+            return
         self.cmd_vel_pub.publish(cmd)
 
         # Debug
@@ -322,6 +357,13 @@ class ParkingController(Node):
 
         # Stop robot
         self.cmd_vel_pub.publish(Twist())
+
+    def _fail(self, reason):
+        self.phase = ParkingPhase.IDLE
+        self.cmd_vel_pub.publish(Twist())
+        self.complete_pub.publish(Bool(data=False))
+        self.status_pub.publish(String(data=self.current_command + '_failed:' + reason))
+        self.current_command = 'none'
 
 
 def main(args=None) -> None:

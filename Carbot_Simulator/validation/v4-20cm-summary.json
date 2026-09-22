@@ -1,0 +1,92 @@
+{
+  "phase": 3,
+  "t": 365.1666666666632,
+  "contacts": 0,
+  "minMargin": 0.0016884493906876232,
+  "rms": 0.011099361123181028,
+  "final": {
+    "contained": true,
+    "headingError": 0.4844869990767764,
+    "positionError": 2.9776842620248987
+  },
+  "errors": [],
+  "events": [
+    {
+      "t": 0,
+      "name": "SCENARIO READY",
+      "detail": "Drawing-derived prior map and synthetic anchor frame loaded; no ROS required."
+    },
+    {
+      "t": 207.6500000000574,
+      "name": "MISSION 1 COMPLETE",
+      "detail": "Stopped at the traffic-light approach. Mission 2 begins from this pose."
+    },
+    {
+      "t": 339.48333333335324,
+      "name": "LIVE PARKING SEARCH",
+      "detail": "Three bay edges supported by 36/3/36 image-derived samples. Current estimated pose \u2192 observed bay goal."
+    },
+    {
+      "t": 339.48333333335324,
+      "name": "PARKING PATH SELECTED",
+      "detail": "Hybrid search + Reeds\u2013Shepp connection; search analytic candidates, 2 gear sections."
+    },
+    {
+      "t": 354.88333333333924,
+      "name": "GEAR CHANGE",
+      "detail": "Speed zero before the next forward/reverse section."
+    },
+    {
+      "t": 357.96666666666977,
+      "name": "PARKING REPLAN",
+      "detail": "Estimated terminal heading is outside tolerance. Recomputing live correction."
+    },
+    {
+      "t": 361.5999999999998,
+      "name": "GEAR CHANGE",
+      "detail": "Speed zero before the next forward/reverse section."
+    },
+    {
+      "t": 365.1666666666632,
+      "name": "PARKING PASSED",
+      "detail": "Truth footprint containment=true; heading error=0.48\u00b0"
+    }
+  ],
+  "config": {
+    "carLengthCm": 30,
+    "carWidthCm": 19.2,
+    "wheelbaseCm": 21.6,
+    "rearOverhangCm": 4.2,
+    "minimumTurningRadiusCm": 40,
+    "wheelRadiusMm": 33,
+    "wheelWidthMm": 25,
+    "massKg": 2,
+    "courseLengthCm": 700,
+    "courseWidthCm": 500,
+    "laneWidthCm": 30,
+    "steeringLagMs": 120,
+    "speedLagMs": 180,
+    "steeringRateDeg": 180,
+    "maxSpeedCms": 18,
+    "parkingSpeedCms": 6,
+    "uwbNoiseCm": 20,
+    "uwbNoiseEnabled": true,
+    "encoderScaleErrorPercent": 0.4,
+    "imuNoiseDeg": 0.35,
+    "seed": 2026,
+    "noiseEnabled": true,
+    "frontCameraHeightCm": 18,
+    "sideCameraHeightCm": 15,
+    "frontCameraPitchDeg": 25,
+    "sideCameraPitchDeg": 50,
+    "cameraHorizontalFovDeg": 100,
+    "lidarHeightCm": 22,
+    "vehicleHeightCm": 24,
+    "lineToleranceCm": 5,
+    "recoveryEnabled": true,
+    "recoveryReverseCm": 20,
+    "expiryMs": 200
+  },
+  "scenario": "V4 full two missions, 20 cm UWB sigma, 5 cm strict-first paint allowance",
+  "known_start": true
+}

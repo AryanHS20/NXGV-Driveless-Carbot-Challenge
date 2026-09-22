@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import '../src/core.js';import '../src/reeds-shepp.js';import '../src/vehicle.js';import '../src/local-planner.js';import '../src/guidance.js';import '../src/recovery.js';
+const C=CarbotCore,V=CarbotVehicle,R=CarbotRecovery,c={...C.DEFAULTS},road={clearance:(x,y)=>.15-Math.abs(y)},origin={x:0,y:0,a:0};
+assert.equal(R.roadClear(road,{...origin,y:.09},c,0),false);assert.equal(R.roadClear(road,{...origin,y:.09},c,.05),true);assert.equal(R.roadClear(road,{...origin,y:.12},c,.05),false);
+const course=new C.Course(c),path=C.buildMission(course,c).routes[1],start={...path[509],a:C.wrap(path[509].a-.5)};
+const sim={c,course,path,ctrl:new V.Controller(c),plant:{speed:0},sensor:{packet:{encoder:0}},steeringEstimate:0,estimate:{pose:start,odom:start,transform:{x:0,y:0},distance:0},perception:{support:()=>1,stamp:0},cameraOdom:start,memory:new V.LocalMemory(),lidar:[],t:0,lastLidar:0,event:()=>{}};sim.ctrl.index=509;
+assert.ok(course.bodyClear(start,c));assert.equal(CarbotLocal.candidates(sim).some(q=>q.valid),false);
+const search=R.search(sim);assert.ok(search.winner,'Reverse-first path exists for a stopped lane-change yaw error');assert.ok(search.winner.reverse<=.20);assert.equal(V.splitGears(search.winner.points).length,2);assert.equal(search.winner.points[0].dir,-1);assert.equal(search.winner.points.at(-1).dir,1);assert.ok(search.winner.points.every(p=>R.roadClear(course,p,c,.05)));
+sim.perception.support=()=>0;assert.equal(R.search(sim).winner,null,'No blind reverse without observed rear road');sim.perception.support=()=>1;
+sim.lidar=[{angle:Math.PI,range:.12}];assert.equal(R.obstaclesClear(sim,start),false,'Physical obstacle remains a hard limit');assert.equal(R.search(sim).winner,null);sim.lidar=[];
+const recovery=new R.Recovery(c);sim.t=0;assert.equal(recovery.request(sim,'No candidate','Emergency stop',true),null);assert.equal(recovery.active,false);recovery.request(sim,'No candidate',null,true);sim.t=.5;sim.lastLidar=.5;sim.perception.stamp=.5;const req=recovery.request(sim,'No candidate',null,true);assert.equal(req.speed,0);assert.ok(recovery.active);const stop=recovery.request(sim,null,'Local camera guidance stale',true);assert.equal(stop.speed,0);assert.match(recovery.reason,/paused/);
+console.log('PASS exact paint envelope; bounded reverse + forward rejoin; rear evidence and obstacle veto; recovery cannot bypass emergency/camera holds');
+recovery.state='WAIT';recovery.active=true;assert.equal(recovery.request(sim,null,null,true),null);assert.equal(recovery.active,false,'Waiting recovery releases control when forward planning becomes feasible');
+console.log('PASS recovery wait cancels when a forward path reappears');

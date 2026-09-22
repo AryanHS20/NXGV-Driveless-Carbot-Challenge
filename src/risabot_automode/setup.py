@@ -7,7 +7,19 @@ package_name = 'risabot_automode'
 setup(
     name=package_name,
     version='0.0.0',
-    packages=[package_name],
+    packages=[package_name, package_name + '.dashboard_panels'],
+    package_data={package_name: [
+        'dashboard_panels/shell/*.html',
+        'dashboard_panels/left/*/*.html',
+        'dashboard_panels/center/*/*.html',
+        'dashboard_panels/right/*/*.html',
+        'dashboard_panels/flow/*.html',
+        'dashboard_panels/eventlog/*.html',
+        'dashboard_panels/paramdrawer/*.html',
+        'dashboard_panels/ctrldrawer/*.html',
+        'dashboard_panels/script/*.js',
+        'dashboard_panels/teach/*.html',
+    ]},
     data_files=[
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
@@ -15,6 +27,7 @@ setup(
         # ADD THIS LINE BELOW:
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         (os.path.join('share', package_name, 'config'), glob('config/*.xml')),
+        (os.path.join('share', package_name, 'sim_views'), glob('sim_views/*')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -39,6 +52,10 @@ setup(
             'bag_regression_validator = risabot_automode.bag_regression_validator:main',
             'signage_detector = risabot_automode.signage_detector:main',
             'heading_fusion = risabot_automode.heading_fusion:main',
+            'map_recorder = risabot_automode.map_recorder:main',
+            'mipi_relay = risabot_automode.mipi_relay:main',
+            'side_camera_manager = risabot_automode.side_camera_manager:main',
+            'v4_telemetry_bridge = risabot_automode.v4_telemetry_bridge:main',
         ],
     },
 )

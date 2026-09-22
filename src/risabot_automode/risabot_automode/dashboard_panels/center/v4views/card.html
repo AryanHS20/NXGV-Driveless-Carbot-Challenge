@@ -1,0 +1,14 @@
+    <!-- V4 Views (sim replay, display only — never commands motion) -->
+    <div class="card" data-pages="v4,runs" data-panel="v4views" data-span="2">
+      <h3>V4 Views</h3>
+      <button class="cam-toggle" id="simBtn" onclick="toggleSim()">📊 Enable V4 Views</button>
+      <div id="simPanel" style="display:none; margin-top:8px;">
+        <select id="replaySel" onchange="onReplayChange()" style="width:100%; padding:6px; border-radius:6px; margin-bottom:6px;">
+          <option value="">Select replay…</option>
+        </select>
+        <div id="replayMeta" style="font-size:0.8em; color:#888; margin-bottom:6px;">No replay selected</div>
+        <iframe id="simFrame" src="" style="display:none; width:100%; height:480px; border:0; border-radius:12px; background:#0d1b28;"></iframe>
+        <button class="cam-toggle" onclick="openSimReplay()" style="margin-top:6px;">↗ Open replay in simulator tab</button>
+        <div style="font-size:0.75em; color:#888; margin-top:4px;">Replay playback inside the sim needs its loader hook (format: tools/REPLAY_FORMAT.md).</div>
+      </div>
+    </div>

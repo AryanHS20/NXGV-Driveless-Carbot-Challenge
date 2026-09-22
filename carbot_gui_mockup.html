@@ -1,0 +1,961 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RISA Bot console — mockup v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..125,400..800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ground:#E6E8EB; --panel:#F4F5F7; --raised:#FFFFFF; --ink:#161B26; --muted:#565E6D;
+  --line:#D2D6DC; --lane:#1D63E0; --lane-soft:#9EC0FA; --ok:#177A4B; --warn:#9A6200; --bad:#BF262B;
+  --ok-bg:#DDF1E6; --warn-bg:#F8EACB; --bad-bg:#F7DCDC; --blue-bg:#DCE8FD; --grid:#C9CED6; --road:#EEF0F2; --scene:#E9EBEE;
+  --cam:#20262F; --car:#1D63E0; --car-dark:#123F91;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#12151A; --panel:#1A1E25; --raised:#222731; --ink:#E8EBF0; --muted:#A1A9B6;
+    --line:#2F3540; --lane:#4C8DFF; --lane-soft:#27457A; --ok:#4FC98A; --warn:#E7B04A; --bad:#FF6B6B;
+    --ok-bg:#16352A; --warn-bg:#3A2E14; --bad-bg:#3D1B1D; --blue-bg:#1B2A45; --grid:#2E343E; --road:#1E232B; --scene:#171B21;
+    --cam:#0C0E12; --car:#3F7FF2; --car-dark:#1C3F85; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#12151A; --panel:#1A1E25; --raised:#222731; --ink:#E8EBF0; --muted:#A1A9B6;
+  --line:#2F3540; --lane:#4C8DFF; --lane-soft:#27457A; --ok:#4FC98A; --warn:#E7B04A; --bad:#FF6B6B;
+  --ok-bg:#16352A; --warn-bg:#3A2E14; --bad-bg:#3D1B1D; --blue-bg:#1B2A45; --grid:#2E343E; --road:#1E232B; --scene:#171B21;
+  --cam:#0C0E12; --car:#3F7FF2; --car-dark:#1C3F85; color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px);height:100%}
+*,*::before,*::after{box-sizing:inherit}
+body{margin:0;height:100%;background:var(--ground);color:var(--ink);
+  font-family:"Archivo",system-ui,-apple-system,"Segoe UI",sans-serif;font-size:14px;line-height:1.45;font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.5}
+:focus-visible{outline:2px solid var(--lane);outline-offset:2px}
+
+/* ---------- shell ---------- */
+.app{display:grid;grid-template-columns:224px 1fr;grid-template-rows:auto 1fr;height:100%}
+header.strip{grid-column:1/-1;display:flex;align-items:center;gap:16px;padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{font-weight:750;font-stretch:118%;font-size:16px;white-space:nowrap}
+.brand small{display:block;font-weight:500;font-stretch:100%;font-size:11px;color:var(--muted)}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-weight:650;font-size:12px;white-space:nowrap;border:0}
+.chip.ok{background:var(--ok-bg);color:var(--ok)} .chip.warn{background:var(--warn-bg);color:var(--warn)}
+.chip.bad{background:var(--bad-bg);color:var(--bad)} .chip.blue{background:var(--lane);color:#fff} .chip.grey{background:var(--line);color:var(--ink)}
+.dot{width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.stat{display:flex;flex-direction:column;line-height:1.15;white-space:nowrap}
+.stat b{font-size:14px;font-weight:650}.stat span{font-size:11px;color:var(--muted)}
+.estop{border:0;background:var(--bad);color:#fff;border-radius:10px;padding:8px 14px;min-height:44px;text-align:left;line-height:1.15;flex:none}
+.estop b{display:block;font-size:14px;font-weight:800;font-stretch:112%}.estop span{font-size:11px;opacity:.92}
+.modebig{font-weight:800;font-stretch:115%;font-size:15px;padding:6px 12px;border-radius:9px;background:var(--lane);color:#fff;letter-spacing:.03em;white-space:nowrap}
+body[data-scn="stop"][data-mode="race"] .modebig{background:var(--bad)}
+
+/* running-now block */
+.running{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;border-left:1px solid var(--line);border-right:1px solid var(--line);padding:0 16px}
+.rline{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px}
+.rline > .lab{width:74px;flex:none;color:var(--muted);font-weight:600}
+.blk{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--raised);border-radius:7px;padding:3px 8px;font-size:12.5px;white-space:nowrap}
+.blk .id{font-weight:750;font-size:11px;background:var(--ink);color:var(--panel);border-radius:4px;padding:1px 5px}
+.blk.bad{border-color:var(--bad);background:var(--bad-bg);color:var(--bad)} .blk.bad .id{background:var(--bad);color:#fff}
+.blk.warn{border-color:var(--warn);background:var(--warn-bg);color:var(--warn)} .blk.warn .id{background:var(--warn);color:#fff}
+.blk.go{border-color:var(--lane);background:var(--blue-bg)} .blk.go .id{background:var(--lane);color:#fff}
+.arrow{color:var(--muted)}
+button.blk{cursor:pointer}
+
+nav.rail{background:var(--panel);border-right:1px solid var(--line);padding:10px;overflow:auto}
+nav.rail h2{font-size:11.5px;color:var(--muted);font-weight:600;margin:14px 8px 6px}
+nav.rail .navbtn{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;text-align:left;padding:7px 10px;border-radius:8px;min-height:36px;font-size:13.5px}
+nav.rail .navbtn .n{width:20px;font-size:11px;color:var(--muted);text-align:right;flex:none}
+nav.rail .navbtn .flag{margin-left:auto;width:8px;height:8px;border-radius:50%;flex:none}
+nav.rail .navbtn:hover{background:var(--raised)}
+nav.rail .navbtn[aria-current="true"]{background:var(--raised);box-shadow:inset 3px 0 0 var(--lane);font-weight:650}
+.flag.ok{background:var(--ok)} .flag.warn{background:var(--warn)} .flag.bad{background:var(--bad)} .flag.run{background:var(--lane)} .flag.todo{background:transparent;border:1.5px solid var(--muted)} .flag.kept{background:var(--muted)}
+.splitbtn{width:100%;display:flex;gap:8px;align-items:center;justify-content:center;border:1px solid var(--line);background:var(--raised);border-radius:8px;padding:8px;font-weight:600;font-size:13px;min-height:40px}
+.splitbtn[aria-pressed="true"]{background:var(--ink);color:var(--panel);border-color:var(--ink)}
+details.diag summary{cursor:pointer;font-size:11.5px;color:var(--muted);font-weight:600;margin:14px 8px 6px;list-style-position:inside}
+body[data-mode="race"] .only-calib{display:none !important}
+body[data-mode="calibrate"] .only-race{display:none !important}
+body[data-scn="drive"] .only-stop{display:none !important}
+body[data-scn="stop"] .only-drive{display:none !important}
+
+main{overflow:auto;padding:16px 20px 90px}
+#panes{display:grid;grid-template-columns:1fr;gap:16px;align-items:start}
+#panes.split{grid-template-columns:1fr 1fr}
+.pane{container-type:inline-size;min-width:0}
+.panebar{display:none;align-items:center;gap:10px;margin-bottom:10px;padding:6px 8px;border-radius:9px;border:1px solid var(--line);background:var(--panel)}
+#panes.split .panebar{display:flex}
+.pane.focus .panebar{border-color:var(--lane);box-shadow:0 0 0 1px var(--lane)}
+.panebar select{border:1px solid var(--line);background:var(--raised);border-radius:7px;padding:5px 8px;min-height:32px;font-weight:600}
+.panebar span{font-size:12px;color:var(--muted)}
+#store{display:none}
+
+.tabhead{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.tabhead h1{font-size:21px;font-weight:700;font-stretch:112%;margin:0}
+.tabhead p{margin:0;color:var(--muted);font-size:13px}
+.tabhead .right{margin-left:auto;display:flex;gap:8px;align-items:center}
+.grid{display:grid;gap:14px}
+.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}.g-side{grid-template-columns:minmax(0,1fr) 330px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;min-width:0}
+.panel h3{margin:0 0 10px;font-size:13.5px;font-weight:650}
+.panel h3 small{font-weight:500;color:var(--muted);margin-left:6px}
+.kv{display:grid;grid-template-columns:1fr auto;gap:6px 12px;font-size:13px}
+.kv span{color:var(--muted)}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{text-align:left;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr:last-child td{border-bottom:0}
+td.r,th.r{text-align:right}
+.ok-t{color:var(--ok);font-weight:650}.warn-t{color:var(--warn);font-weight:650}.bad-t{color:var(--bad);font-weight:650}.blue-t{color:var(--lane);font-weight:650}
+.muted{color:var(--muted)}
+svg{display:block;max-width:100%;height:auto}
+.btn{border:1px solid var(--line);background:var(--raised);border-radius:8px;padding:8px 14px;min-height:40px;font-weight:600;font-size:13px}
+.btn.primary{background:var(--lane);border-color:var(--lane);color:#fff}
+.btn.good{background:var(--ok);border-color:var(--ok);color:#fff}
+.btn.danger{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn small{display:block;font-weight:500;font-size:11px;opacity:.8}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--raised)}
+.seg button{border:0;background:transparent;padding:6px 12px;font-size:12.5px;font-weight:600;min-height:34px}
+.seg button[aria-pressed="true"]{background:var(--lane);color:#fff}
+.toggles{display:flex;gap:14px;flex-wrap:wrap;font-size:13px}
+.toggles label{display:flex;gap:6px;align-items:center;min-height:30px}
+.bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--lane)}.bar i.warn{background:var(--warn)}.bar i.ok{background:var(--ok)}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);flex-wrap:wrap;margin-top:8px}
+.legend i{display:inline-block;width:14px;height:4px;border-radius:2px;vertical-align:middle;margin-right:5px}
+.ro{font-size:12px}
+
+/* drive */
+.drive{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:14px}
+.scene{position:relative;background:var(--scene);border-radius:16px;overflow:hidden;border:1px solid var(--line);min-height:540px}
+.scene svg{width:100%;height:100%;position:absolute;inset:0}
+.hud{position:absolute;top:16px;left:20px;right:20px;display:flex;align-items:flex-start;gap:16px}
+.speed{line-height:.9}.speed b{font-size:62px;font-weight:600;font-stretch:88%;letter-spacing:-.02em}.speed span{display:block;font-size:13px;color:var(--muted);margin-top:6px}
+.maxring{width:54px;height:54px;border-radius:50%;border:3px solid var(--ink);display:grid;place-items:center;text-align:center;line-height:1;margin-top:6px;flex:none}
+.maxring b{font-size:16px}.maxring span{font-size:9px;color:var(--muted)}
+.zone{border:2px solid var(--ink);border-radius:6px;padding:4px 7px;text-align:center;line-height:1.05;margin-top:6px;background:var(--raised)}
+.zone span{font-size:9px;color:var(--muted);display:block}.zone b{font-size:16px}
+.modechip{margin-left:auto;text-align:right}
+.modechip .big{display:inline-block;background:var(--lane);color:#fff;font-weight:800;font-stretch:115%;font-size:18px;padding:6px 14px;border-radius:10px;letter-spacing:.04em}
+.modechip .big.stop{background:var(--bad)}
+.modechip div{margin-top:6px;font-size:13px}
+.banner{position:absolute;left:50%;bottom:20px;transform:translateX(-50%);background:#1B1F27;color:#fff;border-radius:14px;padding:10px 16px;width:max-content;max-width:90%;text-align:center}
+.banner b{display:block;font-size:14px;font-weight:650}.banner span{font-size:12px;opacity:.85}
+.side{display:flex;flex-direction:column;gap:14px}
+.progress{display:grid;grid-template-columns:repeat(13,1fr);gap:3px;margin-top:10px}
+.progress i{height:18px;border-radius:3px;background:var(--line);font-style:normal;font-size:9px;display:grid;place-items:center;color:var(--muted)}
+.progress i.done{background:var(--muted);color:var(--panel)}.progress i.act{background:var(--lane);color:#fff}
+.startbtn{width:100%;min-height:72px;border:0;border-radius:14px;background:var(--ok);color:#fff;font-size:26px;font-weight:800;font-stretch:118%;letter-spacing:.06em}
+.check{display:flex;justify-content:space-between;font-size:13px;padding:5px 0;border-bottom:1px solid var(--line)}.check:last-child{border:0}
+
+.cam{background:var(--cam);border-radius:10px;overflow:hidden;position:relative;aspect-ratio:960/544}
+.cam svg{width:100%;height:100%}
+.cam .lbl{position:absolute;left:8px;top:8px;background:rgba(0,0,0,.6);color:#fff;font-size:11.5px;padding:3px 8px;border-radius:6px}
+.cam .lbl2{position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.6);color:#fff;font-size:11px;padding:3px 8px;border-radius:6px}
+.cam.pick{cursor:pointer;outline:3px solid transparent}.cam.pick:hover{outline-color:var(--lane)}
+.tip{background:#1B1F27;color:#fff;border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.4}
+.tl{position:relative;padding-left:22px}
+.tl::before{content:"";position:absolute;left:7px;top:4px;bottom:4px;width:2px;background:var(--line)}
+.tl .ev{position:relative;padding:6px 0 10px;font-size:13px}
+.tl .ev::before{content:"";position:absolute;left:-19px;top:11px;width:10px;height:10px;border-radius:50%;background:var(--lane)}
+.tl .ev.warn::before{background:var(--warn)}.tl .ev.bad::before{background:var(--bad)}.tl .ev.ok::before{background:var(--ok)}
+.tl .ev time{color:var(--muted);font-size:12px;margin-right:8px}
+.editable input[type=text]{width:90px;border:1px solid var(--line);border-radius:6px;padding:4px 6px;background:var(--raised);text-align:right}
+.diff{background:var(--warn-bg)}
+
+/* calibration */
+.calib{display:grid;grid-template-columns:360px minmax(0,1fr);gap:14px;align-items:start}
+.steps{list-style:none;margin:0;padding:0;counter-reset:s}
+.steps li{counter-increment:s;display:grid;grid-template-columns:26px 1fr;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13.5px;color:var(--muted)}
+.steps li:last-child{border:0}
+.steps li::before{content:counter(s);width:24px;height:24px;border-radius:50%;border:1.5px solid var(--line);display:grid;place-items:center;font-size:12px;font-weight:650}
+.steps li.done{color:var(--ink)}
+.steps li.done::before{content:"✓";background:var(--ok);border-color:var(--ok);color:#fff}
+.steps li.now{color:var(--ink);background:var(--blue-bg);border-radius:8px;padding:10px 8px;margin:0 -8px;border-bottom-color:transparent}
+.steps li.now::before{background:var(--lane);border-color:var(--lane);color:#fff}
+.steps li.now b.nowtag{display:block;font-size:11px;color:var(--lane);margin-bottom:2px}
+.steps li.fail::before{content:"!";background:var(--bad);border-color:var(--bad);color:#fff}
+.steps li.fail{color:var(--ink)}
+.need{display:flex;gap:10px;align-items:flex-start;background:var(--warn-bg);color:var(--ink);border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:12px}
+.need b{color:var(--warn)}
+.alert{border-radius:10px;padding:12px 14px;font-size:13px;margin-bottom:12px}
+.alert.bad{background:var(--bad-bg);border:1px solid var(--bad)}
+.alert.ok{background:var(--ok-bg);border:1px solid var(--ok)}
+.alert.info{background:var(--blue-bg);border:1px solid var(--lane)}
+.alert b.t{display:block;font-size:14px;margin-bottom:4px}
+.alert.bad b.t{color:var(--bad)}.alert.ok b.t{color:var(--ok)}.alert.info b.t{color:var(--lane)}
+.alert dl{display:grid;grid-template-columns:44px 1fr;gap:4px 8px;margin:6px 0 0}
+.alert dt{font-weight:650;color:var(--muted)}.alert dd{margin:0}
+.ctl{display:flex;flex-direction:column;gap:8px}
+.ctl .row{display:flex;gap:8px;flex-wrap:wrap}
+.ctl label{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
+.ctl input[type=number],.ctl input[type=text],.ctl select{border:1px solid var(--line);border-radius:7px;padding:6px 8px;background:var(--raised);min-height:36px}
+.ctl input[type=range]{width:100%}
+.actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.actions .hint{font-size:12px;color:var(--muted);flex-basis:100%}
+.stephead{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.stephead .num{font-size:12px;color:var(--muted);font-weight:600}
+.stephead h1{font-size:21px;font-weight:700;font-stretch:112%;margin:0}
+.stephead .nav{margin-left:auto;display:flex;gap:8px;align-items:center}
+.stephead .nav .why{font-size:12px;color:var(--muted);max-width:220px;text-align:right}
+.cov{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:108px}
+.cov i{height:22px;border-radius:3px;background:var(--line)}.cov i.on{background:var(--ok)}
+.metric td:first-child{font-weight:600}
+
+
+.legs{display:flex;align-items:center;gap:8px}
+.leg{flex:1;min-width:0;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--raised)}
+.leg.act{border-color:var(--lane);box-shadow:0 0 0 1px var(--lane);background:var(--blue-bg)}
+.leg b{display:block;font-size:13px}.leg span{display:block;font-size:12px;color:var(--muted)}
+.leg .bar{margin-top:6px}.leg.done .bar i{background:var(--muted)}
+.pt{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-weight:750;font-size:13px;border:2px solid var(--line);background:var(--raised);flex:none}
+.pt.done{background:var(--muted);color:var(--panel);border-color:var(--muted)}
+.pt.here{border-color:var(--lane);color:var(--lane)}
+tr.cur td{background:var(--blue-bg);font-weight:650}
+@container (max-width:760px){.legs{flex-wrap:wrap}.leg{flex-basis:40%}}
+
+body:not([data-manual="on"]) .manual-only{display:none !important}
+body[data-manual="on"] .auto-only{display:none !important}
+.manbtn{border:2px solid var(--warn);background:var(--warn-bg);color:var(--ink);border-radius:10px;padding:6px 12px;min-height:44px;text-align:left;line-height:1.15;flex:none}
+.manbtn b{display:block;font-size:13.5px;font-weight:750}.manbtn span{font-size:11px;color:var(--muted)}
+body[data-manual="on"] .manbtn{background:var(--warn);border-color:var(--warn);color:#fff}
+body[data-manual="on"] .manbtn span{color:#fff;opacity:.9}
+body[data-manual="on"] .modebig{background:var(--warn) !important}
+.manualbar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:var(--warn-bg);border:1px solid var(--warn);border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:13px}
+.manualbar b{color:var(--warn)}
+.stick{display:flex;gap:10px;align-items:center}.stick .bar{width:90px}
+dialog{border:0;border-radius:14px;padding:20px;max-width:420px;background:var(--raised);color:var(--ink);box-shadow:0 20px 50px rgba(0,0,0,.3)}
+dialog::backdrop{background:rgba(10,12,16,.55)}
+dialog h2{margin:0 0 8px;font-size:18px;color:var(--bad)}
+dialog p{margin:0 0 14px;font-size:13.5px}
+dialog .row{display:flex;gap:10px;justify-content:flex-end}
+.mock{position:fixed;right:16px;bottom:16px;z-index:10;background:var(--raised);border:1.5px dashed var(--muted);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;font-size:12px;box-shadow:0 4px 18px rgba(0,0,0,.12)}
+.mock b{font-size:11.5px;color:var(--muted)}
+
+@container (max-width:1000px){.drive,.g-side,.calib{grid-template-columns:1fr}.g3{grid-template-columns:1fr 1fr}}
+@container (max-width:620px){.g2,.g3{grid-template-columns:1fr}.scene{min-height:420px}.speed b{font-size:44px}}
+@media (max-width:900px){
+  .app{grid-template-columns:1fr;grid-template-rows:auto auto 1fr}
+  header.strip{flex-wrap:wrap}.running{order:5;flex-basis:100%;border:0;padding:0}
+  nav.rail{display:flex;gap:4px;overflow-x:auto;border-right:0;border-bottom:1px solid var(--line);padding:8px;align-items:center}
+  nav.rail h2,details.diag summary{display:none} details.diag{display:contents}
+  nav.rail .navbtn{width:auto;white-space:nowrap}.splitbtn{width:auto;white-space:nowrap}
+  #panes.split{grid-template-columns:1fr}
+  main{padding:14px 14px 110px}
+}
+</style>
+</head>
+<body data-mode="race" data-scn="stop" data-manual="off">
+<div class="app">
+<header class="strip">
+  <div class="brand">RISA Bot<small class="only-race">Race mode</small><small class="only-calib">Calibration mode</small></div>
+  <span class="modebig only-race"><span class="auto-only"><span class="only-drive">ROAD</span><span class="only-stop">HOLD</span></span><span class="manual-only">MANUAL</span></span><span class="modebig only-calib manual-only">MANUAL</span>
+  <span class="chip ok only-race"><span class="dot"></span>Armed</span>
+  <span class="chip grey only-calib"><span class="dot"></span>Not armed</span>
+
+  <div class="running" aria-label="Code running now">
+    <!-- race, driving -->
+    <div class="rline auto-only only-race only-drive"><span class="lab">Driving</span>
+      <button class="blk go" data-go="map"><span class="id">08</span>Mission · ROAD · leg 2 of 3</button><span class="arrow">›</span>
+      <button class="blk go" data-go="percplan"><span class="id">09–12</span>Corridor + local planner · #7</button><span class="arrow">›</span>
+      <button class="blk go" data-go="control"><span class="id">15</span>Command owner · ROAD</button></div>
+    <div class="rline auto-only only-race only-drive"><span class="lab">Limiting</span>
+      <button class="blk warn" data-go="map"><span class="id">08</span>Speed zone bump · 0.35 m/s</button></div>
+    <!-- race, stopped -->
+    <div class="rline auto-only only-race only-stop"><span class="lab">Stopped by</span>
+      <button class="blk bad" data-go="control"><span class="id">14</span>Safety · front_clearance 0.12 m &lt; 0.15 m</button>
+      <button class="blk bad" data-go="det"><span class="id">08</span>Mission · TRAFFIC HOLD, light RED</button></div>
+    <div class="rline auto-only only-race only-stop"><span class="lab">Idle</span>
+      <button class="blk" data-go="percplan"><span class="id">12</span>Local planner · waiting on hold</button>
+      <button class="blk" data-go="control"><span class="id">15</span>Command owner · winner SAFETY_STOP</button></div>
+    <!-- calibrate -->
+    <div class="rline auto-only only-calib"><span class="lab">Running</span>
+      <button class="blk go" data-go="cal-3"><span class="id">Step 3</span>Camera intrinsics · capturing right rear, 17 of 25 frames</button></div>
+    <div class="rline auto-only only-calib"><span class="lab">Motors</span>
+      <span class="blk"><span class="id">15</span>Command owner · DISARMED, calibration requests only</span></div>
+    <!-- manual -->
+    <div class="rline manual-only"><span class="lab">Manual</span>
+      <span class="blk warn"><span class="id">base</span>servo_controller · controller drives</span>
+      <span class="blk"><span class="id">15</span>Command owner · autonomy paused</span>
+      <span class="blk bad only-race"><span class="id">!</span>Manual intervention recorded 02:05.1</span></div>
+    <div class="rline manual-only"><span class="lab">Controller</span>
+      <span class="blk go">Connected · /joy 50 Hz</span><span class="blk">Throttle +0.32 · steer −0.18</span></div>
+  </div>
+
+
+  <div class="stat"><b>11.62 V</b><span>battery</span></div>
+  <button class="manbtn" id="manualBtn" aria-pressed="false">
+    <span class="auto-only"><b>Manual control</b><span class="only-race">Counts as manual intervention = 0 marks</span><span class="only-calib">Drive with the controller</span></span>
+    <span class="manual-only"><b>Hand back</b><span>Return to autonomous control</span></span></button>
+  <button class="estop only-race"><b>E-STOP</b><span>Counts as manual intervention = 0 marks</span></button>
+  <button class="estop only-calib"><b>STOP MOTORS</b><span>Cancels the running step</span></button>
+</header>
+
+<nav class="rail" aria-label="Tabs" id="rail"></nav>
+
+<main>
+  <div class="manualbar manual-only" role="status">
+    <b>Manual control</b><span>Autonomy is paused. The controller drives through the base servo_controller.</span>
+    <span class="stick"><span class="muted">Throttle</span><span class="bar"><i class="warn" style="width:32%"></i></span></span>
+    <span class="stick"><span class="muted">Steer</span><span class="bar"><i class="warn" style="width:41%"></i></span></span>
+    <span class="muted">Max manual speed 0.50 m/s · no /joy for 0.8 s stops the car</span>
+  </div>
+  <div id="panes">
+    <div class="pane focus" data-pane="0"><div class="panebar"><span>Left</span><select aria-label="Left pane tab"></select></div><div class="panebody"></div></div>
+    <div class="pane" data-pane="1" hidden><div class="panebar"><span>Right</span><select aria-label="Right pane tab"></select></div><div class="panebody"></div></div>
+  </div>
+</main>
+</div>
+
+<dialog id="takeover" aria-labelledby="tkh">
+  <h2 id="tkh">Take manual control?</h2>
+  <p>The run has started. Taking control with the controller counts as manual intervention and the run scores 0 marks. Autonomy pauses until you press Hand back.</p>
+  <div class="row"><button class="btn" value="cancel" id="tkCancel">Keep autonomous</button><button class="btn danger" id="tkGo">Take control, 0 marks</button></div>
+</dialog>
+<div class="mock" aria-label="Mockup controls">
+  <b>Mockup only, not in the real GUI</b>
+  <div class="seg" role="group" aria-label="Launch mode"><button data-setmode="calibrate" aria-pressed="false">calibrate.launch</button><button data-setmode="race" aria-pressed="true">race.launch</button></div>
+  <div class="seg only-race" role="group" aria-label="Scenario"><button data-setscn="drive" aria-pressed="false">Driving</button><button data-setscn="stop" aria-pressed="true">Stopped</button></div>
+</div>
+
+<div id="store">
+
+<!-- ================= DRIVE ================= -->
+<section id="drive" data-title="Drive">
+  <div class="drive">
+    <div class="scene">
+      <svg viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice" aria-label="Rendered driving view">
+        <rect width="800" height="600" fill="var(--scene)"/>
+        <path d="M372 70 Q352 300 150 600 L650 600 Q470 300 428 70 Z" fill="var(--road)"/>
+        <g transform="translate(446,118)">
+          <rect x="-4" y="-2" width="8" height="26" fill="var(--muted)"/>
+          <g transform="rotate(-62)"><rect x="-2" y="-3" width="70" height="6" rx="2" fill="#fff" stroke="var(--bad)"/><rect x="10" y="-3" width="10" height="6" fill="var(--bad)"/><rect x="34" y="-3" width="10" height="6" fill="var(--bad)"/></g>
+          <rect x="10" y="10" width="54" height="18" rx="5" fill="var(--raised)" stroke="var(--line)"/><text x="37" y="23" text-anchor="middle" font-size="11" font-weight="700" fill="var(--ok)">OPEN</text>
+        </g>
+        <path d="M366 70 Q340 300 175 600" fill="none" stroke="var(--lane-soft)" stroke-width="16" stroke-linecap="round" opacity=".55"/>
+        <path d="M434 70 Q462 300 625 600" fill="none" stroke="var(--lane-soft)" stroke-width="16" stroke-linecap="round" opacity=".55"/>
+        <path d="M366 70 Q340 300 175 600" fill="none" stroke="var(--lane)" stroke-width="6" stroke-linecap="round"/>
+        <path d="M434 70 Q462 300 625 600" fill="none" stroke="var(--lane)" stroke-width="6" stroke-linecap="round"/>
+        <path class="only-drive" d="M400 470 Q398 300 400 80" fill="none" stroke="var(--lane)" stroke-width="3" stroke-dasharray="2 10" stroke-linecap="round" opacity=".7"/>
+        <path class="only-stop" d="M352 356 L448 356" stroke="var(--bad)" stroke-width="6"/>
+        <g transform="translate(262,176)">
+          <rect x="-2" y="18" width="4" height="54" fill="var(--muted)"/>
+          <path d="M0 -22 L26 22 L-26 22 Z" fill="#fff" stroke="var(--bad)" stroke-width="4" stroke-linejoin="round"/>
+          <path d="M-13 14 Q0 -2 13 14" fill="none" stroke="var(--ink)" stroke-width="3"/>
+          <rect x="-40" y="76" width="80" height="20" rx="5" fill="var(--raised)" stroke="var(--line)"/><text x="0" y="90" text-anchor="middle" font-size="11" font-weight="600" fill="var(--ink)">Bump sign 0.91</text>
+        </g>
+        <g transform="translate(560,118)">
+          <rect x="-2" y="40" width="4" height="90" fill="var(--muted)"/>
+          <rect x="-15" y="-6" width="30" height="50" rx="7" fill="#20252D"/>
+          <g class="only-drive"><circle cx="0" cy="7" r="8" fill="#4A2226"/><circle cx="0" cy="30" r="9" fill="#3BE08A"/><circle cx="0" cy="30" r="15" fill="#3BE08A" opacity=".25"/>
+            <rect x="22" y="12" width="84" height="22" rx="6" fill="var(--ok)"/><text x="64" y="27" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">GREEN 0.94</text></g>
+          <g class="only-stop"><circle cx="0" cy="7" r="9" fill="#FF4B4B"/><circle cx="0" cy="7" r="15" fill="#FF4B4B" opacity=".25"/><circle cx="0" cy="30" r="8" fill="#1F3A2A"/>
+            <rect x="22" y="-4" width="72" height="22" rx="6" fill="var(--bad)"/><text x="58" y="11" text-anchor="middle" font-size="12" font-weight="700" fill="#fff">RED 0.97</text></g>
+        </g>
+        <g class="only-drive" transform="translate(508,330)"><rect x="-22" y="-26" width="44" height="34" rx="4" fill="#8B93A1"/><text x="0" y="26" text-anchor="middle" font-size="11" font-weight="600" fill="var(--muted)">Obstacle 0.84 m</text></g>
+        <g class="only-stop" transform="translate(412,392)"><rect x="-26" y="-30" width="52" height="38" rx="4" fill="#8B93A1" stroke="var(--bad)" stroke-width="3"/><text x="0" y="-38" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--bad)">Obstacle 0.12 m</text></g>
+        <g transform="translate(400,488)">
+          <ellipse cx="0" cy="66" rx="92" ry="12" fill="#000" opacity=".12"/>
+          <path d="M-78 58 Q-84 10 -60 -8 L-44 -48 Q-40 -58 -28 -60 L28 -60 Q40 -58 44 -48 L60 -8 Q84 10 78 58 Q74 66 62 66 L-62 66 Q-74 66 -78 58 Z" fill="var(--car)"/>
+          <path d="M-40 -44 Q-36 -54 -24 -54 L24 -54 Q36 -54 40 -44 L50 -12 L-50 -12 Z" fill="#1A1F2A"/>
+          <path d="M-70 8 L-38 12 L-38 20 L-72 18 Z" fill="#E0373D"/><path d="M70 8 L38 12 L38 20 L72 18 Z" fill="#E0373D"/>
+          <rect x="-36" y="12" width="72" height="8" rx="3" fill="var(--car-dark)"/><rect x="-24" y="34" width="48" height="12" rx="2" fill="#E7E9EC"/>
+        </g>
+      </svg>
+      <div class="hud">
+        <div class="speed"><b class="only-drive">0.42</b><b class="only-stop">0.00</b><span>m/s measured</span></div>
+        <div class="maxring" title="Set max speed"><div><b>0.60</b><br><span>max</span></div></div>
+        <div class="zone" title="Active speed zone"><span class="only-drive">Bump zone</span><span class="only-stop">Light zone</span><b class="only-drive">0.35</b><b class="only-stop">0.40</b></div>
+        <div class="modechip"><span class="big only-drive">ROAD</span><span class="big stop only-stop">HOLD</span>
+          <div class="only-drive">Challenge 6 · Speed bump</div><div class="only-stop">Challenge 7 · Traffic light</div></div>
+      </div>
+      <div class="banner only-drive"><b>Bump zone ahead</b><span>Holding 0.35 m/s until the zone ends</span></div>
+      <div class="banner only-stop" style="box-shadow:0 0 0 2px var(--bad)"><b>Waiting for green, obstacle 0.12 m ahead</b><span>Resumes on its own when both clear</span></div>
+    </div>
+    <div class="side">
+      <div class="panel">
+        <h3>Start line</h3>
+        <div class="check"><span>Preflight</span><span class="ok-t">9 of 9 pass</span></div>
+        <div class="check"><span>Calibration</span><span class="ok-t">12 of 12 required</span></div>
+        <div class="check" style="margin-bottom:10px"><span>State</span><span class="ok-t">Running</span></div>
+        <button class="startbtn" disabled>START</button>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Pressed at 00:00.0. No further input is accepted.</p>
+      </div>
+      <div class="panel"><h3>Mission</h3><div class="kv">
+        <span>Hold</span><b class="only-drive">none</b><b class="only-stop bad-t">TRAFFIC HOLD</b>
+        <span>Leg</span><b>2 of 3 · P1 → P2</b><span>Next roundabout exit</span><b>North (visit 2)</b>
+        <span>Lane lock</span><b class="ok-t">Locked</b><span>Run time</span><b>02:03.7</b></div>
+        <div class="progress" aria-label="Challenge progress"><i class="done">1</i><i class="done">2</i><i class="done">3</i><i class="done">4</i><i class="done">5</i><i class="done">6</i><i class="act">7</i><i>8</i><i>9</i><i>10</i><i>11</i><i>12</i><i>13</i></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= GLOBAL MAP ================= -->
+<section id="map" data-title="Global map">
+  <div class="tabhead"><h1>Global map</h1><p>Mission legs, planned route, exits and live pose</p><div class="right only-race"><span class="chip grey ro">Read-only</span></div></div>
+  <div class="panel" style="margin-bottom:14px">
+    <div class="legs" aria-label="Mission legs">
+      <span class="pt done" title="P0 start">P0</span>
+      <div class="leg done"><b>Leg 1 · done</b><span>P0 → P1 · 7.9 m · 00:48</span><div class="bar"><i style="width:100%"></i></div></div>
+      <span class="pt done" title="P1">P1</span>
+      <div class="leg act"><b>Leg 2 · now</b><span>P1 → P2 · piece 3 of 5, roundabout · 38 %</span><div class="bar"><i style="width:38%"></i></div></div>
+      <span class="pt here" title="P2 parallel bay">P2</span>
+      <div class="leg"><b>Leg 3</b><span>P2 → P3 · 8.4 m</span><div class="bar"><i style="width:0"></i></div></div>
+      <span class="pt" title="P3 finish">P3</span>
+    </div>
+  </div>
+  <div class="grid g-side">
+    <div class="panel">
+      <svg viewBox="0 0 900 560" aria-label="Track map with mission legs">
+        <rect width="900" height="560" rx="10" fill="var(--raised)"/>
+        <g stroke="var(--grid)" stroke-width="1" opacity=".6" class="mapgrid"></g>
+        <g fill="none" stroke="var(--road)" stroke-width="44" stroke-linejoin="round" stroke-linecap="round">
+          <path d="M120 470 L620 470 Q780 470 780 330 L780 170 Q780 80 690 80 L360 80"/><path d="M260 80 L170 80 Q110 80 110 150 L110 470"/>
+          <circle cx="310" cy="80" r="46"/><path d="M310 126 L310 330 L560 330"/></g>
+        <circle cx="310" cy="80" r="18" fill="var(--raised)"/>
+        <rect x="758" y="190" width="44" height="120" fill="var(--ink)" opacity=".16" rx="4"/><text x="812" y="254" font-size="12" fill="var(--muted)">Tunnel</text>
+        <g transform="translate(600,305)"><rect width="80" height="50" fill="none" stroke="var(--muted)" stroke-dasharray="4 4"/></g>
+        <path d="M130 470 L620 470 Q780 470 780 330 L780 170 Q780 80 690 80" fill="none" stroke="var(--muted)" stroke-width="5" stroke-linejoin="round" opacity=".55"/>
+        <path d="M600 336 L304 336 L304 126 A46 46 0 0 1 264 86 L170 86 Q116 86 116 150 L116 400" fill="none" stroke="var(--lane)" stroke-width="3" stroke-dasharray="7 7" opacity=".55"/>
+        <path d="M690 80 L356 80 A46 46 0 0 1 316 126 L316 324 L600 324" fill="none" stroke="var(--lane)" stroke-width="7" stroke-linejoin="round"/>
+        <path d="M600 324 L640 330" fill="none" stroke="#E8871E" stroke-width="7"/>
+        <g font-size="12" font-weight="650">
+          <rect x="332" y="138" width="116" height="22" rx="6" fill="var(--lane)"/><text x="390" y="153" text-anchor="middle" fill="#fff">Leg 2 exit: south</text>
+          <rect x="150" y="100" width="110" height="22" rx="6" fill="var(--panel)" stroke="var(--line)"/><text x="205" y="115" text-anchor="middle" fill="var(--muted)">Leg 3 exit: west</text></g>
+        <g font-size="12" font-weight="750" text-anchor="middle">
+          <g transform="translate(130,470)"><circle r="15" fill="var(--muted)"/><text y="4" fill="var(--panel)">P0</text></g>
+          <g transform="translate(690,80)"><circle r="15" fill="var(--muted)"/><text y="4" fill="var(--panel)">P1</text></g>
+          <g transform="translate(646,330)"><circle r="15" fill="var(--raised)" stroke="var(--lane)" stroke-width="3"/><text y="4" fill="var(--lane)">P2</text></g>
+          <g transform="translate(116,410)"><circle r="15" fill="var(--raised)" stroke="var(--muted)" stroke-width="2"/><text y="4" fill="var(--muted)">P3</text></g></g>
+        <g transform="translate(470,80) rotate(180)"><path d="M16 0 L-10 -10 L-5 0 L-10 10 Z" fill="var(--lane)" stroke="#fff" stroke-width="2"/></g>
+        <rect x="430" y="40" width="88" height="22" rx="6" fill="var(--ink)"/><text x="474" y="55" text-anchor="middle" font-size="12" font-weight="650" fill="var(--panel)">Car · 38 %</text>
+      </svg>
+      <div class="legend"><span><i style="background:var(--muted);opacity:.6"></i>Leg done</span><span><i style="background:var(--lane)"></i>Current leg</span><span><i style="background:var(--lane);opacity:.5"></i>Upcoming leg (dashed)</span><span><i style="background:#E8871E"></i>Reverse (parking)</span></div>
+    </div>
+    <div class="side">
+      <div class="panel"><h3>Legs</h3><table><tr><th>Leg</th><th>Route</th><th class="r">m</th><th>Exit</th><th>State</th></tr>
+        <tr><td>1</td><td>P0 → P1</td><td class="r">7.9</td><td>—</td><td class="muted">done</td></tr>
+        <tr class="cur"><td>2</td><td>P1 → P2</td><td class="r">6.2</td><td>south</td><td class="blue-t">38 %</td></tr>
+        <tr><td>3</td><td>P2 → P3</td><td class="r">8.4</td><td>west</td><td class="muted">next</td></tr></table></div>
+      <div class="panel"><h3>Now</h3><div class="kv"><span>Piece</span><b>3 of 5 · roundabout</b><span>Piece direction</span><b>forward</b><span>Next</span><b>parallel park into P2</b><span>Pose x, y, yaw</span><b>3.40, 3.55, 181.4°</b></div></div>
+      <div class="panel"><h3>Files</h3><div class="kv"><span>Route</span><b class="ok-t">ROUTE_OK</b><span>track_map.yaml</span><b>3f9a2c1e</b><span>mission.yaml map sha1</span><b class="ok-t">3f9a2c1e · matches</b></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PERCEPTION + PLANNER ================= -->
+<section id="percplan" data-title="Perception + planner">
+  <div class="tabhead"><h1>Perception + planner</h1><p>Cameras, the stitched drivable area, and the planner's candidates drawn on top of it</p>
+    <div class="right"><div class="seg" role="group" aria-label="Candidate source"><button aria-pressed="true">Road</button><button aria-pressed="false">Parking</button><button aria-pressed="false">Recovery</button></div><span class="chip grey ro only-race">Read-only · 5 fps</span></div></div>
+  <div class="grid g3 camrow" data-cams="plain" style="margin-bottom:14px"></div>
+  <div class="grid g-side">
+    <div class="panel" style="position:relative">
+      <h3>Drivable area and candidates <small>top-down, 100 × 1.8 cm grid, x −0.65..1.15 m</small></h3>
+      <div class="toggles" style="margin-bottom:10px">
+        <label><input type="checkbox" data-layer="foot" checked> Stitched footage</label>
+        <label><input type="checkbox" data-layer="mask" checked> Road mask</label>
+        <label><input type="checkbox" data-layer="edge" checked> Final drivable edge</label>
+        <label><input type="checkbox" data-layer="seam"> Camera seams</label>
+        <label><input type="checkbox" data-layer="rej" checked> Rejected candidates</label>
+        <label><input type="checkbox" data-layer="sel" checked> Selected path</label>
+        <label><input type="checkbox" data-layer="cor"> Corridor guide</label>
+      </div>
+      <svg viewBox="0 0 600 600" class="pp" aria-label="Drivable area with candidates"></svg>
+      <div class="tip" style="position:absolute;left:58%;top:30%;max-width:220px"><b>#11 · offset +0.16 m</b><br>cost 4.87 · min clear 0.03 m<br><span style="color:#FFB3B3">Rejected: clearance 0.03 &lt; 0.06 m</span></div>
+      <div class="legend"><span><i style="background:#3D82F5"></i>Road mask</span><span><i style="background:#fff;outline:1px solid var(--muted)"></i>Final drivable edge</span><span><i style="background:var(--lane)"></i>Selected</span><span><i style="background:#9AA3B2"></i>Rejected</span><span><i style="background:#F5B942"></i>Relaxed (paint allowance)</span></div>
+    </div>
+    <div class="side">
+      <div class="panel"><h3>Planner this cycle</h3><div class="kv"><span>Selected</span><b>#7 · −0.02 m</b><span>Cost</span><b>1.24</b><span>Steer command</span><b>+0.081 rad</b><span>Valid / total</span><b>9 / 15</b><span>Corridor observed</span><b>4</b><span>Lane locked</span><b class="ok-t">yes</b><span>Cycle</span><b>8.4 ms</b></div></div>
+      <div class="panel"><h3>Rejections</h3><table><tr><th>Reason</th><th class="r">Count</th></tr><tr><td>Clearance below limit</td><td class="r">4</td></tr><tr><td>Off corridor</td><td class="r">1</td></tr><tr><td>Curvature over max</td><td class="r">1</td></tr></table></div>
+      <div class="panel"><h3>Road mask</h3><div class="kv"><span>Seed box road</span><b class="ok-t">96 %</b><span>Coverage</span><b>34.1 %</b><span>Luma / chroma</span><b>142 / 18</b><span>Frame</span><b>21.6 ms</b></div></div>
+      <div class="panel"><h3>Cameras</h3><table><tr><th>Role</th><th class="r">Hz</th><th>Intrinsics</th></tr>
+        <tr><td>Front · Astra</td><td class="r ok-t">29.8</td><td class="ok-t">calibrated</td></tr><tr><td>Left · OV5647</td><td class="r ok-t">29.6</td><td class="ok-t">calibrated</td></tr><tr><td>Right · IMX219</td><td class="r ok-t">29.4</td><td class="ok-t">calibrated</td></tr></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MEMORY + LIDAR ================= -->
+<section id="memory" data-title="Memory + LiDAR">
+  <div class="tabhead"><h1>Local memory + LiDAR</h1><p>3 m memory window, laser scan and tunnel walls</p><div class="right only-race"><span class="chip grey ro">Read-only · 2 Hz</span></div></div>
+  <div class="grid g-side">
+    <div class="panel"><svg viewBox="0 0 600 600" class="memsvg" aria-label="Memory grid and LiDAR"></svg>
+      <div class="legend"><span><i style="background:var(--lane)"></i>Fresh road</span><span><i style="background:var(--lane);opacity:.3"></i>Aged road</span><span><i style="background:var(--bad)"></i>LiDAR hit</span><span><i style="background:var(--warn)"></i>Tunnel wall fit</span></div></div>
+    <div class="side">
+      <div class="panel"><h3>Tunnel (base code, wrapped)</h3><div class="kv"><span>LiDAR trigger</span><b class="muted">false</b><span>Mission TUNNEL active</span><b class="muted">no</b><span>Bridge forwarding</span><b class="muted">no</b><span>Left / right wall</span><b>— / —</b><span>tunnel_cmd_vel angular.z</span><b>—</b></div></div>
+      <div class="panel"><h3>Memory</h3><div class="kv"><span>Cells held</span><b>6,208</b><span>Oldest</span><b>2.8 s</b><span>Travel since oldest</span><b>1.12 m</b><span>Obstacle cells</span><b>42</b></div></div>
+      <div class="panel"><h3>LiDAR</h3><div class="kv"><span>Rate</span><b class="ok-t">10.1 Hz</b><span>Points</span><b>452</b><span>Closest</span><b class="bad-t">0.12 m @ 88°</b></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= LOCALIZATION ================= -->
+<section id="loc" data-title="Localization">
+  <div class="tabhead"><h1>Localization</h1><p>Local estimate vs UWB-aided vs raw UWB</p><div class="right only-race"><span class="chip grey ro">Read-only</span></div></div>
+  <div class="grid g-side">
+    <div class="panel"><svg viewBox="0 0 700 520" class="locsvg" aria-label="Localization top view"></svg>
+      <div class="legend"><span><i style="background:var(--lane)"></i>Local (05)</span><span><i style="background:var(--ok)"></i>Global, UWB-aided (06)</span><span><i style="background:var(--warn)"></i>Raw UWB fix</span><span><i style="background:var(--muted)"></i>Anchor range</span></div></div>
+    <div class="side">
+      <div class="panel"><h3>Estimator</h3><div class="kv"><span>State</span><b class="ok-t">RUNNING</b><span>Local σ</span><b>0.021 m</b><span>Global σ</span><b>0.064 m</b><span>Offset x / y</span><b>+0.031 / −0.018 m</b><span>UWB residual</span><b>0.047 m</b><span>Accepted / rejected</span><b>1,284 / 67</b><span>Visual updates</span><b>412</b><span>IMU</span><b class="ok-t">fresh</b></div></div>
+      <div class="panel"><h3>Anchors</h3><div class="scroll"><table><tr><th>ID</th><th class="r">Raw</th><th class="r">Corr.</th><th class="r">Age</th><th>Gate</th></tr>
+        <tr><td>1786</td><td class="r">3.412</td><td class="r">2.498</td><td class="r ok-t">0.08 s</td><td class="ok-t">in</td></tr>
+        <tr><td>1782</td><td class="r">5.108</td><td class="r">4.187</td><td class="r ok-t">0.11 s</td><td class="ok-t">in</td></tr>
+        <tr><td>1783</td><td class="r">2.906</td><td class="r">1.972</td><td class="r warn-t">0.64 s</td><td class="warn-t">gated</td></tr></table></div>
+        <div class="kv" style="margin-top:10px"><span>Agent link</span><b class="ok-t">9.8 Hz</b><span>Tag reboots</span><b>0</b></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= DETECTIONS ================= -->
+<section id="det" data-title="Detections">
+  <div class="tabhead"><h1>Detections</h1><p>BPU model output and debounced states</p><div class="right only-race"><span class="chip grey ro">Read-only · 5 fps</span></div></div>
+  <div class="grid g-side">
+    <div class="panel"><div class="cam">
+      <svg viewBox="0 0 960 544" aria-label="Detector debug image">
+        <rect width="960" height="544" fill="#2A3038"/><path d="M420 200 L540 200 L900 544 L60 544Z" fill="#434B56"/>
+        <rect x="700" y="60" width="40" height="110" rx="6" fill="#171A1F"/><circle cx="720" cy="90" r="13" fill="#FF4B4B"/><circle cx="720" cy="135" r="12" fill="#1F3A2A"/>
+        <rect x="690" y="50" width="60" height="130" fill="none" stroke="#FF6B6B" stroke-width="3"/><rect x="690" y="26" width="178" height="24" fill="#FF6B6B"/><text x="696" y="44" font-size="16" font-weight="700" fill="#2A0707">traffic_light_red 0.97</text>
+        <path d="M200 150 L240 220 L160 220Z" fill="#fff" stroke="#E0373D" stroke-width="6"/><rect x="146" y="136" width="108" height="98" fill="none" stroke="#F5B942" stroke-width="3"/><rect x="146" y="112" width="182" height="24" fill="#F5B942"/><text x="152" y="130" font-size="16" font-weight="700" fill="#1F1605">speed_bump_sign 0.91</text>
+      </svg><span class="lbl">Front · Astra Pro</span><span class="lbl2">inference 11.8 ms</span></div></div>
+    <div class="side">
+      <div class="panel"><h3>Debounced states</h3><div class="kv"><span>Traffic light</span><b class="bad-t">RED</b><span>Boom gate</span><b class="muted">UNKNOWN</b><span>Speed bump sign</span><b>true</b><span>Inference</span><b>11.8 ms</b><span>Rate</span><b>14.6 Hz</b></div></div>
+      <div class="panel"><h3>This frame</h3><table><tr><th>Class</th><th class="r">Conf.</th><th class="r">Dist.</th></tr><tr><td>traffic_light_red</td><td class="r">0.97</td><td class="r">0.84 m</td></tr><tr><td>speed_bump_sign</td><td class="r">0.91</td><td class="r">1.31 m</td></tr></table></div>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:14px"><h3>Gate vs route mismatch log <small>the route is never changed</small></h3><div class="scroll"><table>
+    <tr><th>Time</th><th>Challenge</th><th>Gate seen</th><th>Planned exit</th><th>Action</th></tr>
+    <tr><td>00:41.2</td><td>2 · Roundabout (1st exit)</td><td class="ok-t">OPEN</td><td>West</td><td class="muted">Agrees</td></tr></table></div></div>
+</section>
+
+<!-- ================= CONTROL + SAFETY ================= -->
+<section id="control" data-title="Control + safety">
+  <div class="tabhead"><h1>Control + safety</h1><p>What was asked, what was sent, and who vetoed</p><div class="right only-race"><span class="chip grey ro">Read-only</span></div></div>
+  <div class="grid g3" style="margin-bottom:14px">
+    <div class="panel"><h3>Command owner</h3><div class="kv"><span>Mission source</span><b>ROAD</b><span>Winner</span><b class="bad-t">SAFETY_STOP</b><span>Request age</span><b>0.04 s</b></div></div>
+    <div class="panel"><h3>Output to servo_controller</h3><div class="kv"><span>linear.x (duty)</span><b>0.000</b><span>angular.z (norm.)</span><b>+0.021</b></div></div>
+    <div class="panel"><h3>Watchdog</h3><div class="kv"><span>State</span><b class="ok-t">OK</b><span>Last trip</span><b class="muted">never</b></div></div>
+  </div>
+  <div class="grid g2">
+    <div class="panel"><h3>Speed <small>last 12 s</small></h3><svg viewBox="0 0 600 220" class="chart" data-chart="spd"></svg><div class="legend"><span><i style="background:var(--muted)"></i>Requested</span><span><i style="background:var(--lane)"></i>Commanded</span><span><i style="background:var(--ok)"></i>Measured</span></div></div>
+    <div class="panel"><h3>Steering <small>last 12 s</small></h3><svg viewBox="0 0 600 220" class="chart" data-chart="str"></svg><div class="legend"><span><i style="background:var(--muted)"></i>Requested</span><span><i style="background:var(--lane)"></i>Commanded</span></div></div>
+  </div>
+  <div class="panel" style="margin-top:14px"><h3>Safety checks <small>the first failing check vetoes motion</small></h3><div class="scroll"><table>
+    <tr><th>Check</th><th>Status</th><th class="r">Value</th><th class="r">Limit</th><th>Detail</th></tr>
+    <tr><td>camera_fresh</td><td class="ok-t">ok</td><td class="r">0.04 s</td><td class="r">0.30 s</td><td class="muted">3 of 3 fresh</td></tr>
+    <tr><td>motion_fresh</td><td class="ok-t">ok</td><td class="r">0.04 s</td><td class="r">0.25 s</td><td></td></tr>
+    <tr><td>local_sigma</td><td class="ok-t">ok</td><td class="r">0.021 m</td><td class="r">0.080 m</td><td></td></tr>
+    <tr style="background:var(--bad-bg)"><td><b>front_clearance</b></td><td class="bad-t">VETO</td><td class="r">0.12 m</td><td class="r">0.15 m</td><td>LiDAR 88°, for 1.4 s</td></tr>
+    <tr><td>road_mask</td><td class="ok-t">ok</td><td class="r">96 %</td><td class="r">60 %</td><td></td></tr></table></div></div>
+</section>
+
+<!-- ================= SYSTEM HEALTH ================= -->
+<section id="health" data-title="System health">
+  <div class="tabhead"><h1>System health</h1><p>Topics, compute, power and processes</p><div class="right only-race"><span class="chip grey ro">Read-only · 1 Hz</span></div></div>
+  <div class="grid g3" style="margin-bottom:14px">
+    <div class="panel"><h3>CPU per core</h3><div class="cores"></div></div>
+    <div class="panel"><h3>Compute</h3>
+      <div class="kv"><span>BPU</span><b>38 %</b></div><div class="bar" style="margin:4px 0 10px"><i style="width:38%"></i></div>
+      <div class="kv"><span>RAM</span><b>61 % of 8 GB</b></div><div class="bar" style="margin:4px 0 10px"><i style="width:61%"></i></div>
+      <div class="kv"><span>SoC temperature</span><b>64.5 °C</b></div><div class="bar" style="margin:4px 0 0"><i style="width:64%"></i></div></div>
+    <div class="panel"><h3>Power and links</h3><div class="kv"><span>Battery</span><b class="ok-t">11.62 V</b><span>Minimum</span><b>10.80 V</b><span>micro-ROS agent</span><b class="ok-t">running</b><span>ROS domain</span><b>1</b></div></div>
+  </div>
+  <div class="grid g-side">
+    <div class="panel"><h3>Topics</h3><div class="scroll"><table><tr><th>Topic</th><th class="r">Hz</th><th class="r">Expected</th><th class="r">Age</th><th class="r">Latency</th></tr>
+      <tr><td>/camera/color/image_raw</td><td class="r ok-t">29.8</td><td class="r">30</td><td class="r">0.03 s</td><td class="r">38 ms</td></tr>
+      <tr><td>/cam_ov5647/image_raw</td><td class="r ok-t">29.6</td><td class="r">30</td><td class="r">0.03 s</td><td class="r">41 ms</td></tr>
+      <tr><td>/cam_imx219/image_raw</td><td class="r ok-t">29.4</td><td class="r">30</td><td class="r">0.03 s</td><td class="r">43 ms</td></tr>
+      <tr><td>/scan</td><td class="r ok-t">10.1</td><td class="r">10</td><td class="r">0.09 s</td><td class="r">12 ms</td></tr>
+      <tr><td>/odom</td><td class="r ok-t">20.0</td><td class="r">20</td><td class="r">0.04 s</td><td class="r">4 ms</td></tr>
+      <tr><td>/imu/rpy</td><td class="r ok-t">19.9</td><td class="r">20</td><td class="r">0.05 s</td><td class="r">—</td></tr>
+      <tr><td>/uwb3/input_json</td><td class="r ok-t">9.8</td><td class="r">10</td><td class="r">0.10 s</td><td class="r">—</td></tr>
+      <tr><td>/carbot/perception/road_grid</td><td class="r ok-t">8.3</td><td class="r">8</td><td class="r">0.11 s</td><td class="r">62 ms</td></tr>
+      <tr><td>/carbot/owner/state</td><td class="r ok-t">50.0</td><td class="r">50</td><td class="r">0.02 s</td><td class="r">2 ms</td></tr></table></div></div>
+    <div class="side">
+      <div class="panel"><h3>Pipeline latency</h3><div class="kv"><span>Camera → road grid</span><b>62 ms</b><span>Road grid → local path</span><b>11 ms</b><span>Local path → command</span><b>9 ms</b><span>Total</span><b>82 ms</b></div></div>
+      <div class="panel"><h3>Camera processes</h3><table><tr><th>Process</th><th class="r">PID</th></tr><tr><td>astra_camera_node</td><td class="r">2314</td></tr><tr><td>mipi_cam (ch 2)</td><td class="r">2388</td></tr><tr><td>mipi_cam (ch 0)</td><td class="r">2391</td></tr></table><p class="ok-t" style="margin:8px 0 0;font-size:12.5px">No duplicates</p></div>
+    </div>
+  </div>
+  <div class="panel" style="margin-top:14px"><h3>Nodes</h3><div class="scroll"><table><tr><th>Node</th><th>Block</th><th>Level</th><th>Message</th><th class="r">Oldest input</th></tr>
+    <tr><td>road_perception</td><td>03</td><td class="ok-t">OK</td><td class="muted">3 cameras calibrated</td><td class="r">0.05 s</td></tr>
+    <tr><td>local_pose</td><td>05</td><td class="ok-t">OK</td><td class="muted">412 visual updates</td><td class="r">0.03 s</td></tr>
+    <tr><td>global_planner</td><td>07</td><td class="ok-t">OK</td><td class="muted">ROUTE_OK</td><td class="r">—</td></tr>
+    <tr><td>mission_logic</td><td>08</td><td class="warn-t">HOLD</td><td>TRAFFIC HOLD, light RED</td><td class="r">0.02 s</td></tr>
+    <tr><td>safety</td><td>14</td><td class="bad-t">VETO</td><td>front_clearance 0.12 m</td><td class="r">0.03 s</td></tr>
+    <tr><td>command_owner</td><td>15</td><td class="ok-t">OK</td><td class="muted">winner SAFETY_STOP</td><td class="r">0.04 s</td></tr></table></div></div>
+</section>
+
+<!-- ================= EVENTS ================= -->
+<section id="events" data-title="Events + log">
+  <div class="tabhead"><h1>Events + log</h1><p>What happened, in order</p><div class="right"><div class="seg" role="group" aria-label="Filter"><button aria-pressed="true">All</button><button aria-pressed="false">Mission</button><button aria-pressed="false">Safety</button><button aria-pressed="false">Warnings</button></div></div></div>
+  <div class="grid g2">
+    <div class="panel"><h3>Mission timeline</h3><div class="tl">
+      <div class="ev bad"><time>02:02.3</time>Safety veto: front_clearance 0.12 m.</div>
+      <div class="ev warn"><time>02:00.1</time>TRAFFIC HOLD: light RED at stop line.</div>
+      <div class="ev"><time>01:58.4</time>Challenge 7 · Traffic light started.</div>
+      <div class="ev"><time>01:44.0</time>Challenge 6 · Speed bump, zone 0.35 m/s.</div>
+      <div class="ev ok"><time>01:12.6</time>Challenge 4 · GATE HOLD released on OPEN.</div>
+      <div class="ev"><time>00:31.7</time>Mode ROAD → TUNNEL, LiDAR trigger.</div>
+      <div class="ev ok"><time>00:00.0</time>START pressed. Armed.</div></div></div>
+    <div class="panel"><h3>Node log <small>WARN and above</small></h3><div class="scroll"><table><tr><th>Time</th><th>Level</th><th>Node</th><th>Message</th></tr>
+      <tr><td>02:02.3</td><td class="bad-t">ERROR</td><td>safety</td><td>veto front_clearance</td></tr>
+      <tr><td>01:21.0</td><td class="warn-t">WARN</td><td>global_pose</td><td>anchor 1783 gated 0.41 m</td></tr></table></div></div>
+  </div>
+</section>
+
+<!-- ================= TUNING (calibrate only) ================= -->
+<section id="tuning" data-title="Tuning">
+  <div class="tabhead"><h1>Tuning</h1><p>Apply live, then save into the active calibration session</p></div>
+  <div class="grid g-side editable">
+    <div class="panel"><h3>planning.yaml <small>local_planner</small></h3><div class="scroll"><table><tr><th>Key</th><th class="r">Live</th><th class="r">Saved</th><th></th></tr>
+      <tr><td>candidate_count</td><td class="r"><input type="text" value="15" aria-label="candidate_count"></td><td class="r">15</td><td></td></tr>
+      <tr class="diff"><td>min_clearance_m</td><td class="r"><input type="text" value="0.060" aria-label="min_clearance_m"></td><td class="r">0.050</td><td class="warn-t">unsaved</td></tr>
+      <tr><td>lookahead_m</td><td class="r"><input type="text" value="0.35" aria-label="lookahead_m"></td><td class="r">0.35</td><td></td></tr></table></div>
+      <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap"><button class="btn">Revert to saved</button><button class="btn">Apply live</button><button class="btn primary">Save to session</button></div></div>
+    <div class="side"><div class="panel"><h3>Files</h3><table><tr><td>perception.yaml</td></tr><tr><td><b>planning.yaml</b></td></tr><tr><td>localization.yaml</td></tr><tr><td>control.yaml</td></tr><tr><td>detectors.yaml</td></tr><tr><td>mission.yaml</td></tr></table></div></div>
+  </div>
+</section>
+
+<!-- ================= CALIBRATION OVERVIEW ================= -->
+<section id="cal-overview" data-title="Calibration overview">
+  <div class="tabhead"><h1>Calibration</h1><p>Run the steps in order. Click any step to open it.</p></div>
+  <div class="alert bad"><b class="t">Race mode will refuse to arm</b>Steps 3, 4, 5, 6, 7, 8, 9, 11 and 12 are not passed yet. Each must pass, or be set to keep a previous passed value.</div>
+  <div class="grid g-side">
+    <div class="panel"><div class="scroll"><table class="ovtab"><tr><th>#</th><th>Step</th><th>Status</th><th>Result</th><th>Saved</th><th></th></tr></table></div></div>
+    <div class="side">
+      <div class="panel"><h3>Sessions</h3><table>
+        <tr><th>Session</th><th>Passed</th><th></th></tr>
+        <tr><td><b>20260924_141208</b><br><span class="muted">active</span></td><td>3 of 13</td><td></td></tr>
+        <tr><td>20260921_190455</td><td>12 of 13</td><td><button class="btn">Roll back</button></td></tr>
+        <tr><td>20260919_102233</td><td>6 of 13</td><td><button class="btn">Roll back</button></td></tr></table>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Rolling back makes that session active. Nothing is deleted.</p></div>
+    </div>
+  </div>
+</section>
+</div>
+
+<script>
+(function(){
+const NS='http://www.w3.org/2000/svg';
+const el=(t,a,p)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(p)p.appendChild(e);return e;};
+let seed=7;const rnd=()=>{seed=(seed*16807)%2147483647;return seed/2147483647;};
+const store=document.getElementById('store');
+
+/* ---------- camera image generator ---------- */
+function camSvg(o){ // o: side (-1,0,1), mask, board, lidar, guide, dark, mat, matMissing
+  const s=o.side||0, vx=s===0?480:(s<0?760:200);
+  if(o.dark) return `<svg viewBox="0 0 960 544"><rect width="960" height="544" fill="#0B0D10"/><text x="480" y="282" text-anchor="middle" font-size="30" fill="#6B7380">Covered</text></svg>`;
+  let g=`<svg viewBox="0 0 960 544"><rect width="960" height="544" fill="#2A3038"/><rect width="960" height="210" fill="#39414C"/>
+  <path d="M${vx-70} 210 L${vx+70} 210 L${s>0?960:900} 544 L${s<0?0:60} 544Z" fill="#4A525D"/>`;
+  if(o.mask) g+=`<path d="M${vx-70} 210 L${vx+70} 210 L${s>0?960:900} 544 L${s<0?0:60} 544Z" fill="#3D82F5" opacity=".42"/>`;
+  g+=`<path d="M${vx-40} 210 L${s<0?120:230} 544" stroke="#AAB4C3" stroke-width="7"/><path d="M${vx+40} 210 L${s>0?840:730} 544" stroke="#AAB4C3" stroke-width="7"/>`;
+  if(o.board){ let b='<g transform="translate(560 250) rotate(-14) skewX(-12)">';
+    for(let i=0;i<6;i++)for(let j=0;j<9;j++) if((i+j)%2===0) b+=`<rect x="${j*26}" y="${i*26}" width="26" height="26" fill="#111"/>`;
+    b+=`<rect x="0" y="0" width="234" height="156" fill="none" stroke="#fff" stroke-width="3"/>`;
+    for(let i=1;i<6;i++)for(let j=1;j<9;j++) b+=`<circle cx="${j*26}" cy="${i*26}" r="3.5" fill="#3BE08A"/>`;
+    g+=`<rect x="540" y="230" width="290" height="210" fill="#fff" opacity=".9" transform="rotate(-14 685 335)"/>`+b+'</g>';}
+  if(o.mat){ const pts=[[250,420],[330,380],[410,350],[480,340],[550,350],[630,380],[710,420],[300,470],[480,450],[660,470]];
+    pts.forEach(([x,y],i)=>{ const miss=o.matMissing&&x>520; g+=`<circle cx="${x}" cy="${y}" r="8" fill="${miss?'none':'#F5B942'}" stroke="${miss?'#FF6B6B':'#1F1605'}" stroke-width="3"/>`;}); }
+  if(o.lidar){ g+=`<rect x="400" y="300" width="160" height="110" fill="#8B93A1"/>`; for(let i=0;i<22;i++) g+=`<circle cx="${402+i*7.3}" cy="${360+Math.sin(i/3)*3}" r="4.5" fill="#FF4B4B"/>`; }
+  if(o.guide){ g+=`<line x1="480" y1="0" x2="480" y2="544" stroke="#F5B942" stroke-width="2" stroke-dasharray="10 8"/><line x1="${480+(o.guide-0)*1}" y1="544" x2="${480+o.guide}" y2="330" stroke="#3BE08A" stroke-width="5"/>`; }
+  return g+'</svg>';
+}
+function camTile(label,sensor,rate,o,extra){return `<div class="cam ${extra||''}">${camSvg(o)}<span class="lbl">${label}${sensor?' · '+sensor:''}</span>${rate?`<span class="lbl2">${rate}</span>`:''}</div>`;}
+
+
+const ROADS=`<g fill="none" stroke="var(--road)" stroke-width="44" stroke-linejoin="round" stroke-linecap="round"><path d="M120 470 L620 470 Q780 470 780 330 L780 170 Q780 80 690 80 L360 80"/><path d="M260 80 L170 80 Q110 80 110 150 L110 470"/><circle cx="310" cy="80" r="46"/><path d="M310 126 L310 330 L560 330"/></g><circle cx="310" cy="80" r="18" fill="var(--raised)"/><rect x="758" y="190" width="44" height="120" fill="var(--ink)" opacity=".16" rx="4"/><g transform="translate(600,305)"><rect width="80" height="50" fill="none" stroke="var(--muted)" stroke-dasharray="4 4"/></g>`;
+function trackSvg(inner){let g='';for(let x=0;x<=900;x+=50)g+=`<line x1="${x}" y1="0" x2="${x}" y2="560"/>`;for(let y=0;y<=560;y+=50)g+=`<line x1="0" y1="${y}" x2="900" y2="${y}"/>`;
+  return `<svg viewBox="0 0 900 560"><rect width="900" height="560" rx="10" fill="var(--raised)"/><g stroke="var(--grid)" stroke-width="1" opacity=".6">${g}</g>${ROADS}${inner}</svg>`;}
+/* ---------- chart ---------- */
+function chartSvg(series,min,max,w,h){w=w||600;h=h||220;let s=`<svg viewBox="0 0 ${w} ${h}"><rect width="${w}" height="${h}" fill="var(--raised)" rx="8"/>`;
+  for(let y=0;y<=4;y++){const yy=10+y*(h-20)/4;s+=`<line x1="44" x2="${w-10}" y1="${yy}" y2="${yy}" stroke="var(--grid)" stroke-width=".8"/><text x="38" y="${yy+4}" text-anchor="end" font-size="10" fill="var(--muted)">${(max-(max-min)*y/4).toFixed(2)}</text>`;}
+  series.forEach(([pts,col,wd,dash])=>{const d=pts.map((v,i)=>`${i?'L':'M'}${44+i*(w-54)/(pts.length-1)} ${10+(max-v)/(max-min)*(h-20)}`).join(' ');s+=`<path d="${d}" fill="none" stroke="${col}" stroke-width="${wd}" ${dash?`stroke-dasharray="${dash}"`:''} stroke-linejoin="round"/>`;});
+  return s+'</svg>';}
+
+/* ---------- calibration steps ---------- */
+const ST={pass:['Passed','ok'],fail:['Failed','bad'],run:['In progress','blue'],todo:['Not run','grey'],kept:['Kept previous','grey'],opt:['Optional','grey']};
+const FLAG={pass:'ok',fail:'bad',run:'run',todo:'todo',kept:'kept',opt:'todo'};
+const prev21='20260921_190455 (passed)';
+const S=[
+{t:'Sensor health check',st:'pass',sum:'10 of 10 sensors OK',saved:'14:12',
+ need:null,
+ prompts:[['Power on the car and all three UWB anchors','done'],['Wait until every row below turns green (about 10 s)','done'],['Press Run check','done']],
+ controls:`<button class="btn">Restart camera drivers<small>Kills stale mipi_cam, codec and websocket nodes, then restarts them</small></button>`,
+ live:()=>`<div class="panel"><h3>Live sensor rates</h3><table><tr><th>Sensor</th><th>Topic</th><th class="r">Hz</th><th class="r">Expected</th><th>State</th></tr>
+ <tr><td>Front camera · Astra</td><td>/camera/color/image_raw</td><td class="r">29.8</td><td class="r">30</td><td class="ok-t">ok</td></tr>
+ <tr><td>MIPI ch 2 · OV5647</td><td>/cam_ov5647/image_raw</td><td class="r">29.6</td><td class="r">30</td><td class="ok-t">ok</td></tr>
+ <tr><td>MIPI ch 0 · IMX219</td><td>/cam_imx219/image_raw</td><td class="r">29.4</td><td class="r">30</td><td class="ok-t">ok</td></tr>
+ <tr><td>LiDAR · T-mini Plus</td><td>/scan</td><td class="r">10.1</td><td class="r">10</td><td class="ok-t">ok</td></tr>
+ <tr><td>Wheel odometry</td><td>/odom</td><td class="r">20.0</td><td class="r">20</td><td class="ok-t">ok</td></tr>
+ <tr><td>IMU</td><td>/imu/rpy</td><td class="r">19.9</td><td class="r">20</td><td class="ok-t">ok</td></tr>
+ <tr><td>UWB tag via agent</td><td>/uwb3/input_json</td><td class="r">9.8</td><td class="r">10</td><td class="ok-t">ok</td></tr>
+ <tr><td>UWB anchors</td><td>1786 · 1782 · 1783</td><td class="r">3 of 3</td><td class="r">3</td><td class="ok-t">ok</td></tr>
+ <tr><td>Battery</td><td>/carbot/vehicle/battery_v</td><td class="r">11.62 V</td><td class="r">≥ 10.8</td><td class="ok-t">ok</td></tr>
+ <tr><td>Duplicate camera processes</td><td>ps</td><td class="r">0</td><td class="r">0</td><td class="ok-t">ok</td></tr></table></div>`,
+ metrics:[['Sensors publishing','10 / 10','10','pass']],alert:{k:'ok',t:'All sensors healthy',b:'Saved to 20260924_141208/sensor_health.yaml.'},prev:prev21,run:'Run check'},
+
+{t:'Camera identity',st:'pass',sum:'front Astra · left OV5647 · right IMX219',saved:'14:15',
+ prompts:[['Cover the front camera with your hand','done'],['Click the feed that went dark','done'],['Cover the camera on the car\'s left side (looking from behind the car)','done'],['Click the feed that went dark','done'],['The remaining feed becomes right rear. Check the labels, then Save','done']],
+ controls:`<label>Assigned roles<select disabled><option>Astra Pro → front</option></select></label><button class="btn">Swap left and right<small>Use if you covered the wrong side</small></button>`,
+ live:()=>`<div class="panel"><h3>Click the feed that went dark</h3><div class="grid g3">${camTile('Astra Pro','front','29.8 fps',{side:0},'pick')}${camTile('OV5647 ch 2','left rear','29.6 fps',{side:-1},'pick')}${camTile('IMX219 ch 0','right rear','29.4 fps',{side:1},'pick')}</div></div>`,
+ metrics:[['Front','Astra Pro','Astra Pro','pass'],['Left rear','OV5647 ch 2','any MIPI','pass'],['Right rear','IMX219 ch 0','the other MIPI','pass']],alert:{k:'ok',t:'Roles saved',b:'Written to cameras.yaml roles in this session.'},prev:prev21,run:'Start'},
+
+{t:'Camera intrinsics',st:'run',sum:'front ✓ left ✓ right 17 / 25 frames',saved:'—',
+ need:'Print the 9 × 6 checkerboard with 25 mm squares and tape it flat on stiff card. Measure one square: it must be 25.0 mm.',
+ sub:`<div class="seg" role="group" aria-label="Camera"><button aria-pressed="false">Front ✓</button><button aria-pressed="false">Left rear ✓</button><button aria-pressed="true">Right rear</button></div>`,
+ prompts:[['Hold the board 30–60 cm from the right-rear camera','done'],['Move it so every zone of the 3 × 3 coverage grid turns green (6 of 9 done)','done'],['Tilt the board about 30° towards the back of the car and hold still for 1 s','now'],['Bring it closer until it fills half the image, hold still','todo'],['Press Compute once 20 or more frames are captured','todo']],
+ controls:`<div class="row"><label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" checked> Auto-capture when the board is still and sharp</label></div>
+  <div class="row"><button class="btn">Capture frame</button><button class="btn">Delete last frame</button></div>
+  <div style="display:flex;gap:14px;align-items:center"><div class="cov"><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i class="on"></i><i></i><i></i></div>
+  <div class="kv" style="flex:1"><span>Frames</span><b>17 / 25</b><span>Sharpness</span><b class="ok-t">good</b><span>Board found</span><b class="ok-t">54 corners</b></div></div>`,
+ live:()=>`<div class="panel"><h3>Right rear · IMX219 ch 0 <small>live, corners in green</small></h3>${camTile('Right rear','IMX219','29.4 fps · 960 × 544',{side:1,board:true})}</div>`,
+ metrics:[['Reprojection RMS','—','< 0.50 px','todo'],['Frames used','17','≥ 20','todo'],['Coverage','6 / 9','9 / 9','todo']],
+ alert:{k:'info',t:'Capturing',b:'Compute unlocks at 20 frames. Front (0.31 px) and left rear (0.36 px) are already passed and saved.'},prev:null,run:'Compute',runDisabled:true},
+
+{t:'3-camera extrinsics + IPM',st:'fail',sum:'right rear: 11 of 24 mat corners',saved:'—',
+ need:'Needs the printed A0 calibration mat on a flat floor, and step 3 passed for all three cameras.',
+ prompts:[['Lay the calibration mat flat, arrows pointing forward','done'],['Place the car on the mat: rear axle on the red line, centred between the blue marks','done'],['Step away so you are not in any camera view, then press Run','done'],['Fix the problem shown below and press Redo','now']],
+ controls:`<label>Mat definition<select><option>A0 mat v2 (24 corners)</option></select></label><button class="btn">Show expected corners<small>Draws where each corner should appear</small></button>`,
+ live:()=>`<div class="panel"><h3>Detected mat corners <small>yellow found, red ring missing</small></h3><div class="grid g3" style="margin-bottom:12px">${camTile('Front','','8 / 8',{side:0,mat:true})}${camTile('Left rear','','8 / 8',{side:-1,mat:true})}${camTile('Right rear','','3 / 8',{side:1,mat:true,matMissing:true})}</div>
+  <h3>Stitched top-down <small>seams in yellow, mismatch in red</small></h3><svg viewBox="0 0 600 300" class="bevmini"></svg></div>`,
+ metrics:[['Front corner error','0.6 cm','< 1.0 cm','pass'],['Left rear corner error','0.8 cm','< 1.0 cm','pass'],['Right rear corners found','11 / 24','≥ 20','fail'],['Seam error front/right','3.8 cm','< 1.5 cm','fail']],
+ alert:{k:'bad',t:'Right rear camera cannot see enough of the mat',c:'Only 11 of 24 corners were found. The right edge of the mat is outside the image, so the right-rear mount cannot be solved and the front/right seam is 3.8 cm off.',f:'Move the car about 5 cm to the left on the mat, keep the rear axle on the red line, and press Redo. If it fails again, check the right-rear camera is not tilted up.'},prev:prev21,run:'Redo'},
+
+{t:'LiDAR–camera alignment',st:'todo',sum:'',saved:'—',
+ prompts:[['Place the grey box so its front face is 50 cm straight ahead of the car','now'],['Press Run and wait 3 s','todo'],['Move the box 50 cm to the left side of the car, press Run again','todo']],
+ controls:`<label>Box distance (m)<input type="number" value="0.50" step="0.01"></label>`,
+ live:()=>`<div class="panel"><h3>LiDAR points projected onto the front camera</h3>${camTile('Front','Astra Pro','red = LiDAR',{side:0,lidar:true})}</div>`,
+ metrics:[['LiDAR yaw offset','—','< 2.0°','todo'],['Box distance error','—','< 2 cm','todo']],alert:null,prev:prev21,run:'Run'},
+
+{t:'IMU + wheel odometry',st:'todo',sum:'',saved:'—',
+ need:'Tape a 2.00 m straight line on the floor with start and end marks.',
+ prompts:[['Place the car on the start mark, facing along the tape','now'],['Press Run, then push the car slowly to the end mark','todo'],['Type the distance you actually pushed it','todo'],['Turn the car by hand one full circle on the spot, stop at the start heading','todo'],['Leave it still for 10 s to measure gyro drift','todo']],
+ controls:`<label>Measured distance (m)<input type="number" value="2.00" step="0.01"></label><button class="btn">Calibrate IMU hardware<small>Sends /imu/calibrate. Keep the car still.</small></button>`,
+ live:()=>`<div class="panel"><h3>Odometry distance and IMU yaw</h3><div class="kv" style="margin-bottom:10px"><span>Odometry distance</span><b>0.000 m</b><span>IMU yaw</span><b>0.0°</b></div>${chartSvg([[Array.from({length:60},(_,i)=>0),'var(--lane)',2.5]],-1,1)}</div>`,
+ metrics:[['Odometry scale','—','0.95–1.05','todo'],['Yaw after 360°','—','< 3°','todo'],['Gyro drift','—','< 0.5°/min','todo']],alert:null,prev:prev21,run:'Run'},
+
+{t:'Servo centre + steering limits',st:'todo',sum:'',saved:'—',
+ need:'Lift the front wheels off the ground. The servo will move.',
+ prompts:[['Press Centre: the wheels go to the saved centre','now'],['Move the trim slider until the wheels line up with the yellow guide','todo'],['Press Find left limit, stop when the wheel is just before binding','todo'],['Do the same for the right limit','todo']],
+ controls:`<label>Centre trim (base angular.z)<input type="range" min="-0.1" max="0.1" step="0.001" value="0.012"></label>
+  <div class="row"><button class="btn">Centre</button><button class="btn">Nudge left</button><button class="btn">Nudge right</button></div>
+  <div class="row"><button class="btn">Find left limit</button><button class="btn">Find right limit</button></div>`,
+ live:()=>`<div class="panel"><h3>Front camera with centre guide</h3>${camTile('Front','Astra Pro','',{side:0,guide:14})}<div class="kv" style="margin-top:10px"><span>Commanded</span><b>+0.012</b><span>Left limit</span><b>—</b><span>Right limit</span><b>—</b></div></div>`,
+ metrics:[['Centre trim','—','|x| < 0.10','todo'],['Left limit','—','≥ 0.35 rad','todo'],['Right limit','—','≥ 0.35 rad','todo']],alert:null,prev:prev21,run:'Save limits'},
+
+{t:'Speed PID',st:'todo',sum:'',saved:'—',
+ need:'Car on the track straight with 3 m clear ahead. It will drive by itself for about 3 s.',
+ prompts:[['Place the car at the start of the straight','now'],['Press Run step test: 0 → 0.40 m/s → 0','todo'],['Check the green line follows the grey target','todo'],['If it overshoots, lower kp in Tuning and Redo','todo']],
+ controls:`<div class="row"><label>kp<input type="number" value="0.80" step="0.05"></label><label>ki<input type="number" value="0.20" step="0.05"></label><label>kd<input type="number" value="0.00" step="0.01"></label></div><label>Step target (m/s)<input type="number" value="0.40" step="0.05"></label>`,
+ live:()=>{const t=[],m=[];let v=0;for(let i=0;i<80;i++){const r=i<10||i>60?0:0.4;t.push(r);v+=(r-v)*0.15+(i>12&&i<25?0.012:0);m.push(v);}return `<div class="panel"><h3>Step response</h3>${chartSvg([[t,'var(--muted)',2,'5 4'],[m,'var(--ok)',2.5]],0,0.6)}<div class="legend"><span><i style="background:var(--muted)"></i>Target</span><span><i style="background:var(--ok)"></i>Measured</span></div></div>`;},
+ metrics:[['Overshoot','—','< 10 %','todo'],['Settling time','—','< 0.8 s','todo'],['Steady-state error','—','< 0.02 m/s','todo']],alert:null,prev:prev21,run:'Run step test'},
+
+{t:'Venue colour + lighting',st:'todo',sum:'',saved:'—',
+ prompts:[['Put the car on the track under the competition lighting','now'],['Press Sample road, then drag a box over plain road in the front feed','todo'],['Press Sample line and drag a box over a lane line','todo'],['Check the blue mask covers the road in all three cameras','todo']],
+ controls:`<div class="row"><button class="btn">Sample road</button><button class="btn">Sample line</button></div><label>Luma threshold<input type="range" min="60" max="220" value="142"></label><label>Chroma max<input type="range" min="0" max="60" value="18"></label>`,
+ live:()=>`<div class="panel"><h3>Road mask on all cameras</h3><div class="grid g3" style="margin-bottom:12px">${camTile('Front','','',{side:0,mask:true})}${camTile('Left rear','','',{side:-1,mask:true})}${camTile('Right rear','','',{side:1,mask:true})}</div><h3>Luma histogram</h3><svg viewBox="0 0 600 120" class="hist"></svg></div>`,
+ metrics:[['Seed box road','—','> 90 %','todo'],['Line pixels in mask','—','< 3 %','todo']],alert:null,prev:prev21,run:'Save thresholds'},
+
+{t:'UWB anchor survey + offsets',st:'kept',sum:'kept from 20260921_190455',saved:'kept',
+ need:'Anchors 1786, 1782 and 1783 on their stands, powered, at the surveyed points.',
+ prompts:[['Measure each anchor position from the venue origin and type it below','done'],['Place the tag (on the car) on known point K1 and press Record point','done'],['Repeat on K2 and K3','done'],['Press Compute offsets','done']],
+ controls:`<table><tr><th>Anchor</th><th>x</th><th>y</th><th>z</th></tr><tr><td>1786</td><td>0.00</td><td>0.00</td><td>1.20</td></tr><tr><td>1782</td><td>6.10</td><td>0.00</td><td>1.20</td></tr><tr><td>1783</td><td>6.10</td><td>4.20</td><td>1.20</td></tr></table><div class="row"><button class="btn">Record point</button><select><option>K1</option><option>K2</option><option>K3</option></select></div>`,
+ live:()=>`<div class="panel"><h3>Live ranges</h3><table><tr><th>Anchor</th><th class="r">Raw</th><th class="r">Corrected</th><th class="r">Offset</th><th class="r">Age</th><th style="width:40%"></th></tr>
+  <tr><td>1786</td><td class="r">3.412</td><td class="r">2.498</td><td class="r">0.914</td><td class="r">0.08 s</td><td><div class="bar"><i class="ok" style="width:62%"></i></div></td></tr>
+  <tr><td>1782</td><td class="r">5.108</td><td class="r">4.187</td><td class="r">0.921</td><td class="r">0.11 s</td><td><div class="bar"><i class="ok" style="width:88%"></i></div></td></tr>
+  <tr><td>1783</td><td class="r">2.906</td><td class="r">1.972</td><td class="r">0.934</td><td class="r">0.09 s</td><td><div class="bar"><i class="ok" style="width:48%"></i></div></td></tr></table>
+  <p class="muted" style="font-size:12.5px;margin:10px 0 0">Anchor layout HDOP at the track centre: 1.4</p></div>`,
+ metrics:[['Offsets','0.914 / 0.921 / 0.934 m','0.6–1.2 m','pass'],['Residual at K1–K3','0.04 m','< 0.10 m','pass']],alert:{k:'info',t:'Using the previous value',b:'You chose to keep the survey from 20260921_190455. Press Redo to measure again.'},prev:prev21,run:'Redo'},
+
+{t:'Build map from a lap',st:'run',sum:'2 handles still red',saved:'—',
+ need:'Steps 6 and 10 passed. Camera-to-map matching is switched off during the lap, so the map is fitted to where the car really drove.',
+ sub:`<div class="seg" role="group" aria-label="Build mode"><button aria-pressed="true">Full build (new venue)</button><button aria-pressed="false">Quick re-align (points)</button></div>`,
+ prompts:[['Put the car anywhere on the start lane','done'],['Press Record lap, then push the car slowly once along every road: loop, lane change, roundabout, tunnel and both parking roads','done'],['Press Stop lap. Auto-fit moves and rotates the competition map onto your lap','done'],['Drag each red handle onto the orange lap line (2 left), then press Refit','now'],['When every section is green, press Save map','todo']],
+ controls:`<div class="row"><button class="btn">Record lap</button><button class="btn">Stop lap</button></div>
+  <div class="row"><button class="btn">Auto-fit<small>Moves and rotates the whole map onto the lap</small></button><button class="btn">Refit<small>Keeps the handles you dragged</small></button></div>
+  <div class="row"><button class="btn">Reset selected handle</button><button class="btn">Discard lap</button></div>
+  <div class="kv"><span>Lap length</span><b>21.8 m</b><span>Samples</span><b>1,942</b><span>Duration</span><b>74 s</b><span>Selected handle</span><b>roundabout · exit N</b></div>`,
+ live:()=>`<div class="panel"><h3>Recorded lap (locked) and the fitted map <small>drag the handles</small></h3>${trackSvg(`
+   <path d="M128 474 L618 468 Q776 466 782 332 L776 170 Q784 84 690 76 L362 82 M258 78 L172 82 Q114 78 108 150 L112 468 M312 128 L306 330 L562 334" fill="none" stroke="var(--warn)" stroke-width="3" stroke-dasharray="5 4"/>
+   ${[[120,470,1],[620,470,1],[780,330,1],[780,170,1],[690,80,1],[310,34,0],[356,80,1],[264,80,1],[170,80,1],[110,150,1],[450,470,0],[310,330,1],[560,330,1]].map(([x,y,ok])=>`<circle cx="${x}" cy="${y}" r="9" fill="${ok?'var(--ok)':'var(--bad)'}" stroke="#fff" stroke-width="2.5"/>`).join('')}
+   <path d="M310 34 L310 18" stroke="var(--bad)" stroke-width="2"/><rect x="322" y="8" width="150" height="22" rx="6" fill="var(--bad)"/><text x="397" y="23" text-anchor="middle" font-size="12" font-weight="650" fill="#fff">Roundabout exit N · 7.4 cm</text>
+   <rect x="392" y="492" width="160" height="22" rx="6" fill="var(--bad)"/><text x="472" y="507" text-anchor="middle" font-size="12" font-weight="650" fill="#fff">Lane-change centre · 6.1 cm</text>`)}
+   <div class="legend"><span><i style="background:var(--warn)"></i>Recorded lap (UWB + IMU + encoder)</span><span><i style="background:var(--road);outline:1px solid var(--line)"></i>Fitted map</span><span><i style="background:var(--ok)"></i>Handle on the lap</span><span><i style="background:var(--bad)"></i>Handle off by more than 5 cm</span></div></div>`,
+ metrics:[['Whole-map fit RMS','3.1 cm','< 5 cm','pass'],['Roundabout','7.4 cm','< 5 cm','fail'],['Lane change','6.1 cm','< 5 cm','fail'],['Tunnel, loop, parking roads','2.2 cm','< 5 cm','pass'],['Lap coverage','96 %','> 90 %','pass']],
+ alert:{k:'info',t:'2 handles are still off the lap',b:'Drag them onto the orange line and press Refit. If the orange line itself looks wrong there, press Discard lap and record again more slowly.'},
+ hint:'Saving a new map marks step 12 as out of date, because the route was planned on the old map.',
+ prev:prev21,run:'Save map',runDisabled:true},
+
+{t:'Mission planner',st:'run',sum:'P3 off the road',saved:'—',
+ need:'Needs step 11 saved. Routes and roundabout exits are planned on that exact map. Race mode refuses to arm if the map changes afterwards.',
+ sub:`<div class="seg" role="group" aria-label="Point"><button aria-pressed="false">P0 ✓</button><button aria-pressed="false">P1 ✓</button><button aria-pressed="false">P2 ✓</button><button aria-pressed="true">P3</button><button aria-pressed="false">Review</button></div>`,
+ prompts:[['Place P0, the start: drag the car, drag the orange dot to rotate it','done'],['Place P1. The leg 1 route is calculated and drawn','done'],['Place P2 in the parallel bay. Leg 2 and its parking manoeuvre are drawn, reverse in orange','done'],['Place P3, the finish. The car must turn green: its whole body on the road','now'],['Check all three routes and their roundabout exits, then press Save mission','todo']],
+ controls:`<div class="row"><button class="btn">−5°</button><button class="btn">−1°</button><button class="btn">+1°</button><button class="btn">+5°</button></div>
+  <div class="row"><button class="btn">Flip<small>Nose-in ↔ reverse-in</small></button><button class="btn">Reset pose</button></div>
+  <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" checked> Snap to lane centre, or centred in a bay</label>
+  <div class="kv"><span>P3 pose</span><b>0.62, 2.18, 270.0°</b><span>Pose is</span><b>rear-axle centre</b></div>`,
+ live:()=>`<div class="panel"><h3>Legs and routes</h3>${trackSvg(`
+   <path d="M130 470 L620 470 Q780 470 780 330 L780 170 Q780 80 690 80" fill="none" stroke="var(--lane)" stroke-width="4"/>
+   <path d="M690 80 L356 80 A46 46 0 0 1 316 126 L316 324 L600 324" fill="none" stroke="var(--ok)" stroke-width="4"/>
+   <path d="M600 324 L640 330" stroke="#E8871E" stroke-width="5"/>
+   ${[[130,470,0,'P0','var(--muted)'],[690,80,180,'P1','var(--muted)'],[640,330,0,'P2','var(--muted)'],[92,400,270,'P3','var(--bad)']].map(([x,y,r,l,c])=>`<g transform="translate(${x} ${y}) rotate(${r})"><rect x="-8" y="-11" width="30" height="22" rx="4" fill="${c}" opacity=".9"/><path d="M22 0 l-7 -5 v10z" fill="#fff"/></g><text x="${x}" y="${y-18}" text-anchor="middle" font-size="12" font-weight="750" fill="${c}">${l}</text>`).join('')}
+   <circle cx="92" cy="428" r="7" fill="#E8871E" stroke="#fff" stroke-width="2"/>
+   <rect x="140" y="384" width="190" height="40" rx="7" fill="var(--bad)"/><text x="235" y="400" text-anchor="middle" font-size="12" font-weight="650" fill="#fff">P3 is off the road</text><text x="235" y="416" text-anchor="middle" font-size="11" fill="#fff">rear-left corner 3 cm outside</text>`)}
+   <div class="legend"><span><i style="background:var(--lane)"></i>Leg 1</span><span><i style="background:var(--ok)"></i>Leg 2</span><span><i style="background:#E8871E"></i>Reverse</span><span><i style="background:var(--bad)"></i>Car off the road</span></div></div>`,
+ metrics:[['Leg 1 route','7.9 m','found','pass'],['Leg 2 route + parallel park','6.2 m, 0.9 m reverse','found','pass'],['Leg 3 route','—','found','fail'],['Map fingerprint','3f9a2c1e','= track_map.yaml','pass']],
+ extra:`<table style="margin-top:12px"><tr><th>Leg</th><th>From → to</th><th>Roundabout exits</th><th>Parking</th></tr><tr><td>1</td><td>P0 → P1</td><td>—</td><td>—</td></tr><tr><td>2</td><td>P1 → P2</td><td>south</td><td>parallel, 2 cusps</td></tr><tr><td>3</td><td>P2 → P3</td><td class="muted">not planned</td><td>un-park</td></tr></table>`,
+ alert:{k:'bad',t:'Leg 3 has no route: P3 is off the road',c:'The rear-left corner of the car is 3 cm outside the road edge, so no legal route can end there.',f:'Drag the car towards the lane centre or tick Snap to lane. It turns green when the whole body is on the road, and leg 3 is planned straight away.'},
+ prev:prev21,run:'Save mission',runDisabled:true},
+
+{t:'Practice runs',st:'opt',sum:'optional',saved:'—',
+ need:'Optional. The car drives by itself. Clear the track.',
+ prompts:[['Pick a challenge and place the car at its start marker','now'],['Press Run practice','todo'],['Watch the result, adjust in Tuning if needed, and run again','todo']],
+ controls:`<label>Challenge<select><option>1 · Lane change</option><option>3 · Tunnel</option><option>7 · Traffic light</option><option>10 · Parallel parking</option></select></label>`,
+ live:()=>`<div class="panel"><h3>Practice results</h3><table><tr><th>Challenge</th><th>Runs</th><th>Last</th></tr><tr><td>3 · Tunnel</td><td>2</td><td class="ok-t">completed</td></tr><tr><td>10 · Parallel parking</td><td>3</td><td class="bad-t">touched bay line</td></tr></table></div>`,
+ metrics:[],alert:null,prev:null,run:'Run practice'}
+];
+
+function stepPage(s,i){
+  const n=i+1,[stTxt,stCls]=ST[s.st];
+  const canNext=['pass','kept','opt'].includes(s.st);
+  const prompts=s.prompts.map(([t,st])=>`<li class="${st==='done'?'done':st==='now'?(s.st==='fail'?'fail now':'now'):''}">${st==='now'?`<span><b class="nowtag">${s.st==='fail'?'Fix this':'Do this now'}</b>${t}</span>`:`<span>${t}</span>`}</li>`).join('');
+  const met=s.metrics.length?`<table class="metric"><tr><th>Check</th><th class="r">Measured</th><th class="r">Limit</th><th>Result</th></tr>${s.metrics.map(([a,b,c,d])=>`<tr><td>${a}</td><td class="r">${b}</td><td class="r">${c}</td><td class="${d==='pass'?'ok-t':d==='fail'?'bad-t':'muted'}">${d==='pass'?'pass':d==='fail'?'fail':'waiting'}</td></tr>`).join('')}</table>`:'';
+  let al='';
+  if(s.alert){al=s.alert.k==='bad'?`<div class="alert bad"><b class="t">${s.alert.t}</b><dl><dt>Why</dt><dd>${s.alert.c}</dd><dt>Fix</dt><dd>${s.alert.f}</dd></dl></div>`:`<div class="alert ${s.alert.k}"><b class="t">${s.alert.t}</b>${s.alert.b}</div>`;}
+  const keep=s.prev?`<button class="btn">Keep previous value<small>${s.prev}</small></button>`:`<button class="btn" disabled>Keep previous value<small>No previous value exists: this step must pass</small></button>`;
+  return `<section id="cal-${n}" data-title="Step ${n} · ${s.t}">
+  <div class="stephead"><span class="num">Step ${n} of ${S.length}</span><h1>${s.t}</h1><span class="chip ${stCls}">${stTxt}</span>${s.sub||''}
+    <div class="nav"><button class="btn" data-go="cal-${n-1>0?n-1:'overview'}">Previous</button>${n<S.length?`<button class="btn ${canNext?'primary':''}" ${canNext?'':'disabled'} data-go="cal-${n+1}">Next step</button>`:''}${canNext||n===S.length?'':`<span class="why">Pass this step or keep the previous value to continue</span>`}</div></div>
+  <div class="calib">
+    <div class="side">
+      ${s.need?`<div class="need"><b>Before you start</b><span>${s.need}</span></div>`:''}
+      <div class="panel"><h3>What to do</h3><ol class="steps">${prompts}</ol></div>
+      <div class="panel"><h3>Controls</h3><div class="ctl">${s.controls}</div></div>
+    </div>
+    <div class="side">
+      ${s.live()}
+      <div class="panel"><h3>Result</h3>${al}${met}${s.extra||''}
+        <div class="actions"><button class="btn primary" ${s.runDisabled?'disabled':''}>${s.run}</button><button class="btn good" ${s.st==='pass'||s.st==='kept'?'':'disabled'}>Save</button><button class="btn">Redo</button>${s.st==='opt'?'':keep}
+        <span class="hint">${s.hint?s.hint+' ':''}Save writes timestamped YAML into the active session. Nothing is overwritten.</span></div></div>
+    </div>
+  </div></section>`;}
+store.insertAdjacentHTML('beforeend',S.map(stepPage).join(''));
+
+/* overview table */
+const ov=store.querySelector('.ovtab');
+S.forEach((s,i)=>{const [t,c]=ST[s.st];const tr=document.createElement('tr');
+  tr.innerHTML=`<td>${i+1}</td><td>${s.t}</td><td><span class="chip ${c}">${t}</span></td><td class="muted">${s.sum||'—'}</td><td>${s.saved}</td><td><button class="btn" data-go="cal-${i+1}">Open</button></td>`;ov.appendChild(tr);});
+
+/* ---------- drawings needing JS ---------- */
+store.querySelectorAll('.mapgrid').forEach(mg=>{for(let x=0;x<=900;x+=50)el('line',{x1:x,y1:0,x2:x,y2:560},mg);for(let y=0;y<=560;y+=50)el('line',{x1:0,y1:y,x2:900,y2:y},mg);});
+store.querySelectorAll('.camrow').forEach(r=>{r.innerHTML=camTile('Front','Astra Pro','29.8 fps',{side:0,mask:true})+camTile('Left rear','OV5647 ch 2','29.6 fps',{side:-1,mask:true})+camTile('Right rear','IMX219 ch 0','29.4 fps',{side:1,mask:true});});
+
+// perception + planner BEV
+store.querySelectorAll('svg.pp').forEach(pp=>{
+  el('rect',{width:600,height:600,fill:'#1D2229',rx:8},pp);
+  const foot=el('g',{'data-l':'foot'},pp), mask=el('g',{'data-l':'mask'},pp), seam=el('g',{'data-l':'seam',style:'display:none'},pp);
+  for(let i=0;i<60;i++)for(let j=0;j<60;j++){const x=j-30,y=60-i,c=Math.sin(y/22)*6;const shade=(i<24)?'#3A424D':(j<28?'#343B45':'#30373F');
+    el('rect',{x:j*10,y:i*10,width:10,height:10,fill:shade},foot);
+    if(Math.abs(x-c)<11+(rnd()<.05?1:0)) el('rect',{x:j*10,y:i*10,width:10,height:10,fill:'#3D82F5',opacity:.55},mask);}
+  el('path',{d:'M0 240 L600 240 M280 240 L280 600',stroke:'#F5B942','stroke-width':2,'stroke-dasharray':'6 6'},seam);
+  // final drivable edge (smooth)
+  const edge=el('g',{'data-l':'edge'},pp);
+  let L='',R='';for(let i=0;i<=60;i++){const y=60-i,c=Math.sin(y/22)*6;L+=`${i?'L':'M'}${(c-11+30)*10} ${i*10} `;R+=`${i?'L':'M'}${(c+11+30)*10} ${i*10} `;}
+  el('path',{d:L,stroke:'#fff','stroke-width':3,fill:'none'},edge);el('path',{d:R,stroke:'#fff','stroke-width':3,fill:'none'},edge);
+  el('rect',{x:430,y:250,width:36,height:36,fill:'#8B93A1',stroke:'#FF6B6B','stroke-width':2,rx:3},pp);
+  const cor=el('g',{'data-l':'cor',style:'display:none'},pp);
+  el('path',{d:'M300 520 Q300 300 '+((Math.sin(1)*6+30)*10)+' 0',stroke:'#3BE08A','stroke-width':2.5,'stroke-dasharray':'8 6',fill:'none'},cor);
+  const rej=el('g',{'data-l':'rej'},pp),sel=el('g',{'data-l':'sel'},pp);
+  for(let k=-7;k<=7;k++){const ex=300+k*30+Math.sin(1)*40, isSel=k===0, bad=[4,5,6,7,-7,-6].includes(k), relax=k===-5||k===3;
+    const p=el('path',{d:`M300 520 Q300 320 ${ex} 60`,fill:'none',stroke:isSel?'#4C8DFF':(relax?'#F5B942':'#9AA3B2'),'stroke-width':isSel?6:2.5,opacity:isSel?1:(bad?.45:.8),'stroke-dasharray':bad?'5 5':''},isSel?sel:rej);
+    el('title',{},p).textContent=`#${k+7} offset ${(k*0.04).toFixed(2)} m, cost ${(1.24+Math.abs(k)*0.52).toFixed(2)}${bad?', rejected: clearance':''}`;}
+  el('rect',{x:284,y:500,width:32,height:52,rx:6,fill:'#4C8DFF',stroke:'#fff','stroke-width':2},pp);
+});
+document.addEventListener('change',e=>{const l=e.target.dataset&&e.target.dataset.layer;if(!l)return;const sec=e.target.closest('section');sec.querySelectorAll(`[data-l="${l}"]`).forEach(g=>g.style.display=e.target.checked?'':'none');});
+
+store.querySelectorAll('svg.memsvg').forEach(m=>{el('rect',{width:600,height:600,fill:'var(--raised)',rx:8},m);
+  for(let i=0;i<40;i++)for(let j=0;j<40;j++){const x=j-20,c=Math.sin(i/14)*3;if(Math.abs(x-c)<7)el('rect',{x:j*15,y:i*15,width:14,height:14,fill:'var(--lane)',opacity:(1-i/40)*.85+.1},m);}
+  for(let a=0;a<360;a+=1.2){const r=a*Math.PI/180,dx=Math.cos(r),dy=Math.sin(r);let d=Math.abs(dx)>.05?Math.min(150/Math.abs(dx),260):260;if(a>80&&a<96)d=45;d+=(rnd()-.5)*6;el('circle',{cx:300+dx*d,cy:450-dy*d,r:2.2,fill:'var(--bad)'},m);}
+  el('rect',{x:288,y:430,width:24,height:40,rx:5,fill:'var(--ink)'},m);});
+
+store.querySelectorAll('svg.locsvg').forEach(L=>{el('rect',{width:700,height:520,fill:'var(--raised)',rx:8},L);
+  for(let x=0;x<=700;x+=35)el('line',{x1:x,y1:0,x2:x,y2:520,stroke:'var(--grid)','stroke-width':.6},L);for(let y=0;y<=520;y+=35)el('line',{x1:0,y1:y,x2:700,y2:y,stroke:'var(--grid)','stroke-width':.6},L);
+  [[60,60,'1786',250],[640,70,'1782',390],[620,470,'1783',230]].forEach(([x,y,id,r])=>{el('circle',{cx:x,cy:y,r,fill:'none',stroke:'var(--muted)','stroke-width':1.2,'stroke-dasharray':id==='1783'?'4 6':'',opacity:.7},L);el('path',{d:`M${x} ${y-12} L${x+11} ${y+8} L${x-11} ${y+8}Z`,fill:'var(--ink)'},L);el('text',{x:x+14,y:y+4,'font-size':13,'font-weight':650,fill:'var(--ink)'},L).textContent=id;});
+  el('ellipse',{cx:318,cy:268,rx:30,ry:18,fill:'var(--warn)',opacity:.12,stroke:'var(--warn)'},L);el('circle',{cx:318,cy:268,r:6,fill:'var(--warn)'},L);
+  el('ellipse',{cx:306,cy:282,rx:22,ry:14,transform:'rotate(-30 306 282)',fill:'var(--ok)',opacity:.15,stroke:'var(--ok)'},L);el('circle',{cx:306,cy:282,r:6,fill:'var(--ok)'},L);
+  el('path',{d:'M302 287 l16 -12 l-4 10 l6 8 z',fill:'var(--lane)',stroke:'#fff','stroke-width':1.5},L);});
+
+const n=120,req=[],cmd=[],meas=[],sreq=[],scmd=[];let c=0,mm=0,sc=0;
+for(let i=0;i<n;i++){const r=i<60?0.4:(i<75?0.4:0);req.push(r);const cap=i>=78?0:r;c+=(cap-c)*0.3;cmd.push(c);mm+=(c-mm)*0.2;meas.push(Math.max(0,mm+(rnd()-.5)*0.02));const sr=Math.sin(i/14)*0.14;sreq.push(sr);sc+=(sr-sc)*0.3;scmd.push(sc);}
+store.querySelectorAll('svg.chart').forEach(s=>{s.outerHTML=s.dataset.chart==='spd'?chartSvg([[req,'var(--muted)',2],[cmd,'var(--lane)',2.5],[meas,'var(--ok)',2]],0,0.6):chartSvg([[sreq,'var(--muted)',2],[scmd,'var(--lane)',2.5]],-0.3,0.3);});
+store.querySelectorAll('.cores').forEach(cr=>{[64,58,71,49,55,62,73,40].forEach((v,i)=>{cr.insertAdjacentHTML('beforeend',`<div class="kv"><span>Core ${i}</span><b>${v} %</b></div><div class="bar" style="margin:3px 0 8px"><i style="width:${v}%"></i></div>`);});});
+
+store.querySelectorAll('svg.bevmini').forEach(b=>{el('rect',{width:600,height:300,fill:'#1D2229',rx:8},b);
+  el('path',{d:'M180 300 Q240 150 250 0 L350 0 Q360 150 420 300Z',fill:'#3D82F5',opacity:.5},b);
+  el('path',{d:'M420 300 Q400 180 372 120 L352 120 Q380 180 398 300Z',fill:'#FF4B4B',opacity:.55},b);
+  el('path',{d:'M0 120 L600 120 M300 120 L300 300',stroke:'#F5B942','stroke-width':2,'stroke-dasharray':'6 6'},b);
+  el('text',{x:430,y:170,'font-size':13,fill:'#FF9A9A','font-weight':650},b).textContent='front/right seam 3.8 cm';});
+store.querySelectorAll('svg.hist').forEach(h=>{el('rect',{width:600,height:120,fill:'var(--raised)',rx:8},h);for(let i=0;i<100;i++){const v=Math.exp(-((i-35)**2)/80)*80+Math.exp(-((i-78)**2)/30)*50+rnd()*4;el('rect',{x:10+i*5.8,y:110-v,width:4.6,height:v,fill:i>=57?'var(--lane)':'var(--muted)'},h);}el('line',{x1:10+57*5.8,x2:10+57*5.8,y1:6,y2:112,stroke:'var(--warn)','stroke-width':2},h);});
+store.querySelectorAll('svg.lapsvg').forEach(l=>{el('rect',{width:600,height:340,fill:'var(--raised)',rx:8},l);el('rect',{x:60,y:50,width:480,height:240,rx:60,fill:'none',stroke:'var(--line)','stroke-width':30},l);
+  el('path',{d:'M90 290 L90 110 Q90 55 150 52 L400 48',fill:'none',stroke:'var(--warn)','stroke-width':3,'stroke-dasharray':'4 4'},l);el('circle',{cx:92,cy:280,r:8,fill:'var(--ink)'},l);el('text',{x:108,y:285,'font-size':12,fill:'var(--ink)'},l).textContent='P0';});
+
+/* ---------- nav + panes ---------- */
+const RACE=[['drive','','Drive','ok'],['map','1','Global map','ok'],['percplan','2','Perception + planner','ok'],['memory','3','Memory + LiDAR','bad'],['loc','4','Localization','ok'],['det','5','Detections','ok'],['control','6','Control + safety','bad'],['health','7','System health','ok'],['events','8','Events + log','warn']];
+const rail=document.getElementById('rail');
+function buildNav(){
+  const mode=document.body.dataset.mode;let h='';
+  if(mode==='race'){
+    h+=`<button class="splitbtn" aria-pressed="${split}" id="splitbtn">${split?'Single view':'Split view'}</button><h2>Tabs</h2>`;
+    h+=RACE.map(([id,n,t,f])=>`<button class="navbtn" data-tab="${id}"><span class="n">${n}</span>${t}<span class="flag ${f}"></span></button>`).join('');
+  } else {
+    h+=`<button class="navbtn" data-tab="cal-overview"><span class="n"></span>Overview</button><h2>Calibration steps</h2>`;
+    h+=S.map((s,i)=>`<button class="navbtn" data-tab="cal-${i+1}"><span class="n">${i+1}</span>${s.t}<span class="flag ${FLAG[s.st]}"></span></button>`).join('');
+    h+=`<h2>Tools</h2><button class="navbtn" data-tab="tuning"><span class="n"></span>Tuning</button>`;
+    h+=`<details class="diag"><summary>Diagnostics</summary>${RACE.slice(1).map(([id,n,t])=>`<button class="navbtn" data-tab="${id}"><span class="n">${n}</span>${t}</button>`).join('')}</details>`;
+  }
+  rail.innerHTML=h;markNav();
+}
+let split=false, focus=0, cur=['drive','percplan'];
+const panes=[...document.querySelectorAll('.pane')];
+function place(p,id){
+  const other=1-p;
+  if(split&&cur[other]===id){cur[other]=cur[p];}
+  cur[p]=id;render();}
+function render(){
+  [...document.querySelectorAll('.panebody section')].forEach(s=>store.appendChild(s));
+  const shown=split?[0,1]:[0];
+  shown.forEach(p=>{const s=document.getElementById(cur[p]);if(s)panes[p].querySelector('.panebody').appendChild(s);
+    const sel=panes[p].querySelector('select');sel.innerHTML=RACE.map(([id,,t])=>`<option value="${id}" ${id===cur[p]?'selected':''}>${t}</option>`).join('');});
+  panes[1].hidden=!split;document.getElementById('panes').classList.toggle('split',split);
+  panes.forEach((pn,i)=>pn.classList.toggle('focus',split&&i===focus));markNav();}
+function markNav(){rail.querySelectorAll('.navbtn').forEach(b=>b.setAttribute('aria-current',b.dataset.tab===cur[focus]||(split&&b.dataset.tab===cur[1-focus])));}
+panes.forEach((pn,i)=>{pn.addEventListener('mousedown',()=>{if(split){focus=i;panes.forEach((q,j)=>q.classList.toggle('focus',j===i));markNav();}});
+  pn.querySelector('select').addEventListener('change',e=>{focus=i;place(i,e.target.value);});});
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-tab]');if(t&&rail.contains(t)){place(split?focus:0,t.dataset.tab);return;}
+  const g=e.target.closest('[data-go]');if(g){let id=g.dataset.go;if(id==='cal-overview'||id==='cal-0')id='cal-overview';
+    if(document.body.dataset.mode==='calibrate'&&!id.startsWith('cal')&&id!=='tuning'){}
+    place(split?focus:0,id);return;}
+  if(e.target.closest('#splitbtn')){split=!split;if(split&&cur[1]===cur[0])cur[1]=cur[0]==='percplan'?'control':'percplan';focus=0;buildNav();render();return;}
+  const sm=e.target.closest('[data-setmode]');if(sm){const m=sm.dataset.setmode;document.body.dataset.mode=m;document.querySelectorAll('[data-setmode]').forEach(b=>b.setAttribute('aria-pressed',b===sm));
+    split=false;focus=0;cur=m==='race'?['drive','percplan']:['cal-3','percplan'];buildNav();render();return;}
+  const sc=e.target.closest('[data-setscn]');if(sc){document.body.dataset.scn=sc.dataset.setscn;document.querySelectorAll('[data-setscn]').forEach(b=>b.setAttribute('aria-pressed',b===sc));return;}
+  const sg=e.target.closest('.seg button');if(sg&&!sg.dataset.setmode&&!sg.dataset.setscn){sg.parentElement.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===sg));}
+});
+
+const dlgEl=document.getElementById('takeover');
+function setManual(on){document.body.dataset.manual=on?'on':'off';document.getElementById('manualBtn').setAttribute('aria-pressed',on);}
+document.getElementById('manualBtn').addEventListener('click',()=>{
+  const on=document.body.dataset.manual==='on';
+  if(on){setManual(false);return;}
+  if(document.body.dataset.mode==='race'){dlgEl.showModal();}else setManual(true);});
+document.getElementById('tkCancel').addEventListener('click',()=>dlgEl.close());
+document.getElementById('tkGo').addEventListener('click',()=>{dlgEl.close();setManual(true);});
+buildNav();render();
+})();
+</script>
+</body>
+</html>

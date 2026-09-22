@@ -1,0 +1,16 @@
+{
+  "bundle_sha256": "b3f604e78d21c49ff57ba9880929a1ce0b159b559fce988d7b61b5e2cb0e65e4",
+  "source_sha256": {
+    "src/reeds-shepp.js": "d2f5306f6adf9ebebaa7f1744ac5c81d686c5dbd949996ffb156fe1220918859",
+    "src/vehicle.js": "b971f67106e5a0dc995090aa4e00ad9c070f2c2a49de71fb359d36f870e203e9",
+    "src/local-planner.js": "3f40d466e85e63674a9cabfc5baff50bc90fe37f238f13c5486e713a02b96ea3",
+    "src/app.js": "6fa2d4c12fc1ded8887197de388fdfdb3d9d70ad79d81c948153071a312e31d2",
+    "src/guidance.js": "c1aeed7a31fb6c2ac8528bf8d52a6cebfdd5fe0a22927faf031f2e5667f9fe24",
+    "src/scene.js": "5dd103c95b7762f56dc80e337d4124c49a227b880984cb840dce48f183fba00c",
+    "src/core.js": "ecbd843b5a754ad913dd637ee489f794013e2a166ee652f8b4848d36d8133811",
+    "src/perception.js": "4d472fee2e9c2b1d8cefc0a7c0b9738c4cb04cff4fcc9aa3ad02a396a5ae221e",
+    "src/recovery.js": "41dddb2acdafe939cdbd3592d8e52c78a8e8b761afb661f6ba1f299a33b0ef6a"
+  },
+  "version": "V4",
+  "notes": "Recovery continuation and recovery fault checks exercised the packaged logic. Normal 20 cm full run completed without invoking recovery; all recorded outcomes are in VALIDATION.md."
+}

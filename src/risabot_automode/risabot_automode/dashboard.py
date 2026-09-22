@@ -11,11 +11,14 @@ Or via launch:   included in competition.launch.py
 import http.server
 import json
 import math
+import re
 import socketserver
 import threading
 import time
 import os
 import yaml
+import numpy as np
+from .parameter_values import coerce_parameter_value
 
 import cv2
 import rclpy
@@ -37,6 +40,9 @@ from .topics import (
     CAMERA_DEBUG_OBS_TOPIC,
     CAMERA_DEBUG_TL_TOPIC,
     CAMERA_IMAGE_TOPIC,
+    MIPI_SECONDARY_TOPIC,
+    MIPI_TERTIARY_TOPIC,
+    SIDE_CAMERA_REQUEST_TOPIC,
     CMD_VEL_TOPIC,
     DASH_CTRL_TOPIC,
     DASH_STATE_TOPIC,
@@ -62,42 +68,92 @@ from .topics import (
 )
 
 try:
-    from cv_bridge import CvBridge
+    from cv_bridge import CvBridge, CvBridgeError
 except ImportError:
     CvBridge = None
+    CvBridgeError = Exception
+
+from .dashboard_panels import registry
 
 # ======================== HTML Dashboard ========================
 
 from .dashboard_templates import DASHBOARD_HTML, TEACH_HTML
 
 _DEFAULT_PARAMS = {}
-_PARAMS_SOURCE_PATH = ''  # Path to the SOURCE params.yaml (for writing back)
+_PARAMS_SOURCE_PATH = ''  # Legacy compatibility: automode source params path.
+_PARAMS_SOURCE_PATHS = []
+
+_PARAM_CONFIGS = (
+    ('risabot_automode', 'params.yaml', os.path.join('..', 'config', 'params.yaml')),
+    ('risabot_v4_experimental', 'v4_experimental.yaml',
+     os.path.join('..', '..', 'risabot_v4_experimental', 'config', 'v4_experimental.yaml')),
+    ('risabot_v4_control', 'v4_control.yaml',
+     os.path.join('..', '..', 'risabot_v4_control', 'config', 'v4_control.yaml')),
+)
+
+_V4_DASHBOARD_SAFE_PARAMS = {
+    'v4_bev_shadow': {'max_hz'},
+    'v4_road_mask_shadow': {
+        'value_min', 'value_max', 'saturation_max', 'morph_open_px',
+        'morph_close_px', 'min_component_px', 'seed_radius_m',
+        'min_corridor_width_m', 'max_corridor_width_m',
+        'corridor_row_step_px', 'memory_planning_age_sec',
+        'memory_planning_distance_m', 'memory_reset_jump_m',
+        'memory_reset_yaw_rad',
+    },
+    'v4_trajectory_shadow': {
+        'horizon_m', 'step_m', 'lookahead_m', 'rollout_speed_mps',
+        'steering_lag_sec', 'steering_rate_rad_sec',
+        'footprint_sample_spacing_m', 'minimum_road_support',
+        'obstacle_margin_m',
+    },
+    'v4_motion_executor': {
+        'forward_speed_mps', 'path_forward_speed_mps',
+        'path_reverse_speed_mps', 'minimum_speed_scale',
+        'hill_max_speed_mps',
+    },
+}
+
+_V4_COMPOSITE_TILES = (
+    ('bev', 'BEV'),
+    ('coverage', 'COVERAGE'),
+    ('candidate', 'CANDIDATE'),
+    ('connected', 'CONNECTED'),
+    ('fused', 'FUSED'),
+)
+_V4_COMPOSITE_LABELS = dict(_V4_COMPOSITE_TILES)
+_V4_COMPOSITE_NAMES = frozenset(_V4_COMPOSITE_LABELS)
+_V4_COMPOSITE_TILE_SIZE = (320, 240)
+_V4_COMPOSITE_FOOTER_HEIGHT = 32
+_V4_COMPOSITE_SYNC_WAIT_SEC = 0.15
+_V4_COMPOSITE_STALE_SEC = 1.0
+_V4_COMPOSITE_MAX_STAMP_SETS = 3
+_DASHBOARD_DIAGNOSTIC_INTERVAL_SEC = 5.0
 
 def load_default_params():
-    global _DEFAULT_PARAMS, _PARAMS_SOURCE_PATH
+    global _DEFAULT_PARAMS, _PARAMS_SOURCE_PATH, _PARAMS_SOURCE_PATHS
+    _DEFAULT_PARAMS = {}
+    _PARAMS_SOURCE_PATH = ''
+    _PARAMS_SOURCE_PATHS = []
     try:
         from ament_index_python.packages import get_package_share_directory
-        try:
-            share_dir = get_package_share_directory('risabot_automode')
-            params_file = os.path.join(share_dir, 'config', 'params.yaml')
-        except Exception:
-            params_file = ''
-            
-        if not os.path.exists(params_file):
-            this_dir = os.path.dirname(os.path.abspath(__file__))
-            params_file = os.path.abspath(os.path.join(this_dir, '..', '..', 'config', 'params.yaml'))
-
-        if os.path.exists(params_file):
-            # Resolve the SOURCE file path (inside src/) for writing back
-            # The share/ copy is read-only after colcon build, so we find the src/ original
-            this_dir = os.path.dirname(os.path.abspath(__file__))
-            source_params = os.path.abspath(os.path.join(this_dir, '..', 'config', 'params.yaml'))
-            if os.path.exists(source_params):
-                _PARAMS_SOURCE_PATH = source_params
-            else:
-                _PARAMS_SOURCE_PATH = params_file  # fallback to whatever we found
-
-            with open(params_file, 'r') as f:
+        this_dir = os.path.dirname(os.path.abspath(__file__))
+        for package, filename, source_relative in _PARAM_CONFIGS:
+            source_params = os.path.abspath(os.path.join(this_dir, source_relative))
+            try:
+                share_dir = get_package_share_directory(package)
+                installed_params = os.path.join(share_dir, 'config', filename)
+            except Exception:
+                installed_params = ''
+            params_file = source_params if os.path.exists(source_params) else installed_params
+            if not params_file or not os.path.exists(params_file):
+                print(f'Parameter config not found for {package}: {filename}')
+                continue
+            write_path = source_params if os.path.exists(source_params) else os.path.realpath(params_file)
+            _PARAMS_SOURCE_PATHS.append(write_path)
+            if package == 'risabot_automode':
+                _PARAMS_SOURCE_PATH = write_path
+            with open(params_file, 'r', encoding='utf-8') as f:
                 data = yaml.safe_load(f)
                 if data:
                     for node_name, node_data in data.items():
@@ -105,8 +161,8 @@ def load_default_params():
                             if node_name not in _DEFAULT_PARAMS:
                                 _DEFAULT_PARAMS[node_name] = {}
                             _DEFAULT_PARAMS[node_name].update(node_data['ros__parameters'])
-            print(f"Loaded default params from {params_file}")
-            print(f"Source params path for saving: {_PARAMS_SOURCE_PATH}")
+            print(f'Loaded default params from {params_file}')
+            print(f'Parameter save path: {write_path}')
     except Exception as e:
         print(f"Failed to load default params: {e}")
 
@@ -123,7 +179,8 @@ class DashboardNode(Node):
         self.declare_parameter('sim_odom_scale', 1.55)
         self.declare_parameter('hw_odom_scale', 1.0)
         self.declare_parameter('hw_odom_yaw_scale', 1.0)
-        self.declare_parameter('cam_encode_max_hz', 10.0)  # MJPEG encode cap (CPU saver)
+        self.declare_parameter('cam_encode_max_hz', 5.0)  # MJPEG encode cap (CPU saver)
+        self.declare_parameter('dashboard_port', 8080)  # HTTP port (8081 when the carbot GUI owns 8080)
 
         # CV Bridge for camera
         self.bridge = CvBridge() if CvBridge else None
@@ -132,7 +189,13 @@ class DashboardNode(Node):
         self.frame_id = 0
         self._encode_min_interval = 1.0 / max(1.0, float(self.get_parameter('cam_encode_max_hz').value))
         self._last_encode_mono = 0.0
+        self._last_camera_source_mono = 0.0
         self.active_camera_view = 'raw'
+        self.active_camera_source = 'forward'  # forward | second | third
+        self._camera_selection_generation = 0
+        self._init_v4_composite_state()
+        self._v4telemetry = None
+        self._v4telemetry_mono = 0.0
         self.initial_joy_axes = None
 
         # LiDAR scan storage for 2D visualization
@@ -182,6 +245,8 @@ class DashboardNode(Node):
             'health_stale': [],
             'cmd_safety_estop': False,
             'cmd_safety_timeout_count': 0,
+            'cmd_safety_autonomy_source': 'unknown',
+            'v4_status': {},
             'loop_stats': {},
             'rp_state': 'IDLE',
             'rp_buffer_size': 0,
@@ -226,6 +291,8 @@ class DashboardNode(Node):
         self.rp_cmd_pub = self.create_publisher(String, RECORD_PLAYBACK_CMD_TOPIC, 10)
         self.challenge_pub = self.create_publisher(String, SET_CHALLENGE_TOPIC, 10)
         self.imu_cal_pub = self.create_publisher(String, IMU_CALIBRATE_TOPIC, 10)
+        self.side_camera_request_pub = self.create_publisher(
+            String, SIDE_CAMERA_REQUEST_TOPIC, 10)
 
         # State tracking
         self._state_entry_time = time.time()
@@ -245,6 +312,20 @@ class DashboardNode(Node):
         self.create_subscription(String, HEALTH_STATUS_TOPIC, self._health_cb, 10)
         self.create_subscription(String, CMD_SAFETY_STATUS_TOPIC, self._cmd_safety_cb, 10)
         self.create_subscription(String, LOOP_STATS_TOPIC, self._loop_stats_cb, 10)
+        for component, topic in (
+            ('bev', '/v4_experimental/bev/status'),
+            ('road', '/v4_experimental/road/status'),
+            ('pose', '/v4_experimental/pose/status'),
+            ('uwb', '/v4_experimental/uwb/status'),
+            ('trajectory', '/v4_experimental/trajectory/status'),
+            ('parking', '/v4_experimental/parking/status'),
+            ('recovery', '/v4_experimental/recovery/status'),
+            ('arbitration', '/v4_experimental/arbitration/status'),
+            ('control', '/v4_control/status'),
+        ):
+            self.create_subscription(
+                String, topic,
+                lambda msg, name=component: self._v4_status_cb(name, msg), 10)
         self.create_subscription(Float32, LANE_ERROR_TOPIC, self._lane_cb, qos)
         self.create_subscription(Twist, CMD_VEL_TOPIC, self._cmd_cb, 10)
         self.create_subscription(Odometry, ODOM_TOPIC, self._odom_cb, 10)
@@ -261,6 +342,16 @@ class DashboardNode(Node):
         # Single subscription covers both 'signage' and 'traffic_light' dashboard views
         self.create_subscription(Image, SIGNAGE_DEBUG_TOPIC, lambda msg: self._image_cb(msg, 'signage'), qos)
         self.create_subscription(Image, CAMERA_DEBUG_OBS_TOPIC, lambda msg: self._image_cb(msg, 'obstacle'), qos)
+        self.create_subscription(Image, MIPI_SECONDARY_TOPIC, lambda msg: self._image_cb(msg, 'second'), qos)
+        self.create_subscription(Image, MIPI_TERTIARY_TOPIC, lambda msg: self._image_cb(msg, 'third'), qos)
+
+        # V4 composite view. Frames are grouped by their ROS source stamp in
+        # _v4_comp_cb; never combine the latest frame from unrelated cycles.
+        self.create_subscription(Image, '/v4_experimental/bev/primary/image', lambda msg: self._v4_comp_cb(msg, 'bev'), qos)
+        self.create_subscription(Image, '/v4_experimental/bev/primary/coverage', lambda msg: self._v4_comp_cb(msg, 'coverage'), qos)
+        self.create_subscription(Image, '/v4_experimental/road/primary/candidate', lambda msg: self._v4_comp_cb(msg, 'candidate'), qos)
+        self.create_subscription(Image, '/v4_experimental/road/primary/connected', lambda msg: self._v4_comp_cb(msg, 'connected'), qos)
+        self.create_subscription(Image, '/v4_experimental/road/primary/fused', lambda msg: self._v4_comp_cb(msg, 'fused'), qos)
 
         # Parking signboard detection flag
         self.create_subscription(Bool, PARKING_SIGN_TOPIC, self._parking_sign_cb, 10)
@@ -277,10 +368,31 @@ class DashboardNode(Node):
         # Record & Playback state from servo_controller
         self.create_subscription(String, RECORD_PLAYBACK_STATE_TOPIC, self._rp_state_cb, 10)
 
+        # V4 telemetry bridge output for the track map (display only)
+        self.create_subscription(String, '/v4_telemetry', self._v4telemetry_cb, 10)
+
         # Simulate odometry since hardware might not publish
         self.create_timer(0.05, self._simulate_odom_loop)
+        # Renewable lease: the root manager shuts the optional MIPI pipelines
+        # down if the dashboard disappears or no side-view client remains.
+        self.create_timer(2.0, self._side_camera_lease_loop)
+        # Only performs work while a client is watching V4 Road. It replaces a
+        # stopped stream with an explicit stale card instead of freezing old data.
+        self.create_timer(0.25, self._v4_comp_watchdog)
 
         self.get_logger().info('Dashboard subscriptions ready')
+
+    def _side_camera_lease_loop(self) -> None:
+        with self.camera_clients_lock:
+            has_viewer = self.num_camera_clients > 0
+        # Silence is how an idle requester releases its lease.  Publishing
+        # repeated "off" messages here would fight independent requesters
+        # such as the V4 parking/BEV pipeline.
+        if not has_viewer:
+            return
+        source = self.active_camera_source
+        mode = 'right' if source == 'second' else 'left' if source == 'third' else 'off'
+        self.side_camera_request_pub.publish(String(data=mode))
 
     def _simulate_odom_loop(self) -> None:
         """Simulates odometry position based on commanded velocities.
@@ -336,8 +448,16 @@ class DashboardNode(Node):
                 self.topic_last_update[source_key] = time.monotonic()
 
     def _auto_mode_cb(self, msg: Bool) -> None:
-        self._set('auto_mode', msg.data, 'auto_mode')
-        mode = "AUTO" if msg.data else "MANUAL"
+        current = bool(msg.data)
+        with self.data_lock:
+            previous = bool(self.data.get('auto_mode', False))
+            self.data['auto_mode'] = current
+            # The publisher uses a heartbeat, so refresh health on every message
+            # even when the mode value itself is unchanged.
+            self.topic_last_update['auto_mode'] = time.monotonic()
+        if current == previous:
+            return
+        mode = "AUTO" if current else "MANUAL"
         self.get_logger().info(f'Mode changed: {mode}')
 
     def _lidar_cb(self, msg: Bool) -> None:
@@ -398,9 +518,37 @@ class DashboardNode(Node):
             with self.data_lock:
                 self.data['cmd_safety_estop'] = bool(payload.get('estop', False))
                 self.data['cmd_safety_timeout_count'] = int(payload.get('timeout_count', 0))
+                self.data['cmd_safety_autonomy_source'] = str(
+                    payload.get('autonomy_source', 'unknown'))
                 self.topic_last_update['cmd_safety_status'] = time.monotonic()
         except Exception:
             self._set('cmd_safety_estop', False, 'cmd_safety_status')
+
+    def _v4_status_cb(self, component: str, msg: String) -> None:
+        """Keep the latest status from each V4 stage for the dashboard only."""
+        try:
+            payload = json.loads(msg.data)
+            if not isinstance(payload, dict):
+                raise ValueError('V4 status must be an object')
+            item = dict(payload)
+            item['_received_mono'] = time.monotonic()
+            with self.data_lock:
+                statuses = dict(self.data.get('v4_status', {}))
+                statuses[component] = item
+                self.data['v4_status'] = statuses
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return
+
+    def _v4telemetry_cb(self, msg: String) -> None:
+        """Cache the latest V4 telemetry document for the track map."""
+        try:
+            payload = json.loads(msg.data)
+            if not isinstance(payload, dict):
+                raise ValueError('telemetry must be an object')
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return
+        self._v4telemetry = payload
+        self._v4telemetry_mono = time.monotonic()
 
     def _loop_stats_cb(self, msg: String) -> None:
         """Track latest loop stat payloads by node:loop key."""
@@ -577,13 +725,257 @@ class DashboardNode(Node):
         except Exception:
             pass
 
+    def _init_v4_composite_state(self) -> None:
+        """Initialize bounded, timestamp-keyed state for the V4 Road view."""
+        self._v4_lock = threading.Lock()
+        self._v4_sets = {}
+        self._v4_last_stamp_by_name = {}
+        self._v4_render_token = None
+        self._v4_diag_last = {}
+        self._v4_sync_wait_sec = _V4_COMPOSITE_SYNC_WAIT_SEC
+        self._v4_stale_sec = _V4_COMPOSITE_STALE_SEC
+
+    def _reset_v4_composite(self) -> None:
+        """Drop cached V4 frames after a camera source or view change."""
+        with self._v4_lock:
+            self._v4_sets.clear()
+            self._v4_last_stamp_by_name.clear()
+            self._v4_render_token = None
+        self._last_camera_source_mono = 0.0
+
+    def _warn_rate_limited(self, key: str, message: str) -> None:
+        """Emit useful camera diagnostics without flooding the ROS log."""
+        now_mono = time.monotonic()
+        last = self._v4_diag_last.get(key)
+        if (last is not None
+                and now_mono - last < _DASHBOARD_DIAGNOSTIC_INTERVAL_SEC):
+            return
+        self._v4_diag_last[key] = now_mono
+        self.get_logger().warning(message)
+
+    @staticmethod
+    def _v4_stamp_ns(msg: Image):
+        """Return a valid ROS source stamp as integer nanoseconds."""
+        stamp = getattr(getattr(msg, 'header', None), 'stamp', None)
+        try:
+            sec = int(stamp.sec)
+            nanosec = int(stamp.nanosec)
+        except (AttributeError, TypeError, ValueError):
+            return None
+        if sec < 0 or not 0 <= nanosec < 1_000_000_000:
+            return None
+        total = sec * 1_000_000_000 + nanosec
+        return total if total > 0 else None
+
+    @staticmethod
+    def _v4_tile(image, label: str, status_lines=(), status_color=(80, 80, 220)):
+        """Letterbox one image into a labeled tile without changing its aspect."""
+        tile_w, tile_h = _V4_COMPOSITE_TILE_SIZE
+        header_h = 32
+        tile = np.full((tile_h, tile_w, 3), 12, dtype=np.uint8)
+        if image is not None and len(image.shape) >= 2:
+            image_h, image_w = image.shape[:2]
+            if image_h > 0 and image_w > 0:
+                available_h = tile_h - header_h
+                scale = min(tile_w / image_w, available_h / image_h)
+                render_w = max(1, int(round(image_w * scale)))
+                render_h = max(1, int(round(image_h * scale)))
+                interpolation = cv2.INTER_AREA if scale < 1.0 else cv2.INTER_LINEAR
+                fitted = cv2.resize(image, (render_w, render_h), interpolation=interpolation)
+                x0 = (tile_w - render_w) // 2
+                y0 = header_h + (available_h - render_h) // 2
+                tile[y0:y0 + render_h, x0:x0 + render_w] = fitted
+
+        cv2.rectangle(tile, (0, 0), (tile_w, header_h), (28, 31, 38), -1)
+        cv2.putText(
+            tile, label, (10, 23), cv2.FONT_HERSHEY_SIMPLEX,
+            0.62, (245, 245, 245), 2, cv2.LINE_AA,
+        )
+        if status_lines:
+            lines = list(status_lines)
+            first_y = 112 - (len(lines) - 1) * 16
+            for index, line in enumerate(lines):
+                text = str(line)
+                size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.58, 2)[0]
+                x = max(8, (tile_w - size[0]) // 2)
+                cv2.putText(
+                    tile, text, (x, first_y + index * 32),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.58, status_color, 2,
+                    cv2.LINE_AA,
+                )
+        return tile
+
+    def _v4_snapshot(self, now_mono: float):
+        """Take a coherent newest-stamp snapshot, or defer during sync grace."""
+        with self._v4_lock:
+            if not self._v4_sets:
+                token = ('waiting',)
+                if token == self._v4_render_token:
+                    return None
+                return {
+                    'token': token, 'mode': 'waiting', 'stamp_ns': None,
+                    'age': None, 'tiles': {}, 'last_stamps': {},
+                    'source_mono': 0.0,
+                }
+
+            stamp_ns = max(self._v4_sets)
+            group = self._v4_sets[stamp_ns]
+            age = max(0.0, now_mono - group['first_received'])
+            tiles = dict(group['tiles'])
+            present = set(tiles)
+            if age > self._v4_stale_sec:
+                mode = 'stale'
+                tiles = {}
+            elif present == _V4_COMPOSITE_NAMES:
+                mode = 'fresh'
+            elif age >= self._v4_sync_wait_sec:
+                mode = 'partial'
+            else:
+                return None
+            token = (stamp_ns, mode, tuple(sorted(tiles)))
+            if token == self._v4_render_token:
+                return None
+            return {
+                'token': token, 'mode': mode, 'stamp_ns': stamp_ns,
+                'age': age, 'tiles': tiles,
+                'last_stamps': dict(self._v4_last_stamp_by_name),
+                'source_mono': group['first_received'],
+            }
+
+    def _v4_composite_image(self, snapshot):
+        """Build a five-stage V4 strip, replacing absent/stale images with cards."""
+        mode = snapshot['mode']
+        stamp_ns = snapshot['stamp_ns']
+        tiles = snapshot['tiles']
+        rendered = []
+        missing = []
+        for name, label in _V4_COMPOSITE_TILES:
+            if name in tiles:
+                rendered.append(tiles[name])
+                continue
+            missing.append(name)
+            if mode == 'stale':
+                status = ('STALE', f"{snapshot['age']:.1f} s old")
+            elif mode == 'waiting':
+                status = ('NO INPUT', 'waiting for frame')
+            else:
+                previous = snapshot['last_stamps'].get(name)
+                if previous is None:
+                    detail = 'no frame received'
+                else:
+                    behind = max(0.0, (stamp_ns - previous) * 1e-9)
+                    detail = f'last {behind:.3f} s behind'
+                status = ('MISSING', detail)
+            rendered.append(self._v4_tile(None, label, status))
+
+        if mode == 'fresh':
+            state_text = 'SYNCHRONIZED  |  5 / 5 stages'
+            state_color = (90, 210, 120)
+        elif mode == 'partial':
+            state_text = (
+                f'INCOMPLETE FRAME  |  {len(tiles)} / 5 stages  |  '
+                'missing: ' + ', '.join(missing)
+            )
+            state_color = (30, 190, 245)
+        elif mode == 'stale':
+            state_text = f"STALE INPUT  |  {snapshot['age']:.1f} s old"
+            state_color = (80, 80, 230)
+        else:
+            state_text = 'WAITING FOR V4  |  no source-timestamped input'
+            state_color = (160, 160, 160)
+        if stamp_ns is not None:
+            state_text += f'  |  source t={stamp_ns * 1e-9:.3f}'
+
+        # The reference view is a left-to-right pipeline. Keep status outside
+        # the five image stages so no diagnostic card can be mistaken for a
+        # sixth pipeline output. The footer remains readable when the wide
+        # strip is scaled down in the responsive camera card.
+        strip = cv2.hconcat(rendered)
+        footer = np.full(
+            (_V4_COMPOSITE_FOOTER_HEIGHT, strip.shape[1], 3),
+            (28, 31, 38), dtype=np.uint8,
+        )
+        cv2.putText(
+            footer, state_text, (10, 23), cv2.FONT_HERSHEY_SIMPLEX,
+            0.62, state_color, 2, cv2.LINE_AA,
+        )
+        return cv2.vconcat((strip, footer)), missing
+
+    def _maybe_publish_v4_composite(self, now_mono: float) -> None:
+        """Encode at most one bounded composite when the active viewer needs it."""
+        generation = self._camera_selection_generation
+        if self.active_camera_view != 'road' or self.active_camera_source != 'forward':
+            return
+        with self.camera_clients_lock:
+            if self.num_camera_clients == 0:
+                return
+        if now_mono - self._last_encode_mono < self._encode_min_interval:
+            return
+        snapshot = self._v4_snapshot(now_mono)
+        if snapshot is None:
+            return
+        try:
+            composite, missing = self._v4_composite_image(snapshot)
+            ok, jpeg = cv2.imencode(
+                '.jpg', composite, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            if not ok:
+                raise ValueError('cv2.imencode returned false')
+        except (cv2.error, TypeError, ValueError) as exc:
+            self._warn_rate_limited(
+                'v4_composite_encode', f'V4 Road composite encode failed: {exc}')
+            return
+
+        if (generation != self._camera_selection_generation
+                or self.active_camera_view != 'road'
+                or self.active_camera_source != 'forward'):
+            return
+
+        with self._v4_lock:
+            self._v4_render_token = snapshot['token']
+        self._last_encode_mono = now_mono
+        if snapshot['source_mono'] > 0.0:
+            self._last_camera_source_mono = snapshot['source_mono']
+        with self.jpeg_condition:
+            self.latest_jpeg = jpeg.tobytes()
+            self.frame_id += 1
+            self.jpeg_condition.notify_all()
+
+        if snapshot['mode'] == 'partial':
+            self._warn_rate_limited(
+                'v4_composite_missing',
+                'V4 Road composite is missing timestamp-matched tiles: '
+                + ', '.join(missing),
+            )
+        elif snapshot['mode'] == 'stale':
+            self._warn_rate_limited(
+                'v4_composite_stale',
+                f"V4 Road composite input is stale ({snapshot['age']:.1f} s)",
+            )
+        elif snapshot['mode'] == 'waiting':
+            self._warn_rate_limited(
+                'v4_composite_waiting',
+                'V4 Road view has no valid source-timestamped input',
+            )
+
+    def _v4_comp_watchdog(self) -> None:
+        """Expire a stopped V4 stream while a Road-view client is connected."""
+        self._maybe_publish_v4_composite(time.monotonic())
+
     def _image_cb(self, msg: Image, view_name: str) -> None:
         """Convert ROS Image to JPEG conditionally, tracking active view and clients."""
         active = self.active_camera_view
+        source = self.active_camera_source
+        generation = self._camera_selection_generation
         if self.bridge is None:
             return
+        if view_name in ('second', 'third'):
+            # Side cameras are raw-only: shown only when selected with raw view.
+            if source != view_name or active != 'raw':
+                return
+        elif source != 'forward':
+            return
         # 'signage' topic covers both the 'signage' and 'traffic_light' dashboard views
-        if view_name != active and not (view_name == 'signage' and active == 'traffic_light'):
+        elif view_name != active and not (view_name == 'signage' and active == 'traffic_light'):
             return
             
         with self.camera_clients_lock:
@@ -593,22 +985,92 @@ class DashboardNode(Node):
         now_mono = time.monotonic()
         if now_mono - self._last_encode_mono < self._encode_min_interval:
             return  # throttle MJPEG encode (dashboard only needs ~10Hz)
-        self._last_encode_mono = now_mono
-                
+
         try:
             cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
             # Force to fixed 320x240 — prevents visual jumping when source sends varying sizes
             ih, iw = cv_image.shape[:2]
             if iw != 320 or ih != 240:
                 cv_image = cv2.resize(cv_image, (320, 240))
-            _, jpeg = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, 60])
-            
+            ok, jpeg = cv2.imencode('.jpg', cv_image, [cv2.IMWRITE_JPEG_QUALITY, 60])
+            if not ok:
+                raise ValueError('cv2.imencode returned false')
+            if (generation != self._camera_selection_generation
+                    or active != self.active_camera_view
+                    or source != self.active_camera_source):
+                return
+            self._last_encode_mono = now_mono
+            self._last_camera_source_mono = now_mono
             with self.jpeg_condition:
                 self.latest_jpeg = jpeg.tobytes()
                 self.frame_id += 1
                 self.jpeg_condition.notify_all()
-        except Exception:
-            pass
+        except (cv2.error, CvBridgeError, TypeError, ValueError) as exc:
+            self._warn_rate_limited(
+                f'camera_encode_{view_name}',
+                f'Dashboard camera encode failed for {view_name}: {exc}',
+            )
+
+    def _v4_comp_cb(self, msg: Image, name: str) -> None:
+        if name not in _V4_COMPOSITE_NAMES:
+            self._warn_rate_limited(
+                'v4_composite_unknown_tile',
+                f'Ignoring unknown V4 Road tile {name!r}',
+            )
+            return
+        if (self.active_camera_view != 'road'
+                or self.active_camera_source != 'forward'
+                or self.bridge is None):
+            return
+        generation = self._camera_selection_generation
+        with self.camera_clients_lock:
+            if self.num_camera_clients == 0:
+                return
+        stamp_ns = self._v4_stamp_ns(msg)
+        if stamp_ns is None:
+            self._warn_rate_limited(
+                f'v4_composite_stamp_{name}',
+                f'Ignoring V4 Road {name} tile without a valid source timestamp',
+            )
+            self._maybe_publish_v4_composite(time.monotonic())
+            return
+        now_mono = time.monotonic()
+        try:
+            cv_img = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            label = _V4_COMPOSITE_LABELS[name]
+            tile = self._v4_tile(cv_img, label)
+        except (cv2.error, CvBridgeError, TypeError, ValueError) as exc:
+            self._warn_rate_limited(
+                f'v4_composite_convert_{name}',
+                f'V4 Road {name} conversion failed: {exc}',
+            )
+            return
+
+        if (generation != self._camera_selection_generation
+                or self.active_camera_view != 'road'
+                or self.active_camera_source != 'forward'):
+            return
+
+        with self._v4_lock:
+            if self._v4_sets:
+                newest_stamp = max(self._v4_sets)
+                if stamp_ns < newest_stamp:
+                    self._warn_rate_limited(
+                        f'v4_composite_out_of_order_{name}',
+                        f'Ignoring out-of-order V4 Road {name} tile '
+                        f'({stamp_ns} < {newest_stamp})',
+                    )
+                    return
+            group = self._v4_sets.setdefault(
+                stamp_ns,
+                {'first_received': now_mono, 'tiles': {}},
+            )
+            group['tiles'][name] = tile
+            self._v4_last_stamp_by_name[name] = stamp_ns
+            for old_stamp in sorted(self._v4_sets)[:-_V4_COMPOSITE_MAX_STAMP_SETS]:
+                del self._v4_sets[old_stamp]
+
+        self._maybe_publish_v4_composite(now_mono)
 
     def get_json(self) -> str:
         with self.data_lock:
@@ -616,13 +1078,16 @@ class DashboardNode(Node):
             updates = dict(self.topic_last_update)
         d['state_time'] = int(time.time() - self._state_entry_time)
         now_mono = time.monotonic()
-        last_enc = self._last_encode_mono
-        d['cam_age_ms'] = int((now_mono - last_enc) * 1000) if last_enc > 0.0 else None
+        last_source = getattr(self, '_last_camera_source_mono', self._last_encode_mono)
+        d['cam_age_ms'] = int((now_mono - last_source) * 1000) if last_source > 0.0 else None
         stale_sec = float(self.get_parameter('freshness_stale_sec').value)
         freshness = {}
         stale_streams = []
-        event_driven_topics = {'boom_gate', 'parking_complete', 'auto_mode', 'set_challenge', 'record_playback_state', 'joy'}
+        event_driven_topics = {'boom_gate', 'parking_complete', 'auto_mode', 'set_challenge', 'record_playback_state', 'joy', 'obstacle_fused'}
+        inactive_odom = 'odom_sim' if self.get_parameter('use_hw_odom').value else 'odom'
         for key, last_t in updates.items():
+            if key == inactive_odom:
+                continue
             if last_t <= 0.0:
                 freshness[key] = None
                 if key not in event_driven_topics:
@@ -634,6 +1099,16 @@ class DashboardNode(Node):
                 stale_streams.append(key)
         d['freshness_sec'] = freshness
         d['stale_streams'] = stale_streams
+
+        # Convert internal receive timestamps to stable, browser-friendly ages.
+        v4_status = {}
+        for component, raw in d.get('v4_status', {}).items():
+            item = dict(raw)
+            received = item.pop('_received_mono', None)
+            item['age_sec'] = (None if received is None
+                               else round(max(0.0, now_mono - received), 3))
+            v4_status[component] = item
+        d['v4_status'] = v4_status
         
         # Ensure odometry types are standard python floats for JSON serialization
         for k in ['distance', 'speed', 'odom_x', 'odom_y', 'odom_yaw']:
@@ -728,45 +1203,27 @@ def _ros_set_param(node_name, param_name, value_str):
         param.name = param_name
         pv = ParameterValue()
         
-        # Support setting array values
-        if value_str.startswith('[') and value_str.endswith(']'):
-            try:
-                arr = json.loads(value_str)
-                if isinstance(arr, list):
-                    if all(isinstance(x, bool) for x in arr):
-                        pv.type = ParameterType.PARAMETER_BOOL_ARRAY
-                        pv.bool_array_value = arr
-                    elif all(isinstance(x, int) for x in arr):
-                        pv.type = ParameterType.PARAMETER_INTEGER_ARRAY
-                        pv.integer_array_value = arr
-                    elif all(isinstance(x, (int, float)) for x in arr):
-                        pv.type = ParameterType.PARAMETER_DOUBLE_ARRAY
-                        pv.double_array_value = [float(x) for x in arr]
-                    elif all(isinstance(x, str) for x in arr):
-                        pv.type = ParameterType.PARAMETER_STRING_ARRAY
-                        pv.string_array_value = arr
-                    else:
-                        raise ValueError("Unsupported array element type")
-                else:
-                    raise ValueError("Not a list")
-            except Exception:
-                pv.type = ParameterType.PARAMETER_STRING
-                pv.string_value = value_str
-        elif value_str.lower() in ('true', 'false'):
-            pv.type = ParameterType.PARAMETER_BOOL
-            pv.bool_value = value_str.lower() == 'true'
-        else:
-            try:
-                # Check if it's a pure integer (no decimal point)
-                if '.' not in value_str:
-                    pv.type = ParameterType.PARAMETER_INTEGER
-                    pv.integer_value = int(value_str)
-                else:
-                    pv.type = ParameterType.PARAMETER_DOUBLE
-                    pv.double_value = float(value_str)
-            except ValueError:
-                pv.type = ParameterType.PARAMETER_STRING
-                pv.string_value = value_str
+        # Read the declared type instead of guessing from decimal punctuation.
+        get_client = _get_client(node_name, 'get')
+        if not get_client.wait_for_service(timeout_sec=0.15):
+            return False, 'Parameter service unavailable'
+        get_req = GetParameters.Request()
+        get_req.names = [param_name]
+        get_future = get_client.call_async(get_req)
+        deadline = time.monotonic() + 2.0
+        while not get_future.done() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        if not get_future.done():
+            return False, 'Parameter type lookup timed out'
+        current = get_future.result()
+        if not current or not current.values:
+            return False, 'Parameter not declared'
+        pv.type = current.values[0].type
+        value = coerce_parameter_value(value_str, pv.type)
+        fields = {1:'bool_value', 2:'integer_value', 3:'double_value', 4:'string_value',
+                  5:'byte_array_value', 6:'bool_array_value', 7:'integer_array_value',
+                  8:'double_array_value', 9:'string_array_value'}
+        setattr(pv, fields[pv.type], value)
         param.value = pv
         req = SetParameters.Request()
         req.parameters = [param]
@@ -789,76 +1246,99 @@ def _ros_set_param(node_name, param_name, value_str):
 
 
 def _save_params_to_yaml():
-    """Read current runtime params from all nodes and write them to the source params.yaml."""
-    global _PARAMS_SOURCE_PATH, _DEFAULT_PARAMS
-    if not _PARAMS_SOURCE_PATH:
-        return {'ok': False, 'error': 'No params.yaml path resolved'}
-    if not os.path.exists(_PARAMS_SOURCE_PATH):
-        return {'ok': False, 'error': f'File not found: {_PARAMS_SOURCE_PATH}'}
+    """Persist live legacy and V4 parameters to their source YAML files."""
+    global _PARAMS_SOURCE_PATHS, _DEFAULT_PARAMS
+    paths = [path for path in _PARAMS_SOURCE_PATHS if os.path.exists(path)]
+    if not paths:
+        return {'ok': False, 'error': 'No parameter YAML paths resolved'}
+
+    def yaml_scalar(value):
+        rendered = yaml.safe_dump(
+            value, default_flow_style=True, allow_unicode=True, width=120,
+        ).strip()
+        if rendered.endswith('\n...'):
+            rendered = rendered[:-4].rstrip()
+        return rendered
+
+    def replace_values(raw_text, updates):
+        current_node = None
+        result = []
+        node_pattern = re.compile(r'^([A-Za-z0-9_]+):\s*(?:#.*)?$')
+        param_pattern = re.compile(
+            r'^(\s{4})([A-Za-z0-9_]+):(\s*)(.*?)(\s+#.*)?$'
+        )
+        for line in raw_text.splitlines(keepends=True):
+            newline = '\r\n' if line.endswith('\r\n') else ('\n' if line.endswith('\n') else '')
+            body = line[:-len(newline)] if newline else line
+            node_match = node_pattern.match(body)
+            if node_match:
+                current_node = node_match.group(1)
+            param_match = param_pattern.match(body)
+            key = None if not param_match else (current_node, param_match.group(2))
+            if key in updates:
+                comment = param_match.group(5) or ''
+                body = (
+                    f'{param_match.group(1)}{param_match.group(2)}:'
+                    f'{param_match.group(3)}{yaml_scalar(updates[key])}{comment}'
+                )
+            result.append(body + newline)
+        return ''.join(result)
 
     try:
-        # Read the existing file to preserve comments structure
-        # We read it as raw text lines to do targeted value replacement
-        with open(_PARAMS_SOURCE_PATH, 'r') as f:
-            yaml_data = yaml.safe_load(f)
-        if not yaml_data:
-            return {'ok': False, 'error': 'Empty params.yaml'}
-
-        # For each node section in the YAML, fetch current runtime values
         updated_count = 0
-        errors = []
-        for node_name, node_data in yaml_data.items():
-            if not isinstance(node_data, dict) or 'ros__parameters' not in node_data:
+        saved_paths = []
+        for path in paths:
+            with open(path, 'r', encoding='utf-8', newline='') as handle:
+                raw_text = handle.read()
+            yaml_data = yaml.safe_load(raw_text)
+            if not yaml_data:
                 continue
-            params = node_data['ros__parameters']
-            for param_name in list(params.keys()):
-                value, err = _ros_get_param(node_name, param_name)
-                if err is not None:
-                    # Node not running or param not found — keep existing default
+            file_updates = {}
+            for node_name, node_data in yaml_data.items():
+                if not isinstance(node_data, dict) or 'ros__parameters' not in node_data:
                     continue
-                # Convert string value back to the correct Python type
-                old_val = params[param_name]
-                try:
-                    if isinstance(old_val, bool):
-                        new_val = value.lower() == 'true'
-                    elif isinstance(old_val, int):
-                        # Handle float strings like "8.0" → int 8
-                        new_val = int(float(value))
-                    elif isinstance(old_val, float):
-                        new_val = float(value)
-                    elif isinstance(old_val, list):
-                        new_val = value
-                    else:
-                        new_val = value
-                except (ValueError, TypeError):
-                    new_val = value
+                params = node_data['ros__parameters']
+                for param_name in list(params.keys()):
+                    safe_v4 = _V4_DASHBOARD_SAFE_PARAMS.get(node_name)
+                    if node_name.startswith('v4_') and (
+                        safe_v4 is None or param_name not in safe_v4
+                    ):
+                        continue
+                    value, err = _ros_get_param(node_name, param_name)
+                    if err is not None:
+                        continue
+                    old_val = params[param_name]
+                    try:
+                        if isinstance(old_val, bool):
+                            new_val = value.lower() == 'true'
+                        elif isinstance(old_val, int):
+                            new_val = int(float(value))
+                        elif isinstance(old_val, float):
+                            new_val = float(value)
+                        elif isinstance(old_val, list):
+                            parsed = yaml.safe_load(value)
+                            new_val = parsed if isinstance(parsed, list) else old_val
+                        else:
+                            new_val = value
+                    except (ValueError, TypeError, yaml.YAMLError):
+                        continue
+                    if old_val != new_val:
+                        params[param_name] = new_val
+                        file_updates[(node_name, param_name)] = new_val
+                        updated_count += 1
+                _DEFAULT_PARAMS.setdefault(node_name, {}).update(params)
+            if file_updates:
+                updated_text = replace_values(raw_text, file_updates)
+                with open(path, 'w', encoding='utf-8', newline='') as handle:
+                    handle.write(updated_text)
+            saved_paths.append(path)
 
-                if params[param_name] != new_val:
-                    params[param_name] = new_val
-                    updated_count += 1
-
-        # Write updated YAML back
-        # Use a custom representer to avoid YAML anchors and get clean output
-        class CleanDumper(yaml.SafeDumper):
-            pass
-
-        def _repr_str(dumper, data):
-            return dumper.represent_scalar('tag:yaml.org,2002:str', data)
-        CleanDumper.add_representer(str, _repr_str)
-
-        with open(_PARAMS_SOURCE_PATH, 'w') as f:
-            yaml.dump(yaml_data, f, Dumper=CleanDumper, default_flow_style=False,
-                      sort_keys=False, allow_unicode=True, width=120)
-
-        # Also update the in-memory defaults
-        for node_name, node_data in yaml_data.items():
-            if isinstance(node_data, dict) and 'ros__parameters' in node_data:
-                if node_name not in _DEFAULT_PARAMS:
-                    _DEFAULT_PARAMS[node_name] = {}
-                _DEFAULT_PARAMS[node_name].update(node_data['ros__parameters'])
-
-        return {'ok': True, 'msg': f'Saved {updated_count} changed params to {_PARAMS_SOURCE_PATH}',
-                'updated': updated_count, 'path': _PARAMS_SOURCE_PATH}
+        return {
+            'ok': True,
+            'msg': f'Saved {updated_count} changed params across {len(saved_paths)} YAML files',
+            'updated': updated_count,
+            'paths': saved_paths,
+        }
     except Exception as e:
         return {'ok': False, 'error': str(e)}
 
@@ -868,285 +1348,28 @@ _node_ref = None
 class DashboardHandler(http.server.BaseHTTPRequestHandler):
     """HTTP handler for dashboard HTML, JSON, and MJPEG streams."""
     def do_GET(self):
-        """Serve dashboard HTML, JSON data, MJPEG camera stream, and LiDAR data."""
-        if self.path == '/data':
-            data = _node_ref.get_json() if _node_ref else '{}'
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(data.encode())
-        elif self.path == '/lidar_data':
-            pts = []
-            tunnel = False
-            if _node_ref:
-                with _node_ref.lidar_lock:
-                    pts = list(_node_ref.lidar_points)
-                with _node_ref.data_lock:
-                    tunnel = bool(_node_ref.data.get('tunnel_detected', False))
-            payload = {'points': pts, 'tunnel': tunnel}
-            # Add tunnel debug info if available (JSON format)
-            if _node_ref:
-                with _node_ref.tunnel_debug_lock:
-                    dbg = _node_ref.tunnel_debug
-                if dbg:
-                    try:
-                        d = json.loads(dbg)
-                        payload['left_dist'] = d.get('l', 0)
-                        payload['right_dist'] = d.get('r', 0)
-                        payload['dist_error'] = d.get('lat', 0)
-                        payload['angular_z'] = d.get('w', 0)
-                        payload['centerline'] = d.get('cl', [])
-                    except Exception:
-                        pass
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(payload).encode())
-        elif self.path.startswith('/camera_feed'):
-            self.send_response(200)
-            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=frame')
-            self.send_header('Cache-Control', 'no-store, no-cache, must-revalidate, pre-check=0, post-check=0, max-age=0')
-            self.send_header('Connection', 'close')
-            self.send_header('Pragma', 'no-cache')
-            self.end_headers()
-            
-            if not _node_ref:
-                return
-                
-            with _node_ref.camera_clients_lock:
-                _node_ref.num_camera_clients += 1
-                
-            try:
-                last_frame_id = -1
-                while True:
-                    jpeg_bytes = None
-                    with _node_ref.jpeg_condition:
-                        # Wait until a new frame has been generated (up to 1s to keep conn alive)
-                        if _node_ref.frame_id == last_frame_id:
-                            _node_ref.jpeg_condition.wait(timeout=1.0)
-                        
-                        if _node_ref.frame_id != last_frame_id and _node_ref.latest_jpeg:
-                            last_frame_id = _node_ref.frame_id
-                            jpeg_bytes = _node_ref.latest_jpeg
-                            
-                    if jpeg_bytes:
-                        frame = (b'--frame\r\n'
-                                 b'Content-Type: image/jpeg\r\n'
-                                 b'Content-Length: ' + str(len(jpeg_bytes)).encode() + b'\r\n'
-                                 b'\r\n' + jpeg_bytes + b'\r\n')
-                        self.wfile.write(frame)
-                    else:
-                        # Timeout fired but no new frame
-                        pass
-            except Exception:
-                pass
-            finally:
-                with _node_ref.camera_clients_lock:
-                    _node_ref.num_camera_clients = max(0, _node_ref.num_camera_clients - 1)
-        elif self.path.startswith('/api/set_cam_view'):
-            from urllib.parse import urlparse, parse_qs
-            import threading
-            qs = parse_qs(urlparse(self.path).query)
-            view = qs.get('view', ['raw'])[0]
-            if _node_ref:
-                _node_ref.active_camera_view = view
-                with _node_ref.jpeg_condition:
-                    _node_ref.latest_jpeg = None
-                    # Force the condition to wake any blocked clients
-                    _node_ref.frame_id += 1
-                    _node_ref.jpeg_condition.notify_all()
-            
-            # Auto-toggle show_debug for performance 
-            def auto_toggle_debug(selected_view):
-                nodes_to_enable = set()
-                if selected_view == 'line_follower':
-                    nodes_to_enable.add('line_follower_camera')
-                elif selected_view == 'obstacle':
-                    nodes_to_enable.add('obstacle_avoidance_camera')
-                elif selected_view in ('traffic_light', 'signage'):
-                    nodes_to_enable.add('signage_detector')
-                
-                all_nodes = {'line_follower_camera', 'obstacle_avoidance_camera', 'signage_detector'}
-                for node_name in all_nodes:
-                    val_str = 'true' if node_name in nodes_to_enable else 'false'
-                    _ros_set_param(node_name, 'show_debug', val_str)
-                    
-            threading.Thread(target=auto_toggle_debug, args=(view,), daemon=True).start()
-
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.end_headers()
-            self.wfile.write(b'{"ok":true}')
-        elif self.path.startswith('/api/get_param'):
-            from urllib.parse import urlparse, parse_qs
-            qs = parse_qs(urlparse(self.path).query)
-            node = qs.get('node', [''])[0]
-            param = qs.get('param', [''])[0]
-            result = {'ok': False}
-            if node and param:
-                value, err = _ros_get_param(node, param)
-                if err is None:
-                    result = {'ok': True, 'value': value}
-                    if node in _DEFAULT_PARAMS and param in _DEFAULT_PARAMS[node]:
-                        result['default'] = _DEFAULT_PARAMS[node][param]
-                else:
-                    result = {'ok': False, 'error': err}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
-        elif self.path.startswith('/api/recording_data'):
-            from urllib.parse import urlparse, parse_qs
-            qs = parse_qs(urlparse(self.path).query)
-            name = qs.get('name', [''])[0]
-            result = {'ok': False, 'error': 'No name specified'}
-            if name:
-                recordings_dir = os.path.expanduser('~/risabot_recordings')
-                fpath = os.path.join(recordings_dir, f'{name}.json')
-                if os.path.exists(fpath):
-                    try:
-                        with open(fpath, 'r') as f:
-                            data = json.load(f)
-                        result = {'ok': True, 'data': data}
-                    except Exception as e:
-                        result = {'ok': False, 'error': str(e)}
-                else:
-                    result = {'ok': False, 'error': 'Recording not found'}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(result).encode())
-        elif self.path.startswith('/teach'):
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Cache-Control', 'no-cache')
-            self.end_headers()
-            self.wfile.write(TEACH_HTML.encode())
-        else:
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html; charset=utf-8')
-            self.send_header('Cache-Control', 'no-cache')
-            self.end_headers()
-            self.wfile.write(DASHBOARD_HTML.encode())
+        """Serve dashboard pages, JSON data, MJPEG stream, and sim assets."""
+        ctx = registry.make_context(self, _node_ref, {
+            'get_param': _ros_get_param,
+            'set_param': _ros_set_param,
+            'save_defaults': _save_params_to_yaml,
+            'param_defaults': _DEFAULT_PARAMS,
+            'dashboard_html': DASHBOARD_HTML,
+            'teach_html': TEACH_HTML,
+        })
+        registry.dispatch(ctx, 'GET', self.path)
 
     def do_POST(self):
         """Handle dashboard API POST requests."""
-        if self.path == '/api/reset_odom':
-            # Reset odometry counters
-            global _node_ref
-            if _node_ref:
-                with _node_ref.data_lock:
-                    _node_ref.data['distance'] = 0.0
-                    _node_ref.data['odom_x'] = 0.0
-                    _node_ref.data['odom_y'] = 0.0
-                    _node_ref.data['odom_yaw'] = 0.0
-                    _node_ref.data['speed'] = 0.0
-            resp = {'ok': True, 'msg': 'Odometry reset'}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/set_param':
-            content_len = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_len)
-            try:
-                data = json.loads(body)
-                node = data['node']
-                param = data['param']
-                value = str(data['value'])
-                ok, msg = _ros_set_param(node, param, value)
-                if ok:
-                    resp = {'ok': True, 'msg': msg}
-                else:
-                    resp = {'ok': False, 'error': msg}
-            except Exception as e:
-                resp = {'ok': False, 'error': str(e)}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/save_defaults':
-            resp = _save_params_to_yaml()
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/record_playback':
-            # Handle Record/Playback commands from dashboard
-            content_len = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_len)
-            try:
-                data = json.loads(body)
-                action = data.get('action', '')
-                name = data.get('name', '')
-                # Build the command string for servo_controller
-                valid_simple = ('record', 'stop', 'playback', 'save', 'list')
-                valid_named = ('save', 'load', 'delete', 'set_active')
-                if action in valid_simple and not name:
-                    cmd_str = action
-                elif action in valid_named and name:
-                    cmd_str = f'{action}:{name}'
-                else:
-                    cmd_str = ''
-                if cmd_str and _node_ref:
-                    _node_ref.rp_cmd_pub.publish(String(data=cmd_str))
-                    resp = {'ok': True, 'msg': f'Sent: {cmd_str}'}
-                else:
-                    resp = {'ok': False, 'error': f'Invalid action: {action}'}
-            except Exception as e:
-                resp = {'ok': False, 'error': str(e)}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/reset_competition':
-            content_len = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_len) if content_len > 0 else b'{}'
-            try:
-                data = json.loads(body) if body else {}
-                cmd = data.get('command', 'reset').upper()
-                if cmd in ('RESET', 'LAP1', 'LAP2') and _node_ref:
-                    msg = String()
-                    msg.data = cmd
-                    _node_ref.challenge_pub.publish(msg)
-                    resp = {'ok': True, 'msg': f'Sent competition command: {cmd}'}
-                else:
-                    resp = {'ok': False, 'error': f'Invalid command: {cmd}'}
-            except Exception as e:
-                resp = {'ok': False, 'error': str(e)}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        elif self.path == '/api/calibrate_imu':
-            # Forward JSON payload to hardware IMU calibration via servo_controller
-            content_len = int(self.headers.get('Content-Length', 0))
-            body = self.rfile.read(content_len) if content_len > 0 else b'{}'
-            try:
-                if _node_ref:
-                    _node_ref.imu_cal_pub.publish(String(data=body.decode('utf-8')))
-                    resp = {'ok': True, 'msg': 'Calibration command sent'}
-                else:
-                    resp = {'ok': False, 'error': 'Dashboard node not ready'}
-            except Exception as e:
-                resp = {'ok': False, 'error': str(e)}
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            self.send_header('Access-Control-Allow-Origin', '*')
-            self.end_headers()
-            self.wfile.write(json.dumps(resp).encode())
-        else:
-            self.send_response(404)
-            self.end_headers()
+        ctx = registry.make_context(self, _node_ref, {
+            'get_param': _ros_get_param,
+            'set_param': _ros_set_param,
+            'save_defaults': _save_params_to_yaml,
+            'param_defaults': _DEFAULT_PARAMS,
+            'dashboard_html': DASHBOARD_HTML,
+            'teach_html': TEACH_HTML,
+        })
+        registry.dispatch(ctx, 'POST', self.path)
 
     def log_message(self, format, *args):
         """Suppress default HTTP logging."""
@@ -1164,6 +1387,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
 def main(args=None) -> None:
     global _node_ref
+    cv2.setNumThreads(1)
     rclpy.init(args=args)
     load_default_params()
     node = DashboardNode()
@@ -1172,7 +1396,7 @@ def main(args=None) -> None:
     # ── Dedicated param helper node (isolated from camera/subscription load) ──
     global _param_helper_node, _param_executor
     from rclpy.executors import SingleThreadedExecutor
-    _param_helper_node = rclpy.create_node('dashboard_param_helper')
+    _param_helper_node = rclpy.create_node('dashboard_param_helper', use_global_arguments=False)
     _param_executor = SingleThreadedExecutor()
     _param_executor.add_node(_param_helper_node)
 
@@ -1190,7 +1414,13 @@ def main(args=None) -> None:
     class ThreadedHTTPServer(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
         allow_reuse_address = True   # Prevent 'Address already in use' after crash
-    server = ThreadedHTTPServer(('0.0.0.0', 8080), DashboardHandler)
+    try:
+        dashboard_port = int(node.get_parameter('dashboard_port').value)
+    except Exception:
+        dashboard_port = 8080
+    if not 1024 <= dashboard_port <= 65535:
+        dashboard_port = 8080
+    server = ThreadedHTTPServer(('0.0.0.0', dashboard_port), DashboardHandler)
     http_thread = threading.Thread(target=server.serve_forever, daemon=True)
     http_thread.start()
 
@@ -1206,11 +1436,13 @@ def main(args=None) -> None:
     except Exception:
         ip = '?.?.?.?'
     node.get_logger().info(f'Dashboard live!')
-    node.get_logger().info(f'  → http://{hostname}.local:8080')
-    node.get_logger().info(f'  → http://{ip}:8080')
+    node.get_logger().info(f'  → http://{hostname}.local:{dashboard_port}')
+    node.get_logger().info(f'  → http://{ip}:{dashboard_port}')
 
-    from rclpy.executors import MultiThreadedExecutor
-    executor = MultiThreadedExecutor()
+    # All dashboard callbacks share the default mutually exclusive group.
+    # Additional executor workers only add contention; HTTP and parameter
+    # requests already have their own threads.
+    executor = SingleThreadedExecutor()
     executor.add_node(node)
     try:
         executor.spin()
