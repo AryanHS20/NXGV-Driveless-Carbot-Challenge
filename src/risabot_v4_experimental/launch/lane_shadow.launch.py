@@ -17,14 +17,20 @@ from launch_ros.actions import Node
 def generate_launch_description():
     share = get_package_share_directory('risabot_v4_experimental')
     params = os.path.join(share, 'config', 'v4_experimental.yaml')
-    profiles = os.path.join(share, 'config', 'camera_profiles.yaml')
+    default_profiles = os.path.join(share, 'config', 'camera_profiles.yaml')
     enabled = LaunchConfiguration('enabled')
+    # Per-car override: risabot5 (and any future chassis) keeps its measured
+    # profiles in a board-local file and passes profile_path:=<file>.
+    profiles = LaunchConfiguration('profile_path')
 
     common = [params, {'enabled': enabled}]
     return LaunchDescription([
         DeclareLaunchArgument(
             'enabled', default_value='false',
             description='Enable the read-only primary-camera V4 lane pipeline.'),
+        DeclareLaunchArgument(
+            'profile_path', default_value=default_profiles,
+            description='Camera profiles YAML (board-local override per chassis).'),
         Node(
             package='risabot_v4_experimental', executable='shadow_monitor',
             name='v4_shadow_monitor', output='screen', parameters=[
