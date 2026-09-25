@@ -164,6 +164,11 @@ class ServoControllerV9(Node):
         # Multiplier applied ONLY to right-turn servo angle in auto mode.
         # Increase above 1.0 to make right turns sharper (compensates for Ackermann geometry).
         self.declare_parameter('auto_right_steer_boost', 1.3)
+        # Parallel-park sequence ('park_sequence' on /record_playback_cmd):
+        # steering full left/right x cycles, then a pause, then the recording.
+        self.declare_parameter('park_wiggle_cycles', 3)
+        self.declare_parameter('park_wiggle_hold_sec', 1.0)   # dwell at each extreme
+        self.declare_parameter('park_delay_sec', 5.0)         # centered pause before playback
         
         self._param_cache: Dict[str, object] = {}
         self._update_param_cache()
@@ -299,6 +304,7 @@ class ServoControllerV9(Node):
         self.record_last_sample_time = 0.0
         self.playback_index = 0
         self.playback_timer = None    # one-shot timer handle
+        self._park_saved_buffer = None  # real recording while a park_sequence buffer is playing
 
         # Multi-slot recording management
         self.recordings_dir = os.path.expanduser('~/risabot_recordings')
@@ -354,6 +360,9 @@ class ServoControllerV9(Node):
             'imu_pitch_scale': float(self.get_parameter('imu_pitch_scale').value),
             'imu_yaw_scale': float(self.get_parameter('imu_yaw_scale').value),
             'auto_right_steer_boost': float(self.get_parameter('auto_right_steer_boost').value),
+            'park_wiggle_cycles': int(self.get_parameter('park_wiggle_cycles').value),
+            'park_wiggle_hold_sec': float(self.get_parameter('park_wiggle_hold_sec').value),
+            'park_delay_sec': float(self.get_parameter('park_delay_sec').value),
         }
 
     def _on_params(self, params) -> SetParametersResult:
@@ -1327,6 +1336,11 @@ class ServoControllerV9(Node):
         elif cmd_lower == 'playback':
             if self.rp_state == 'IDLE' and len(self.record_buffer) > 0:
                 self._start_playback()
+        elif cmd_lower == 'park_sequence':
+            if self.rp_state == 'IDLE':
+                self._start_park_sequence()
+            else:
+                self.get_logger().warn(f'park_sequence ignored: state is {self.rp_state}')
         elif cmd_lower in ('playback:parallel', 'playback:perpendicular'):
             kind = cmd_lower.split(':')[1]
             if self.rp_state != 'IDLE':
@@ -1372,6 +1386,54 @@ class ServoControllerV9(Node):
         self.rp_state = 'IDLE'
         self.get_logger().info(f'⏹ RECORDING stopped ({len(self.record_buffer)} samples)')
         self._publish_rp_state()
+
+    def _start_park_sequence(self) -> None:
+        """Wiggle steering, pause, then replay the parallel-park recording.
+
+        Built as ONE playback buffer so it uses the normal playback path: the
+        joystick/permit interlocks, the safety controller, abort on 'stop', and
+        the result reporting all apply. Re-runnable whenever state is IDLE.
+        """
+        name = self.active_parking_recording or str(self.get_parameter('parallel_recording').value)
+        if name:
+            self._load_recording_by_name(name)
+        recorded = list(self.record_buffer)
+        if not recorded:
+            self.get_logger().error(
+                '🅿 park_sequence refused: no recording. Record one, save it, then send '
+                'set_active:<name> on /record_playback_cmd (or set parallel_recording).')
+            self.playback_kind = 'parallel'
+            self.playback_result = 'missing_recording'
+            self._publish_rp_state()
+            return
+
+        dt = 0.05   # playback timer period
+        hold = max(1, int(round(float(self._param_cache['park_wiggle_hold_sec']) / dt)))
+        delay = max(0, int(round(float(self._param_cache['park_delay_sec']) / dt)))
+        cycles = max(0, int(self._param_cache['park_wiggle_cycles']))
+        left = self.servo_center - self.servo_range_left     # angle decreases = left
+        right = self.servo_center + self.servo_range_right
+        prefix = []
+        for _ in range(cycles):
+            prefix += [{'motor_pwm': 0, 'servo_angle': left}] * hold
+            prefix += [{'motor_pwm': 0, 'servo_angle': right}] * hold
+        prefix += [{'motor_pwm': 0, 'servo_angle': self.servo_center}] * delay
+
+        self._park_saved_buffer = recorded
+        self.record_buffer = prefix + recorded
+        self.playback_kind = 'parallel'
+        self.get_logger().info(
+            f'🅿 PARK SEQUENCE: {cycles}x wiggle, {delay * dt:.1f}s delay, then '
+            f'"{self.current_recording_name}" ({len(recorded)} samples)')
+        self._start_playback()
+        if self.rp_state != 'PLAYBACK':      # interlock refused -> restore real recording
+            self._restore_park_buffer()
+
+    def _restore_park_buffer(self) -> None:
+        """Put the real recording back so a later save can't store the wiggle prefix."""
+        if self._park_saved_buffer is not None:
+            self.record_buffer = self._park_saved_buffer
+            self._park_saved_buffer = None
 
     def _start_playback(self) -> None:
         """Enter PLAYBACK state: begin replaying the recorded buffer."""
@@ -1434,6 +1496,7 @@ class ServoControllerV9(Node):
             self.playback_timer = None
         self.rp_state = 'IDLE'
         self.playback_result = result
+        self._restore_park_buffer()
         self.stop_robot()
         self.get_logger().info('⏹ PLAYBACK stopped')
         self._publish_rp_state()

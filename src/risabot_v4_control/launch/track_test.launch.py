@@ -43,6 +43,8 @@ def _setup(context):
         raise RuntimeError('A primary camera profile is required')
     for name in ('v4_bev_shadow', 'v4_road_mask_shadow', 'v4_trajectory_shadow'):
         overrides[name]['profile_path'] = profile_path
+    if arg('parallel_recording'):
+        overrides['servo_controller']['parallel_recording'] = arg('parallel_recording')
     auto_params = os.path.join(auto, 'config', 'params.yaml')
     v4_params = os.path.join(v4, 'config', 'v4_experimental.yaml')
     control_params = os.path.join(control, 'config', 'v4_control.yaml')
@@ -109,6 +111,13 @@ def _setup(context):
                             parameters=[auto_params, overrides.get(name, {})]))
     actions.append(Node(package='joy', executable='joy_node', name='joy_node',
                         parameters=[{'deadzone': 0.12, 'autorepeat_rate': 20.0, 'coalesce_interval_ms': 1}]))
+    if flag('parallel_park'):
+        # Sign classifier -> 2 s hold -> servo_controller 'park_sequence'
+        # (wiggle x3, 5 s pause, recorded movement). Re-run: see params.yaml note.
+        actions.append(Node(package='risabot_automode', executable='signage_detector',
+                            name='signage_detector', output='screen', parameters=[auto_params]))
+        actions.append(Node(package='risabot_automode', executable='parallel_park_trigger',
+                            name='parallel_park_trigger', output='screen', parameters=[auto_params]))
     if flag('dashboard'):
         actions.append(Node(package='risabot_automode', executable='dashboard', name='dashboard',
                             output='screen', parameters=[auto_params]))
@@ -126,6 +135,10 @@ def generate_launch_description():
         DeclareLaunchArgument('profile_path', default_value='', description='Camera YAML for this chassis.'),
         DeclareLaunchArgument('start_camera', default_value='true'),
         DeclareLaunchArgument('start_lidar', default_value='true'),
+        DeclareLaunchArgument('parallel_park', default_value='true',
+                              description='Run signage detector + parallel park trigger.'),
+        DeclareLaunchArgument('parallel_recording', default_value='',
+                              description='Saved recording name played after the wiggle/pause.'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('lidar_port', default_value='/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0'),
         OpaqueFunction(function=_setup),
