@@ -117,8 +117,9 @@ def _setup(context):
     if flag('parallel_park'):
         # Parallel-parking sign held 2 s -> servo_controller 'playback:parallel'.
         # Playback overrides the lane command inside cmd_safety_controller.
-        actions.append(Node(package='risabot_automode', executable='signage_detector',
-                            name='signage_detector', output='screen', parameters=[auto_params]))
+        if vehicle != 'risabot5':  # risabot5 already launches signage_detector above
+            actions.append(Node(package='risabot_automode', executable='signage_detector',
+                                name='signage_detector', output='screen', parameters=[auto_params]))
         actions.append(Node(package='risabot_automode', executable='parallel_park_trigger',
                             name='parallel_park_trigger', output='screen', parameters=[auto_params]))
     if flag('dashboard'):
