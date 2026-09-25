@@ -41,10 +41,11 @@ def sha256(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def output_dir(path):
+def output_dir(path, evidence_root=EVIDENCE):
     path = Path(path).resolve()
-    require(path.is_relative_to(EVIDENCE.resolve()),
-            'outputs must be below calibration_risabot5/')
+    evidence_root = Path(evidence_root).resolve()
+    require(path.is_relative_to(evidence_root),
+            f'outputs must be below {evidence_root.name}/')
     require(not path.exists(), 'output directory already exists; use a fresh run name')
     path.mkdir(parents=True)
     return path
@@ -115,13 +116,13 @@ def camera_info(document, size):
     return k, d
 
 
-def board_ground(board):
+def board_ground(board, name='measured_floor_board'):
     require(board['inner_corners'] == [6, 4], 'floor target must have 6x4 INNER corners')
     square = float(board['square_m'])
     require(np.isfinite(square) and square > 0, 'measured square_m must be positive')
     finite(board['centre_m'], (2,), 'measured board centre')
     require(np.isfinite(float(board['yaw_deg'])), 'measured board yaw must be finite')
-    floor = FloorBoard.from_yaml(dict(board, name='measured_r5', roles=['front']))
+    floor = FloorBoard.from_yaml(dict(board, name=name, roles=['front']))
     choices = dict(floor.orderings())
     require(board['ordering'] in choices, 'unknown board ordering')
     return choices[board['ordering']][:, :2]
@@ -220,10 +221,10 @@ def detect_image(path, roi=None, scale=(1., 1.)):
     return record, image
 
 
-def inspect(args):
+def inspect(args, evidence_root=EVIDENCE):
     paths = sorted({Path(p).resolve() for pattern in args.images for p in glob.glob(pattern)})
     require(paths, 'no images matched')
-    out = output_dir(args.output)
+    out = output_dir(args.output, evidence_root)
     records = []
     for index, path in enumerate(paths):
         record, image = detect_image(path, args.roi, args.scale)
@@ -238,10 +239,12 @@ def inspect(args):
               'images': records})
 
 
-def fit_session(manifest_path, destination, allow_board_only=False):
+def fit_session(manifest_path, destination, allow_board_only=False,
+                vehicle='Risabot 5 (car 2)', profile_path=PROFILE,
+                evidence_root=EVIDENCE):
     manifest_path = Path(manifest_path).resolve()
     session = json.loads(manifest_path.read_text(encoding='utf-8'))
-    require(session['vehicle'] == 'Risabot 5 (car 2)', 'wrong vehicle identity')
+    require(session['vehicle'] == vehicle, 'wrong vehicle identity')
     require(session['origin'] == 'rear_axle_midpoint_on_ground', 'wrong ground origin')
     require(session['image_space'] == 'raw_unrotated', 'only raw unrotated captures are supported')
     for key in ('capture_provenance', 'intrinsics_provenance', 'measurement_provenance', 'ordering_evidence'):
@@ -265,7 +268,7 @@ def fit_session(manifest_path, destination, allow_board_only=False):
     record = match[0]
     require(record['resolution'] == list(size), 'detection resolution mismatch')
     require(session.get('corners_reviewed') is True, 'review numbered raw-pixel overlay first')
-    ground = board_ground(session['board'])
+    ground = board_ground(session['board'], name=vehicle.replace(' ', '_').lower())
     vp = session['validation']['raw_pixels']
     vg = session['validation']['ground_m']
     h, checks = fit_geometry(record['corners_raw_px'], ground, k, d, size, vp, vg,
@@ -278,7 +281,7 @@ def fit_session(manifest_path, destination, allow_board_only=False):
                 'resolution conversion requires documented software resize of the SAME raw image')
     resize = pixel_transform(size, target)
     points = transform_points(np.asarray(record['corners_raw_px'])[OUTER], resize)
-    raw = yaml.safe_load(PROFILE.read_text(encoding='utf-8'))
+    raw = yaml.safe_load(Path(profile_path).read_text(encoding='utf-8'))
     name = session['profile']
     require(name in ('primary', 'secondary'), 'profile must be primary or secondary')
     candidate = raw['profiles'][name]
@@ -300,7 +303,7 @@ def fit_session(manifest_path, destination, allow_board_only=False):
     require(runtime_delta < 1e-4, 'runtime BEV and offline ground geometry disagree')
     independent = checks['independent_markers']
     passes = independent is not None and checks['held_out_board']['max_m'] <= .02 and independent['max_m'] <= .02
-    out = output_dir(destination)
+    out = output_dir(destination, evidence_root)
     for filename, data in [('bev.png', bev), ('coverage.png', coverage)]:
         require(cv2.imwrite(str(out / filename), data), f'could not save {filename}')
     candidate['calibrated'] = False

@@ -41,6 +41,13 @@ class PanelAssemblyTests(unittest.TestCase):
                        'EMERGENCY STOP', 'roundRect', '/lidar_data'):
             self.assertIn(marker, html)
 
+    def test_live_centerline_panel_present(self):
+        html = registry.build_dashboard_html()
+        for marker in ('centerlineCanvas', 'updateCenterline(d)',
+                       'measured two-edge centre', 'one-edge estimate (preview only)',
+                       'commanded steering trace'):
+            self.assertIn(marker, html)
+
     def test_workspace_pages_and_v4_status_present(self):
         html = registry.build_dashboard_html()
         for marker in ('data-page="drive"', 'data-page="perception"',
@@ -73,10 +80,10 @@ class PanelAssemblyTests(unittest.TestCase):
             self.assertNotIn(protected, v4_controls)
 
     def test_registry_well_formed(self):
-        self.assertEqual(len(registry.ORDER), 35)
-        self.assertEqual(len(set(registry.ORDER)), 35)
+        self.assertEqual(len(registry.ORDER), 37)
+        self.assertEqual(len(set(registry.ORDER)), 37)
         names = registry.plugin_names()
-        self.assertEqual(len(names), 35)
+        self.assertEqual(len(names), 37)
         self.assertIn('v4views', names)
         self.assertIn('v4status', names)
         self.assertIn('trackmap', names)
@@ -84,6 +91,8 @@ class PanelAssemblyTests(unittest.TestCase):
         self.assertIn('js_sim', names)
         self.assertIn('js_driveviz', names)
         self.assertIn('js_trackmap', names)
+        self.assertIn('centerline', names)
+        self.assertIn('js_centerline', names)
         self.assertIn('js_navigation', names)
         self.assertIn('v4status', names)
         self.assertIn('js_navigation', names)

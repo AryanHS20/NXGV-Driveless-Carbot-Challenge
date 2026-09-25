@@ -156,6 +156,93 @@ class TrackTestPipelineTests(unittest.TestCase):
         arb._evaluate()
         self.assertEqual(json.loads(arb._proposal_pub.messages[-1].data)['action'], 'stop')
 
+    def test_risabot1_rejects_a_road_blocked_sent_command(self):
+        r1_params = {'v4_trajectory_shadow': {'ros__parameters': {
+            **ros_stub.PARAMS['v4_trajectory_shadow']['ros__parameters'],
+            **track_test_overrides('risabot1')['v4_trajectory_shadow'],
+            'lane_controller': 'filtered_centerline',
+        }}}
+        with patch.dict(ros_stub.PARAMS, r1_params):
+            node = TrajectoryShadow()
+        node._profiles = {'primary': object()}
+        node._mask = np.full((20, 20), 255, np.uint8)
+        node._road_status = {'corridor': {'primary': [
+            {'forward_m': x, 'left_m': 0.0, 'width_m': 0.295,
+             'boundaries_observed': True, 'left_boundary_observed': True,
+             'right_boundary_observed': True}
+            for x in (0.30, 0.40, 0.50)
+        ]}}
+        points = [types.SimpleNamespace(x=0.0, y=0.0, yaw=0.0),
+                  types.SimpleNamespace(x=0.5, y=0.0, yaw=0.0)]
+        candidate = types.SimpleNamespace(
+            candidate_id=0, offset_m=0.0, valid=True, cost=0.0,
+            minimum_support=1.0, road_blocked=0, obstacle_blocked=0,
+            command_steer_rad=0.0, reject_reason='', points=points,
+        )
+        sent = types.SimpleNamespace(
+            road_blocked=55, obstacle_blocked=0, minimum_support=0.0,
+            points=points,
+        )
+        diagnostics = {'lateral_error_m': 0.0, 'heading_error_rad': 0.0,
+                       'curvature_per_m': 0.0}
+        with patch.object(node, '_blockers', return_value=[]), \
+             patch.object(node, '_inputs_synchronized', return_value=True), \
+             patch.object(node, '_expected_road_stamp', return_value=100.), \
+             patch('risabot_v4_experimental.trajectory_shadow.generate_candidates',
+                   return_value=[candidate]) as generate, \
+             patch('risabot_v4_experimental.trajectory_shadow.evaluate_steering_command',
+                   return_value=sent), \
+             patch('risabot_v4_experimental.trajectory_shadow.centerline_steering_command',
+                   return_value=(0.0, diagnostics)):
+            node._try_process()
+        self.assertTrue(generate.call_args.kwargs['enforce_road_support'])
+        self.assertIsNone(node._selected)
+        self.assertIn('leaves observed road', node._last_error)
+        arb = ArbitrationShadow()
+        arb._set('state', 'LANE_FOLLOW')
+        arb._set('permit', True)
+        arb._set('trajectory', {'enabled': True, 'blockers': [],
+                                'selected_diagnostic_only': node._selected})
+        arb._evaluate()
+        self.assertEqual(json.loads(arb._proposal_pub.messages[-1].data)['action'], 'stop')
+
+    def test_live_arc_bypasses_legacy_steering_and_clears_selection_on_loss(self):
+        r1_params = {'v4_trajectory_shadow': {'ros__parameters': {
+            **ros_stub.PARAMS['v4_trajectory_shadow']['ros__parameters'],
+            **track_test_overrides('risabot1')['v4_trajectory_shadow'],
+        }}}
+        with patch.dict(ros_stub.PARAMS, r1_params):
+            node = TrajectoryShadow()
+        node._profiles = {'primary': object()}
+        node._mask = np.full((20, 20), 255, np.uint8)
+        node._road_status = {'corridor': {'primary': [
+            {'forward_m': x, 'left_m': 0., 'width_m': .295,
+             'boundaries_observed': True}
+            for x in (.30, .35, .40, .45, .50, .55)
+        ]}}
+        selected = {'valid': True, 'command_steer_rad_diagnostic_only': .03}
+        with patch.object(node, '_blockers', return_value=[]), \
+             patch.object(node, '_inputs_synchronized', return_value=True), \
+             patch.object(node, '_expected_road_stamp', side_effect=[100., 101.]), \
+             patch('risabot_v4_experimental.trajectory_shadow.centerline_steering_command') as legacy, \
+             patch('risabot_v4_experimental.trajectory_shadow.select_live_lane_arc',
+                   side_effect=[(selected, [selected]), (None, [])]):
+            node._try_process()
+            self.assertEqual(node._selected, selected)
+            node._try_process()
+            self.assertIsNone(node._selected)
+            self.assertIn('no supported live', node._last_error)
+            legacy.assert_not_called()
+
+    def test_r1_recorded_playback_cannot_start(self):
+        servo = self.servo()
+        servo.params['allow_recorded_playback'] = False
+        servo.record_buffer = [{'motor_pwm': 50, 'servo_angle': 100}]
+        servo._start_playback()
+        self.assertEqual(servo.rp_state, 'IDLE')
+        self.assertEqual(servo.playback_result, 'disabled_for_live_lane_control')
+        self.assertIsNone(servo.playback_timer)
+
     def test_manual_startup_and_non_lane_states_never_request_motion(self):
         driver = AutoDriver()
         driver.publish_cmd_vel()
@@ -295,7 +382,7 @@ class TrackTestPipelineTests(unittest.TestCase):
         self.assertEqual(node._last_error, '')
         self.assertIn('holding recent valid plan', node._last_warning)
 
-    def test_low_support_cannot_reverse_a_recent_reliable_turn(self):
+    def test_direction_hold_cannot_authorize_unsupported_steering(self):
         node = TrajectoryShadow()
         node._profiles = {'primary': object()}
         node._mask = np.full((20, 20), 255, np.uint8)
@@ -328,17 +415,15 @@ class TrackTestPipelineTests(unittest.TestCase):
              patch.object(node, '_expected_road_stamp', return_value=100.), \
              patch('risabot_v4_experimental.trajectory_shadow.generate_candidates',
                    return_value=[candidate]), \
+             patch('risabot_v4_experimental.trajectory_shadow.evaluate_steering_command',
+                   return_value=candidate), \
              patch('risabot_v4_experimental.trajectory_shadow.centerline_steering_command',
                    return_value=(-0.50, diagnostics)):
             node._try_process()
-        self.assertGreater(
-            node._selected['command_steer_rad_diagnostic_only'], 0.0
-        )
-        self.assertEqual(
-            node._selected['steering_source'], 'low_support_direction_hold'
-        )
+        self.assertIsNone(node._selected)
+        self.assertIn('leaves observed road', node._last_error)
 
-    def test_observed_centerline_remains_live_when_footprint_support_is_low(self):
+    def test_observed_centerline_cannot_authorize_unsupported_steering(self):
         node = TrajectoryShadow()
         node._profiles = {'primary': object()}
         node._mask = np.full((20, 20), 255, np.uint8)
@@ -368,19 +453,13 @@ class TrackTestPipelineTests(unittest.TestCase):
              patch.object(node, '_expected_road_stamp', return_value=100.), \
              patch('risabot_v4_experimental.trajectory_shadow.generate_candidates',
                    return_value=[candidate]), \
+             patch('risabot_v4_experimental.trajectory_shadow.evaluate_steering_command',
+                   return_value=candidate), \
              patch('risabot_v4_experimental.trajectory_shadow.centerline_steering_command',
                    return_value=(-0.50, diagnostics)):
             node._try_process()
-        self.assertLess(
-            node._selected['command_steer_rad_diagnostic_only'], 0.0
-        )
-        self.assertEqual(
-            node._selected['steering_source'],
-            'low_support_observed_centerline',
-        )
-        self.assertEqual(
-            node._selected['observed_centerline_fraction'], 1.0
-        )
+        self.assertIsNone(node._selected)
+        self.assertIn('leaves observed road', node._last_error)
 
     def test_reverse_recovery_is_opt_in_and_requires_rear_clearance(self):
         disabled = MotionExecutor()

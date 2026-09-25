@@ -56,7 +56,8 @@ from .topics import (
 
 # --- Defaults ---
 # NOTE: per-car steering trim goes in the servo_center ROS parameter, never
-# in this default. (R1 measured 110; R5 unmeasured.) Hardcoding a trim here
+# in this default. R1's configured 110 still drifts right in MANUAL; its
+# straight-running neutral needs calibration. Hardcoding a trim here
 # silently mis-steers every other car on a shared sync.
 DEFAULT_SERVO_STEER_ID = 4
 DEFAULT_SERVO_CENTER = 90
@@ -130,6 +131,7 @@ class ServoControllerV9(Node):
         self.declare_parameter('joy_timeout', 0.8)
         self.declare_parameter('auto_cmd_timeout', 0.4)
         self.declare_parameter('parallel_recording', '')
+        self.declare_parameter('allow_recorded_playback', True)
         self.declare_parameter('perpendicular_recording', '')
         self.declare_parameter('motor_duty_per_mps', 255.0)
         self.declare_parameter('auto_motor_duty_limit', 100.0)
@@ -1375,6 +1377,10 @@ class ServoControllerV9(Node):
 
     def _start_playback(self) -> None:
         """Enter PLAYBACK state: begin replaying the recorded buffer."""
+        if not bool(self.get_parameter('allow_recorded_playback').value):
+            self.playback_result = 'disabled_for_live_lane_control'
+            self._publish_rp_state()
+            return
         if len(self.record_buffer) == 0:
             self.get_logger().warn('▶ Cannot start playback: buffer is empty')
             return

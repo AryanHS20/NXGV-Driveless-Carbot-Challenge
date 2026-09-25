@@ -1,18 +1,17 @@
 version: 1
 
-# These are deliberate placeholders, not estimated calibration values.
-# Primary is the forward Astra (320x240 color); secondary is the right-back
-# IMX219 (rotation-corrected at the driver, demand-managed at 480x272).
-# Stage 1 will not publish BEV
-# images until both profiles are measured and calibrated is changed to
-# true with complete intrinsic/ground correspondences.
+# Risabot 1 forward Astra (320x240 color) is measured below. The secondary
+# right-back IMX219 is still an uncalibrated placeholder and is not required
+# by the front-camera track-test launch.
 profiles:
   primary:
     sensor: Astra
     topic: /camera/color/image_raw
-    # Factory CameraInfo plus measured 6x4 floor-board correspondences.
-    # Board: 50.0 mm squares, centre [0.765 m forward, 0.0 m left].
-    # Held-out 20-corner error: 11.8 mm RMS, 19.2 mm maximum.
+    # Risabot 1 stationary 2026-09-23 capture and same-mode CameraInfo.
+    # 6x4 floor board: 50 mm squares, centre [0.620 m forward, 0.0 m left].
+    # 20 held-out corners: 7.4 mm RMS, 13.3 mm maximum. Printed sheet
+    # reference markers: 8.4 mm RMS, 11.1 mm maximum. See
+    # calibration_risabot1/20260923_floor_mat/validated_fit/fit_report.json.
     calibrated: true
     resolution: [320, 240]
     camera_matrix:
@@ -20,18 +19,17 @@ profiles:
       - [0.0, 285.17110237076486, 119.5]
       - [0.0, 0.0, 1.0]
     distortion_coefficients: [0.0, 0.0, 0.0, 0.0, 0.0]
-    # Raw detections were captured at 640x480 and converted with OpenCV's
-    # pixel-centre convention to the competition 320x240 stream.
+    # Native 320x240 raw detections; no software resize or crop.
     source_points_px:
-      - [105.2352294921875, 142.85804748535156]
-      - [221.3042755126953, 143.89942932128906]
-      - [243.6909637451172, 158.17633056640625]
-      - [86.22972869873047, 156.60916137695312]
+      - [100.283203125, 142.88677787780762]
+      - [252.17599487304688, 149.4951982498169]
+      - [282.0, 169.875]
+      - [70.18901062011719, 163.58474159240723]
     ground_points_m:
-      - [0.8400000000000001, 0.125]
-      - [0.8400000000000001, -0.125]
-      - [0.69, -0.125]
-      - [0.69, 0.125]
+      - [0.695, 0.125]
+      - [0.695, -0.125]
+      - [0.545, -0.125]
+      - [0.545, 0.125]
     ground_bounds_m:
       forward: [0.05, 1.80]
       left: [-0.90, 0.90]

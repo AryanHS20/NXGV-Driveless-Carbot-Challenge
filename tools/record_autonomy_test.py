@@ -14,6 +14,7 @@ import signal
 import subprocess
 import time
 
+import numpy as np
 from geometry_msgs.msg import Twist
 from nav_msgs.msg import Odometry
 import rclpy
@@ -39,12 +40,24 @@ BAG_TOPICS = [
     '/v4_experimental/road/status', '/v4_experimental/trajectory/status',
     '/v4_experimental/arbitration/status',
     '/tunnel_detected', '/tunnel_cmd_vel', '/tunnel_debug',
+    '/signage_valid', '/traffic_light_state', '/parking_signboard_detected',
+    '/parking_sign_kind', '/roundabout_detected', '/hill_sign_detected',
+    '/speed_bump_detected', '/obstacle_sign_detected',
+    '/traffic_warning_detected', '/tunnel_confidence',
 ]
 
 STATUS_TOPICS = (
     '/dashboard_state', '/cmd_safety_status', '/v4_control/status',
     '/v4_experimental/road/status', '/v4_experimental/trajectory/status',
     '/v4_experimental/arbitration/status', '/imu/rpy',
+    '/traffic_light_state', '/parking_sign_kind',
+)
+
+BOOLEAN_TOPICS = (
+    '/signage_valid', '/parking_signboard_detected',
+    '/roundabout_detected', '/hill_sign_detected', '/speed_bump_detected',
+    '/obstacle_sign_detected', '/traffic_warning_detected',
+    '/tunnel_confidence',
 )
 
 MASK_TOPICS = (
@@ -73,27 +86,21 @@ def compact_status(topic, data):
 def image_metrics(msg):
     """Return small mask metrics without requiring cv_bridge or NumPy."""
     width, height, step = int(msg.width), int(msg.height), int(msg.step)
-    if width <= 0 or height <= 0 or step < width or not msg.data:
+    if (width <= 0 or height <= 0 or step < width
+            or len(msg.data) < height * step):
         return {'width': width, 'height': height, 'nonzero_fraction': 0.0}
     total = width * height
-    nonzero = 0
-    sum_x = 0
-    sum_y = 0
-    view = memoryview(msg.data)
-    for y in range(height):
-        row = view[y * step:y * step + width]
-        for x, value in enumerate(row):
-            if value:
-                nonzero += 1
-                sum_x += x
-                sum_y += y
+    mask = np.frombuffer(msg.data, dtype=np.uint8, count=height * step)
+    mask = mask.reshape(height, step)[:, :width]
+    rows, columns = np.nonzero(mask)
+    nonzero = int(columns.size)
     result = {
         'width': width, 'height': height,
         'nonzero_fraction': round(nonzero / total, 5),
     }
     if nonzero:
-        result['centroid_x_px'] = round(sum_x / nonzero, 2)
-        result['centroid_y_px'] = round(sum_y / nonzero, 2)
+        result['centroid_x_px'] = round(float(columns.mean()), 2)
+        result['centroid_y_px'] = round(float(rows.mean()), 2)
     return result
 
 
@@ -218,6 +225,8 @@ def main():
     node.create_subscription(Bool, '/auto_mode', mode, 10)
     for topic in STATUS_TOPICS:
         node.create_subscription(String, topic, lambda msg, key=topic: status(key, msg), 10)
+    for topic in BOOLEAN_TOPICS:
+        node.create_subscription(Bool, topic, lambda msg, key=topic: record(key, bool(msg.data)), 10)
     for topic in ('/cmd_vel_auto', '/cmd_vel_v4_raw'):
         node.create_subscription(Twist, topic, lambda msg, key=topic: record(key, {
             'linear_x': msg.linear.x, 'steer_right_normalized': msg.angular.z,

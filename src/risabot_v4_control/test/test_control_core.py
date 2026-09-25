@@ -63,6 +63,17 @@ class ControlCoreTests(unittest.TestCase):
         self.assertAlmostEqual(near.speed * 255, 40.0)
         self.assertGreater(clear.speed, near.speed)
 
+    def test_visible_bend_slows_before_near_boundary_reaches_car(self):
+        base = {'valid': True, 'command_steer_rad_diagnostic_only': 0.0,
+                'boundary_clearance_m': 0.04}
+        straight = trajectory_command({**base, 'preview_lateral_shift_m': 0.01},
+                                      .21, math.radians(50), 65 / 255, 40 / 65)
+        bend = trajectory_command({**base, 'preview_lateral_shift_m': 0.065},
+                                  .21, math.radians(50), 65 / 255, 40 / 65)
+        self.assertAlmostEqual(straight.speed * 255, 65.0)
+        self.assertLess(bend.speed * 255, 45.0)
+        self.assertGreaterEqual(bend.speed * 255, 40.0)
+
     def test_invalid_or_nonfinite_contract_is_rejected(self):
         with self.assertRaises(ControlContractError):
             proposal_contract({'source': 'trajectory', 'action': 'drive', 'reference': {}})

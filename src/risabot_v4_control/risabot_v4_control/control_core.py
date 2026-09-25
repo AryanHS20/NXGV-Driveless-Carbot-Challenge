@@ -162,6 +162,21 @@ def trajectory_command(reference: Mapping[str, object], wheelbase: float,
             clearance / boundary_slowdown_margin_m, 0.0, 1.0
         )
         scale = min(scale, clearance_scale)
+    if 'preview_lateral_shift_m' in reference:
+        try:
+            preview_shift = float(reference['preview_lateral_shift_m'])
+        except (TypeError, ValueError) as exc:
+            raise ControlContractError('lane preview shift is invalid') from exc
+        if not math.isfinite(preview_shift):
+            raise ControlContractError('lane preview shift is non-finite')
+        # The 1 m camera preview can reveal a bend before the near-lane
+        # controller needs steering. Give the actuator time to turn before
+        # the front corner reaches the white line.
+        preview_scale = max(
+            minimum_speed_scale,
+            1.0 - 8.0 * max(0.0, abs(preview_shift) - 0.02),
+        )
+        scale = min(scale, preview_scale)
     return CommandDecision(forward_speed * scale, steering, 'v4_trajectory', 'validated trajectory')
 
 

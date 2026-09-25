@@ -17,7 +17,7 @@ NXGV class map (unified14_clean_v1; lamp and boom_partial dropped vs unified16):
    3 parallel_parking    -> PARKING_SIGN_TOPIC (width gate kept)
    4 perpendicular_park  -> PARKING_SIGN_TOPIC (width gate kept)
    5 roundabout_sign     -> /roundabout_detected
-   6 speed_bump_sign     -> debug only (no topic yet; wire to speed logic)
+   6 speed_bump_sign     -> /speed_bump_detected advisory
    7 traffic_warn_sign   -> /traffic_warning_detected
    8 tunnel_sign         -> TUNNEL_CONF_TOPIC True (advisory only, gated)
    9 traffic_red         -> TRAFFIC_LIGHT_TOPIC red (direct colour)
@@ -152,7 +152,9 @@ class SignageDetector(Node):
         self.last_observation = 0.0
         self.parking_kind = ''
         self.roundabout_active = False
+        self.speed_bump_active = False
         self._cnt_roundabout = 0
+        self._cnt_speed_bump = 0
         self._cnt_warning = 0
         self.warning_active = False
         self._cnt_parallel = self._cnt_perpendicular = 0
@@ -179,6 +181,7 @@ class SignageDetector(Node):
         self.obstacle_pub = self.create_publisher(Bool, OBSTACLE_SIGN_TOPIC, 10)
         self.kind_pub = self.create_publisher(String, '/parking_sign_kind', 10)
         self.roundabout_pub = self.create_publisher(Bool, '/roundabout_detected', 10)
+        self.speed_bump_pub = self.create_publisher(Bool, '/speed_bump_detected', 10)
         self.warning_pub = self.create_publisher(Bool, '/traffic_warning_detected', 10)
         self.valid_pub = self.create_publisher(Bool, '/signage_valid', 10)
         self.tunnel_pub = self.create_publisher(Bool, TUNNEL_CONF_TOPIC, 10)
@@ -262,8 +265,10 @@ class SignageDetector(Node):
         if not valid:
             self.hill_sign_active = self.parking_sign_active = self.obstacle_sign_active = False
             self.parallel_active = self.perpendicular_active = self.roundabout_active = False
+            self.speed_bump_active = False
             self._cnt_hill = self._cnt_parking = self._cnt_obstacle = 0
             self._cnt_parallel = self._cnt_perpendicular = self._cnt_roundabout = 0
+            self._cnt_speed_bump = 0
             self._cnt_warning = 0
             self.warning_active = False
             self._cnt_red = self._cnt_green = self._cnt_yellow = self._cnt_lamp = 0
@@ -273,6 +278,7 @@ class SignageDetector(Node):
         self.warning_pub.publish(Bool(data=self.warning_active if valid else False))
         self.kind_pub.publish(String(data=self.parking_kind))
         self.roundabout_pub.publish(Bool(data=self.roundabout_active))
+        self.speed_bump_pub.publish(Bool(data=self.speed_bump_active))
         self.parking_pub.publish(Bool(data=self.parking_sign_active))
         self.traffic_light_pub.publish(String(data=self.traffic_light_active))
         self.hill_pub.publish(Bool(data=self.hill_sign_active))
@@ -425,6 +431,7 @@ class SignageDetector(Node):
         self._cnt_hill, self.hill_sign_active = self._bump(1 in cids, self._cnt_hill, self.hill_sign_active)
         self._cnt_obstacle, self.obstacle_sign_active = self._bump(2 in cids, self._cnt_obstacle, self.obstacle_sign_active)
         self._cnt_roundabout, self.roundabout_active = self._bump(5 in cids, self._cnt_roundabout, self.roundabout_active)
+        self._cnt_speed_bump, self.speed_bump_active = self._bump(6 in cids, self._cnt_speed_bump, self.speed_bump_active)
         self._cnt_warning, self.warning_active = self._bump(7 in cids, self._cnt_warning, self.warning_active)
 
         # Parking with optional width gate

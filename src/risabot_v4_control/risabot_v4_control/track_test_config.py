@@ -10,7 +10,9 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
     """Keep physical motor duty distinct from the legacy speed-request units.
 
     Wheel angle/ranges are starting estimates, not new calibration claims.
-    Only the servo centres below have been confirmed by the owner.
+    The centres below are the owner's initial settings. R1 at 110 drifts
+    right in a forward-only MANUAL test; straight-running neutral is not
+    validated yet. Calibrate it at the shared servo mapping before AUTO.
     """
     centers = {'risabot1': 110, 'risabot5': 80}
     if vehicle not in centers:
@@ -41,6 +43,7 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
             'max_angular_accel': 8.0, 'deadband_angular': 0.0,
         },
         'servo_controller': {
+            'allow_recorded_playback': not risabot1,
             'servo_center': centers[vehicle], 'motor_duty_per_mps': duty_map,
             'auto_motor_duty_limit': hill_duty, 'wheel_base': wheelbase,
             'steering_max_deg': max_steer_deg,
@@ -60,11 +63,19 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
         },
         'v4_pose_shadow': {'enabled': True},
         'v4_trajectory_shadow': {
+            'lane_controller': 'live_lane_arc' if risabot1 else 'filtered_centerline',
             'enabled': True, 'track_test_mode': True, 'require_lidar': False,
+            'road_timeout_sec': 0.35,
+            # The R1 LiDAR bag contains persistent 5-8 cm returns from the
+            # chassis/mount. Those points overlap every predicted footprint
+            # and halted the car despite a visible lane. The independent
+            # tunnel wall follower keeps its own unmodified scan.
+            'minimum_scan_range_m': 0.12 if risabot1 else 0.03,
             'wheelbase_m': wheelbase,
-            # Risabot 1 measurements from the track: 20.5 cm across the
-            # outside of the tires, approximately 31 cm between white edges.
-            'vehicle_width_m': 0.205 if risabot1 else 0.192,
+            # Risabot 1 measurements rechecked on 2026-09-23: 27.5 cm long,
+            # 18.5 cm across the outside of the rear tires, 29.5 cm dark strip.
+            'vehicle_length_m': 0.275 if risabot1 else 0.300,
+            'vehicle_width_m': 0.185 if risabot1 else 0.192,
             # Use the configured actuator range, rather than the unmeasured
             # 0.4 m radius that restricted steering to 55% of its range.
             'minimum_turn_radius_m': wheelbase / math.tan(math.radians(max_steer_deg)),
@@ -74,7 +85,12 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
             # Prefer clearance strongly but keep steering through a brief
             # border overlap instead of stopping outside a hard mask margin.
             'road_support_cost_weight': 100.0,
-            'expected_lane_width_m': 0.31 if risabot1 else 0.32,
+            # The centered R1 straight on 2026-09-23 had 0.9635 minimum
+            # support for the final shallow steer because the near camera
+            # edge clips a few footprint samples. Keep the road gate active
+            # while allowing this measured mask tolerance.
+            'minimum_road_support': 0.96 if risabot1 else 0.98,
+            'expected_lane_width_m': 0.295 if risabot1 else 0.32,
             'centerline_filter_alpha': 0.60,
             # The 19.7 s corner capture showed a 6 cm error commanding about
             # 0.31 rad, then overshooting to the opposite white line. Dampen
@@ -82,11 +98,15 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
             # command pointed inward near a line.
             'cross_track_gain': 0.75 if risabot1 else 1.10,
             'max_cross_track_feedback_m': 0.14 if risabot1 else 0.0,
-            'near_center_guard_m': 0.02 if risabot1 else 0.0,
+            # The 2026-09-23 green-bend bag shows this 2 cm dead zone holding
+            # steering at exactly zero for 1.6 s while the car yawed right.
+            'near_center_guard_m': 0.0,
             'near_heading_guard_rad': 0.05 if risabot1 else 0.0,
             'near_curvature_guard_per_m': 0.15 if risabot1 else 0.0,
             'boundary_recovery_error_m': 0.020 if risabot1 else 0.0,
-            'boundary_recovery_steer_rad': 0.10 if risabot1 else 0.0,
+            # The latest R1 trial reached the right stripe while the old
+            # 0.10 rad inward floor yielded only about six degrees of turn.
+            'boundary_recovery_steer_rad': 0.30 if risabot1 else 0.0,
             'heading_gain': 0.85,
             'curvature_feedforward_gain': 0.90,
             'reliable_support_threshold': 0.75,
@@ -96,8 +116,11 @@ def track_test_overrides(vehicle='risabot5', motor_duty=65.0,
             # The previous 0.8 rad/s cap took roughly 0.6 s to reverse a
             # correction; the camera showed the car crossing the lane then.
             'steering_rate_rad_sec': 2.0 if risabot1 else 0.80,
-            'plan_hold_sec': 0.60,
-            'enforce_road_support_in_track_test': False,
+            # R1's saved bend trial selected paths with no observed road
+            # support. Until the mask is repaired, reject those commands and
+            # stop on a bad frame rather than replaying a held steering plan.
+            'plan_hold_sec': 0.0,
+            'enforce_road_support_in_track_test': True,
             # Keep remembered near-field pixels from suddenly shortening the
             # target to 9.5 cm once the car begins moving.
             'lookahead_m': 0.22,

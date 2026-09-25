@@ -151,6 +151,7 @@ function update() {
       document.getElementById('cmdAngZ').textContent = (d.cmd_ang_z || 0).toFixed(3);
       updateAuthority(d);
       updateV4Status(d);
+      updateCenterline(d);
 
       // Odom
       document.getElementById('odomDist').textContent = (d.distance || 0).toFixed(2);

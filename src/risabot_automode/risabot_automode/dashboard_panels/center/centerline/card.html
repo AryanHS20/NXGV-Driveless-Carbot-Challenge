@@ -1,0 +1,17 @@
+    <!-- Live camera-local lane evidence and the steering actually selected. -->
+    <div class="card" data-pages="drive,perception,v4" data-panel="centerline" data-span="2">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:12px;">
+        <h3 style="margin:0;">Live Lane Centreline</h3>
+        <span id="centerlineBadge" style="font-size:0.76em; font-weight:700; color:#8c8fa1;">WAITING</span>
+      </div>
+      <canvas id="centerlineCanvas" width="720" height="380" aria-label="Top-down live lane borders, measured centreline, selected target, and steering command" style="display:block; width:100%; height:auto; margin-top:9px; border-radius:10px; background:#111923;"></canvas>
+      <div style="display:flex; flex-wrap:wrap; gap:4px 14px; margin-top:8px; font-size:0.72em; line-height:1.5;">
+        <span><b style="color:#f4f4f0;">&#9473;</b> observed white borders</span>
+        <span><b style="color:#2de2d0;">&#9473;</b> measured two-edge centre</span>
+        <span><b style="color:#f5b85b;">&#9481;</b> one-edge estimate (preview only)</span>
+        <span><b style="color:#ff6486;">&#9678;</b> selected target</span>
+        <span><b style="color:#a78bfa;">&#9473;</b> commanded steering trace</span>
+      </div>
+      <div id="centerlineMeta" style="font-size:0.75em; color:#8c8fa1; margin-top:6px; line-height:1.45;">Waiting for live V4 lane data.</div>
+      <div style="font-size:0.69em; color:#8c8fa1; margin-top:4px;">Camera-local view, up to 1.8 m ahead. Gaps mean the camera has no continuous measured centreline. Steering trace is a short model of the current command, not a whole-track route.</div>
+    </div>

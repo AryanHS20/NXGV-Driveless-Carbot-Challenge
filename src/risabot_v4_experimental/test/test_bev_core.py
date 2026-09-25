@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 
 from risabot_v4_experimental.bev_core import (
+    BevTransformer,
     CalibrationError,
     bev_to_metric,
     build_homography,
@@ -76,6 +77,39 @@ class BevCoreTests(unittest.TestCase):
         self.assertEqual(coverage.shape, image.shape[:2])
         np.testing.assert_allclose(bev, image, atol=1)
         self.assertGreater(float((coverage > 0).mean()), 0.99)
+
+    def test_cached_transform_matches_per_frame_calibration(self):
+        raw = calibrated_mapping()
+        raw['distortion_coefficients'] = [0.04, -0.015, 0.001, 0.0, 0.0]
+        for distortion in ([0.0] * 5, raw['distortion_coefficients']):
+            raw['distortion_coefficients'] = distortion
+            profile = profile_from_mapping('test', raw)
+            transformer = BevTransformer(profile)
+            matrix = build_homography(profile)
+            image = np.random.default_rng(42).integers(
+                0, 256, (101, 101, 3), dtype=np.uint8,
+            )
+            reference_source = cv2.undistort(
+                image, profile.camera_matrix, profile.distortion, None,
+                profile.camera_matrix,
+            )
+            reference_bev = cv2.warpPerspective(
+                reference_source, matrix, profile.output_size,
+                flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
+            )
+            reference_coverage = cv2.warpPerspective(
+                cv2.undistort(
+                    np.full((101, 101), 255, dtype=np.uint8),
+                    profile.camera_matrix, profile.distortion, None,
+                    profile.camera_matrix,
+                ),
+                matrix, profile.output_size,
+                flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT,
+            )
+            bev, coverage = transformer.warp(image)
+            np.testing.assert_array_equal(bev, reference_bev)
+            np.testing.assert_array_equal(coverage, reference_coverage)
+            self.assertIs(coverage, transformer.coverage)
 
     def test_repository_primary_is_calibrated_and_secondary_remains_locked(self):
         config = Path(__file__).parents[1] / 'config' / 'camera_profiles.yaml'

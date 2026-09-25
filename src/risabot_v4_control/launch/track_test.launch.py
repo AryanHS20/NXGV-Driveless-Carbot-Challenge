@@ -91,6 +91,14 @@ def _setup(context):
                     'lidar_angle_offset': 3.1416,
                 }],
             ))
+    if vehicle == 'risabot1' and flag('start_signage'):
+        # Observe signs on the BPU; track_test_mode still keeps mission
+        # decisions lane-only until the sign transitions are validated.
+        actions.append(Node(
+            package='risabot_automode', executable='signage_detector',
+            name='signage_detector', output='screen',
+            parameters=[auto_params, {'publish_boom_state': False}],
+        ))
     for name, executable in (
         ('v4_bev_shadow', 'bev_shadow'), ('v4_road_mask_shadow', 'road_mask_shadow'),
         ('v4_pose_shadow', 'pose_shadow'), ('v4_trajectory_shadow', 'trajectory_shadow'),
@@ -126,6 +134,7 @@ def generate_launch_description():
         DeclareLaunchArgument('profile_path', default_value='', description='Camera YAML for this chassis.'),
         DeclareLaunchArgument('start_camera', default_value='true'),
         DeclareLaunchArgument('start_lidar', default_value='true'),
+        DeclareLaunchArgument('start_signage', default_value='true'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('lidar_port', default_value='/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0'),
         OpaqueFunction(function=_setup),

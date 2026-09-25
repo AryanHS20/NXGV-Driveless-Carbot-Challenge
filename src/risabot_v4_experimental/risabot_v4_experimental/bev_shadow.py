@@ -17,7 +17,7 @@ from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
-from .bev_core import CalibrationError, load_profiles, profile_report, warp_to_bev
+from .bev_core import BevTransformer, CalibrationError, load_profiles, profile_report
 
 
 STATUS_TOPIC = '/v4_experimental/bev/status'
@@ -47,6 +47,7 @@ class BevShadow(Node):
         self.add_on_set_parameters_callback(self._on_parameters)
         self._bridge = CvBridge()
         self._profiles = {}
+        self._transformers = {}
         self._profile_error = ''
         self._last_output: Dict[str, float] = {name: 0.0 for name in self._active_names}
         self._frames: Dict[str, int] = {name: 0 for name in self._active_names}
@@ -56,6 +57,11 @@ class BevShadow(Node):
         profile_path = str(self.get_parameter('profile_path').value)
         try:
             self._profiles = load_profiles(profile_path)
+            self._transformers = {
+                name: BevTransformer(profile)
+                for name, profile in self._profiles.items()
+                if name in self._active_names and profile.calibrated
+            }
         except (CalibrationError, OSError, ValueError) as exc:
             self._profile_error = str(exc)
             self.get_logger().error(f'V4 calibration profiles rejected: {exc}')
@@ -131,7 +137,7 @@ class BevShadow(Node):
             return
         try:
             source = self._bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-            bev, coverage = warp_to_bev(source, profile)
+            bev, coverage = self._transformers[name].warp(source)
             bev_msg = self._bridge.cv2_to_imgmsg(bev, encoding='bgr8')
             coverage_msg = self._bridge.cv2_to_imgmsg(coverage, encoding='mono8')
         except (CalibrationError, CvBridgeError, ValueError) as exc:

@@ -6,7 +6,7 @@ import '../src/vehicle.js';
 const C=globalThis.CarbotCore, V=globalThis.CarbotVehicle, RS=globalThis.CarbotRS;
 const c={...C.DEFAULTS},g=C.geometry(c);
 const close=(a,b,eps=1e-9)=>assert.ok(Math.abs(a-b)<eps,`${a} != ${b}`);
-close(g.l,.30);close(g.w,.192);close(g.wb,.216);close(g.track,.167);
+close(g.l,.275);close(g.w,.185);close(g.wb,.21);close(g.track,.160);
 close(g.r,.4);close(g.wb/Math.tan(g.maxSteer),.4);
 const origin={x:0,y:0,a:0};
 const quarter=C.bicycle(origin,Math.PI*.4/2,1/.4);

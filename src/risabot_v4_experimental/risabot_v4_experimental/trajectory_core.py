@@ -153,6 +153,7 @@ def steering_reference_from_corridor(
     if not math.isfinite(expected_lane_width_m) or expected_lane_width_m <= 0.0:
         raise TrajectoryError('expected lane width must be finite and positive')
     centers = []
+    last_single_edge = None
     for sample in samples:
         forward = float(sample['forward_m'])
         visible_center = float(sample['left_m'])
@@ -165,18 +166,37 @@ def steering_reference_from_corridor(
         right_seen = bool(sample.get('right_boundary_observed', both))
         if left_seen and right_seen:
             if 'left_boundary_m' in sample and 'right_boundary_m' in sample:
-                center = 0.5 * (float(sample['left_boundary_m'])
-                                + float(sample['right_boundary_m']))
+                left = float(sample['left_boundary_m'])
+                right = float(sample['right_boundary_m'])
+                measured_width = left - right
+                # Junction paint and an attached floor component can create
+                # two apparent white edges far closer or wider than the
+                # measured strip. Neither is a two-sided lane observation.
+                if (not math.isfinite(measured_width)
+                        or abs(measured_width - expected_lane_width_m)
+                        > max(0.06, expected_lane_width_m * 0.25)):
+                    continue
+                center = 0.5 * (left + right)
             else:
                 center = visible_center
+            last_single_edge = None
         elif left_seen:
+            if last_single_edge == 'right':
+                # A right-only path followed by a gap and a left-only path
+                # can be two different branches. Continue only after a row
+                # observes both edges and connects them geometrically.
+                break
             edge = float(sample.get('left_boundary_m',
                                     visible_center + 0.5 * visible_width))
             center = edge - 0.5 * expected_lane_width_m
+            last_single_edge = 'left'
         elif right_seen:
+            if last_single_edge == 'left':
+                break
             edge = float(sample.get('right_boundary_m',
                                     visible_center - 0.5 * visible_width))
             center = edge + 0.5 * expected_lane_width_m
+            last_single_edge = 'right'
         else:
             continue
         if not math.isfinite(center):
@@ -218,6 +238,22 @@ def smooth_centerline_reference(
     return smoothed, tuple(float(value) for value in coefficients)
 
 
+def enforce_inward_boundary_steer(
+    command: float, lateral_error_m: float, minimum_steer_rad: float,
+    active: bool,
+) -> float:
+    """Prevent a later controller stage from reversing an inward correction."""
+    if not all(math.isfinite(value) for value in
+               (command, lateral_error_m, minimum_steer_rad)):
+        raise TrajectoryError('boundary steering values must be finite')
+    if minimum_steer_rad < 0.0:
+        raise TrajectoryError('minimum boundary steering must be nonnegative')
+    if not active or minimum_steer_rad == 0.0 or lateral_error_m == 0.0:
+        return command
+    inward = math.copysign(minimum_steer_rad, lateral_error_m)
+    return max(command, inward) if inward > 0.0 else min(command, inward)
+
+
 def centerline_steering_command(
     reference: Sequence[PathPoint],
     coefficients: Sequence[float],
@@ -233,8 +269,16 @@ def centerline_steering_command(
     near_curvature_guard_per_m: float = 0.0,
     boundary_recovery_error_m: float = 0.0,
     boundary_recovery_steer_rad: float = 0.0,
+    near_reference: Sequence[PathPoint] = (),
 ) -> Tuple[float, dict]:
-    """Return a Stanley-style steering angle with curvature feedforward."""
+    """Return near-lane feedback plus a farther curve's feedforward.
+
+    The far edge may widen at a junction or painted crossing. A polynomial
+    through the whole camera view can then have the opposite tangent at the
+    nearest visible row even though every nearby lane sample points inward.
+    Use the directly observed near rows for heading and lateral feedback;
+    retain the longer fit only for curvature anticipation.
+    """
     if len(reference) < 2 or len(coefficients) != 3:
         raise TrajectoryError('centerline control needs a fitted reference')
     values = (lookahead_m, cross_track_gain, heading_gain,
@@ -263,6 +307,21 @@ def centerline_steering_command(
     # invent a very large error as a bend enters view. Track the fitted lane
     # at the nearest evaluated lookahead and bound only the feedback term.
     lateral_error = c0 + c1 * evaluation_x + c2 * evaluation_x * evaluation_x
+    near_fit_used = False
+    if near_reference:
+        near_points = sorted(
+            (point for point in near_reference
+             if math.isfinite(point.x) and math.isfinite(point.y)
+             and minimum_x - 1e-6 <= point.x <= minimum_x + 0.70),
+            key=lambda point: point.x,
+        )
+        if len(near_points) >= 3 and near_points[-1].x - near_points[0].x >= 0.16:
+            near_x = np.asarray([point.x for point in near_points], dtype=np.float64)
+            near_y = np.asarray([point.y for point in near_points], dtype=np.float64)
+            near_slope, near_intercept = np.polyfit(near_x, near_y, 1)
+            heading_error = math.atan(float(near_slope))
+            lateral_error = float(near_intercept + near_slope * evaluation_x)
+            near_fit_used = True
     padded_body_width = geometry.width_m + 2.0 * geometry.footprint_padding_m
     feasible_cross_track = max(
         0.02, 0.5 * (expected_lane_width_m - padded_body_width)
@@ -292,10 +351,10 @@ def centerline_steering_command(
     )
     if boundary_recovery_active:
         # A fitted bend can make heading feedback overwhelm cross-track
-        # feedback while the tires are already near a lane boundary. Do not
-        # steer farther out until the measured lane centre is back inboard.
-        inward = math.copysign(boundary_recovery_steer_rad, lateral_error)
-        command = max(command, inward) if inward > 0.0 else min(command, inward)
+        # feedback while the tires are already near a lane boundary.
+        command = enforce_inward_boundary_steer(
+            command, lateral_error, boundary_recovery_steer_rad, True,
+        )
     maximum_steer = math.atan(
         geometry.wheelbase_m / geometry.minimum_turn_radius_m
     )
@@ -308,6 +367,7 @@ def centerline_steering_command(
         'curvature_per_m': curvature,
         'feedforward_steer_rad': feedforward,
         'evaluation_forward_m': evaluation_x,
+        'near_fit_used': near_fit_used,
         'near_center_guard_active': near_center_guard,
         'boundary_recovery_active': boundary_recovery_active,
     }
@@ -327,6 +387,81 @@ class Candidate:
     minimum_support: float
     command_steer_rad: float
     reject_reason: str
+
+
+@dataclass
+class CommandEvaluation:
+    """Swept-footprint result for the steering angle sent to the actuator."""
+
+    points: List[PathPoint]
+    road_blocked: int
+    obstacle_blocked: int
+    minimum_support: float
+
+
+def evaluate_steering_command(
+    command_steer_rad: float,
+    drivable_mask: np.ndarray,
+    profile: CameraProfile,
+    geometry: VehicleGeometry = VehicleGeometry(),
+    config: TrajectoryConfig = TrajectoryConfig(),
+    obstacles_m: Sequence[Tuple[float, float]] = (),
+    near_field: Optional[NearFieldBootstrap] = None,
+    initial_steer_rad: float = 0.0,
+) -> CommandEvaluation:
+    """Roll out the commanded steering with the same lag and footprint model.
+
+    The offset candidates use pure pursuit and can change their desired angle
+    at each step. Their validity cannot certify a separate centerline command.
+    This evaluator holds the actual next command over the prediction horizon.
+    """
+    geometry.validate()
+    config.validate()
+    maximum_steer = math.atan(
+        geometry.wheelbase_m / geometry.minimum_turn_radius_m
+    )
+    if (not math.isfinite(command_steer_rad)
+            or not math.isfinite(initial_steer_rad)
+            or abs(command_steer_rad) > maximum_steer + 1e-6
+            or abs(initial_steer_rad) > maximum_steer + 1e-6):
+        raise TrajectoryError('command steering exceeds the modeled actuator range')
+    steps = max(1, int(math.ceil(config.horizon_m / config.step_m)))
+    dt = config.step_m / config.rollout_speed_mps
+    lag_fraction = 1.0 - math.exp(-dt / config.steering_lag_sec)
+    rate_limit = config.steering_rate_rad_sec * dt
+    pose = PathPoint(0.0, 0.0, 0.0)
+    steer = initial_steer_rad
+    points = [pose]
+    for _ in range(steps):
+        desired_step = (command_steer_rad - steer) * lag_fraction
+        steer += max(-rate_limit, min(rate_limit, desired_step))
+        curvature = math.tan(steer) / geometry.wheelbase_m
+        midpoint_yaw = pose.yaw + 0.5 * config.step_m * curvature
+        pose = PathPoint(
+            pose.x + config.step_m * math.cos(midpoint_yaw),
+            pose.y + config.step_m * math.sin(midpoint_yaw),
+            math.atan2(
+                math.sin(pose.yaw + config.step_m * curvature),
+                math.cos(pose.yaw + config.step_m * curvature),
+            ),
+        )
+        points.append(pose)
+    supports = _candidate_supports(
+        points[1:], _footprint_template(
+            geometry, config.footprint_sample_spacing_m
+        ), drivable_mask, profile, near_field,
+    )
+    obstacle_hits = _candidate_obstacle_hits(
+        points[1:], obstacles_m, geometry, config.obstacle_margin_m
+    )
+    return CommandEvaluation(
+        points=points,
+        road_blocked=int(np.count_nonzero(
+            supports < config.minimum_road_support
+        )),
+        obstacle_blocked=int(np.count_nonzero(obstacle_hits)),
+        minimum_support=float(np.min(supports)),
+    )
 
 
 def reference_from_corridor(samples: Sequence[Tuple[float, float]]) -> List[PathPoint]:

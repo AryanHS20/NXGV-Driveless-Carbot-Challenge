@@ -11,6 +11,8 @@ from risabot_v4_experimental.trajectory_core import (
     TrajectoryError,
     VehicleGeometry,
     centerline_steering_command,
+    enforce_inward_boundary_steer,
+    evaluate_steering_command,
     footprint_points,
     generate_candidates,
     near_field_bootstrap_from_corridor,
@@ -72,6 +74,20 @@ class TrajectoryCoreTests(unittest.TestCase):
         self.assertTrue(any(candidate.obstacle_blocked > 0 for candidate in candidates))
         center = next(candidate for candidate in candidates if candidate.offset_m == 0.0)
         self.assertFalse(center.valid)
+
+    def test_sent_steering_rollout_tracks_the_command_and_checks_obstacles(self):
+        mask = corridor_mask(self.profile, 0.35)
+        left = evaluate_steering_command(0.30, mask, self.profile)
+        right = evaluate_steering_command(-0.30, mask, self.profile)
+        self.assertGreater(left.points[-1].y, 0.0)
+        self.assertLess(right.points[-1].y, 0.0)
+        self.assertAlmostEqual(left.points[-1].y, -right.points[-1].y, places=5)
+        blocked = evaluate_steering_command(
+            0.30, mask, self.profile, obstacles_m=[(0.30, 0.05)]
+        )
+        self.assertGreater(blocked.obstacle_blocked, 0)
+        with self.assertRaises(TrajectoryError):
+            evaluate_steering_command(math.nan, mask, self.profile)
 
     def test_corner_outside_mask_reduces_support(self):
         mask = corridor_mask(self.profile, 0.11)
@@ -151,6 +167,51 @@ class TrajectoryCoreTests(unittest.TestCase):
         reference = steering_reference_from_corridor(samples, 0.31)
         self.assertTrue(all(abs(point.y) < 1e-9 for point in reference))
 
+    def test_green_bend_does_not_join_opposite_one_sided_edges_across_gap(self):
+        # Measured rows from the Risabot 1 slow manual lap at 120 s. The
+        # right-only near lane was followed by floor-connected mask pixels,
+        # then a different left-only edge. Joining them drew the guide onto
+        # the white line and pointed the car away from the first bend.
+        samples = [
+            {'forward_m': .45, 'left_m': .085, 'width_m': .125,
+             'left_boundary_observed': False, 'right_boundary_observed': True,
+             'right_boundary_m': .020},
+            {'forward_m': .61, 'left_m': .115, 'width_m': .225,
+             'left_boundary_observed': False, 'right_boundary_observed': True,
+             'right_boundary_m': -.005},
+            {'forward_m': .77, 'left_m': .100, 'width_m': .405,
+             'left_boundary_observed': False, 'right_boundary_observed': True,
+             'right_boundary_m': -.105},
+            {'forward_m': .93, 'left_m': .0025, 'width_m': .750,
+             'left_boundary_observed': False, 'right_boundary_observed': False},
+            {'forward_m': 1.09, 'left_m': -.240, 'width_m': .435,
+             'left_boundary_observed': True, 'right_boundary_observed': False,
+             'left_boundary_m': -.015},
+            {'forward_m': 1.25, 'left_m': -.435, 'width_m': .205,
+             'left_boundary_observed': True, 'right_boundary_observed': False,
+             'left_boundary_m': -.325},
+        ]
+        reference = steering_reference_from_corridor(samples, .295)
+        self.assertEqual(len(reference), 3)
+        self.assertAlmostEqual(reference[0].y, .1675)
+        self.assertLess(reference[-1].x, 1.0)
+
+    def test_transverse_paint_cannot_define_a_narrow_two_sided_lane(self):
+        samples = [
+            {'forward_m': .4, 'left_m': 0., 'width_m': .295,
+             'left_boundary_observed': True, 'right_boundary_observed': True,
+             'left_boundary_m': .1475, 'right_boundary_m': -.1475},
+            {'forward_m': .5, 'left_m': .2, 'width_m': .155,
+             'left_boundary_observed': True, 'right_boundary_observed': True,
+             'left_boundary_m': .2775, 'right_boundary_m': .1225},
+            {'forward_m': .6, 'left_m': 0., 'width_m': .295,
+             'left_boundary_observed': True, 'right_boundary_observed': True,
+             'left_boundary_m': .1475, 'right_boundary_m': -.1475},
+        ]
+        reference = steering_reference_from_corridor(samples, .295)
+        self.assertEqual(len(reference), 2)
+        self.assertTrue(all(abs(point.y) < 1e-9 for point in reference))
+
     def test_smoothed_centerline_controller_steers_toward_curve(self):
         straight = reference_from_corridor([
             (x, 0.0) for x in np.linspace(0.25, 0.75, 12)
@@ -174,6 +235,27 @@ class TrajectoryCoreTests(unittest.TestCase):
             )
             self.assertGreater(command * direction, 0.0)
             self.assertGreater(diagnostics['curvature_per_m'] * direction, 0.0)
+
+    def test_near_lane_heading_is_not_reversed_by_distant_widening(self):
+        # The green-bend recording showed a straight near corridor drifting
+        # left, followed by a wide region around a painted crossing. Fitting
+        # one quadratic through both made its near tangent point right.
+        for direction in (-1.0, 1.0):
+            observed = reference_from_corridor([
+                (x, direction * (0.01 + 0.05 * (x - 0.5)))
+                for x in np.linspace(0.49, 1.29, 21)
+            ] + [
+                (x, direction * (0.04 + 0.55 * (x - 1.29)))
+                for x in np.linspace(1.33, 1.73, 11)
+            ])
+            fitted, coefficients = smooth_centerline_reference(observed, alpha=1.0)
+            command, diagnostic = centerline_steering_command(
+                fitted, coefficients, VehicleGeometry(), 0.22,
+                0.75, 0.85, 0.9, near_reference=observed,
+            )
+            self.assertGreater(command * direction, 0.05)
+            self.assertGreater(diagnostic['heading_error_rad'] * direction, 0.03)
+            self.assertTrue(diagnostic['near_fit_used'])
 
     def test_centerline_coefficients_are_temporally_filtered(self):
         left = reference_from_corridor([(0.3, 0.04), (0.5, 0.04), (0.7, 0.04)])
@@ -246,6 +328,36 @@ class TrajectoryCoreTests(unittest.TestCase):
         )
         self.assertEqual(command, 0.0)
         self.assertFalse(diagnostics['boundary_recovery_active'])
+
+    def test_final_boundary_guard_overrides_outward_rate_limit_or_hold(self):
+        # The green-bend AUTO bag switched from a prior hard right command
+        # to a leftward boundary correction. The rate limiter still sent a
+        # right command for several perception frames.
+        self.assertEqual(
+            enforce_inward_boundary_steer(-0.47, 0.14, 0.30, True), 0.30,
+        )
+        self.assertEqual(
+            enforce_inward_boundary_steer(0.60, -0.14, 0.30, True), -0.30,
+        )
+        self.assertEqual(
+            enforce_inward_boundary_steer(-0.47, 0.14, 0.30, False), -0.47,
+        )
+
+    def test_risabot1_right_stripe_trial_gets_substantial_left_correction(self):
+        # The 20260922T225222Z AUTO recording had a 14.5 cm leftward lane
+        # error while heading feedback opposed the needed correction.
+        coefficients = (0.449, -0.907, 0.515)
+        reference = reference_from_corridor([
+            (x, coefficients[0] + coefficients[1] * x + coefficients[2] * x * x)
+            for x in (0.45, 0.53, 0.61, 0.69)
+        ])
+        command, diagnostics = centerline_steering_command(
+            reference, coefficients, VehicleGeometry(width_m=0.205), 0.22,
+            0.75, 0.85, 0.90, 0.31, 0.14, 0.02, 0.05, 0.15,
+            0.020, 0.30,
+        )
+        self.assertGreater(diagnostics['lateral_error_m'], 0.10)
+        self.assertGreaterEqual(command, 0.30)
 
     def test_track_mode_relaxes_mask_support_without_hiding_observed_obstacles(self):
         mask = corridor_mask(self.profile, 0.07)

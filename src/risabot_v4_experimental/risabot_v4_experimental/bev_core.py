@@ -215,8 +215,50 @@ def build_homography(profile: CameraProfile) -> np.ndarray:
     return matrix
 
 
+class BevTransformer:
+    """Reuse fixed camera geometry and coverage for successive images."""
+
+    def __init__(self, profile: CameraProfile) -> None:
+        if not profile.calibrated:
+            raise CalibrationError(f'{profile.name} is not calibrated')
+        self.profile = profile
+        self.matrix = build_homography(profile)
+        self.output_size = profile.output_size
+        self.no_distortion = not bool(np.any(profile.distortion))
+        width, height = profile.resolution
+        raw_mask = np.full((height, width), 255, dtype=np.uint8)
+        undistorted_mask = (raw_mask if self.no_distortion else cv2.undistort(
+            raw_mask, profile.camera_matrix, profile.distortion, None,
+            profile.camera_matrix,
+        ))
+        self.coverage = cv2.warpPerspective(
+            undistorted_mask, self.matrix, self.output_size,
+            flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT,
+        )
+
+    def warp(self, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+        profile = self.profile
+        if image is None or image.ndim not in (2, 3):
+            raise CalibrationError('input image must be a 2-D or 3-D array')
+        expected_width, expected_height = profile.resolution
+        if image.shape[1] != expected_width or image.shape[0] != expected_height:
+            raise CalibrationError(
+                f'{profile.name} expected {expected_width}x{expected_height}, '
+                f'got {image.shape[1]}x{image.shape[0]}'
+            )
+        undistorted = (image if self.no_distortion else cv2.undistort(
+            image, profile.camera_matrix, profile.distortion, None,
+            profile.camera_matrix,
+        ))
+        bev = cv2.warpPerspective(
+            undistorted, self.matrix, self.output_size,
+            flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT,
+        )
+        return bev, self.coverage
+
+
 def warp_to_bev(image: np.ndarray, profile: CameraProfile) -> Tuple[np.ndarray, np.ndarray]:
-    """Undistort and warp an image, returning the BEV and observed-pixel mask."""
+    """Undistort and warp one image, returning the BEV and observed-pixel mask."""
     if not profile.calibrated:
         raise CalibrationError(f'{profile.name} is not calibrated')
     if image is None or image.ndim not in (2, 3):
@@ -227,30 +269,7 @@ def warp_to_bev(image: np.ndarray, profile: CameraProfile) -> Tuple[np.ndarray, 
             f'{profile.name} expected {expected_width}x{expected_height}, '
             f'got {image.shape[1]}x{image.shape[0]}'
         )
-    undistorted = cv2.undistort(
-        image, profile.camera_matrix, profile.distortion, None, profile.camera_matrix
-    )
-    matrix = build_homography(profile)
-    output_size = profile.output_size
-    bev = cv2.warpPerspective(
-        undistorted,
-        matrix,
-        output_size,
-        flags=cv2.INTER_LINEAR,
-        borderMode=cv2.BORDER_CONSTANT,
-    )
-    raw_mask = np.full((expected_height, expected_width), 255, dtype=np.uint8)
-    undistorted_mask = cv2.undistort(
-        raw_mask, profile.camera_matrix, profile.distortion, None, profile.camera_matrix
-    )
-    coverage = cv2.warpPerspective(
-        undistorted_mask,
-        matrix,
-        output_size,
-        flags=cv2.INTER_NEAREST,
-        borderMode=cv2.BORDER_CONSTANT,
-    )
-    return bev, coverage
+    return BevTransformer(profile).warp(image)
 
 
 def profile_report(profile: CameraProfile) -> Dict[str, Any]:

@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node tests/core.test.mjs && node tests/photo-and-noise.test.mjs && node tests/local-guidance.test.mjs && node tests/recovery.test.mjs",
+    "test": "node tests/core.test.mjs && node tests/photo-and-noise.test.mjs && node tests/local-guidance.test.mjs && node tests/recovery.test.mjs && node tests/live-car.test.mjs && node tests/parking-replay.test.mjs && node tests/upstream-parking.test.mjs",
     "build": "node build.mjs"
   },
   "description": "Offline 3D Carbot simulation, no ROS or build step required",
