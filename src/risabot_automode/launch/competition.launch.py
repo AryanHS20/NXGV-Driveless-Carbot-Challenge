@@ -88,14 +88,14 @@ def generate_launch_description():
 
         # ==================== PERCEPTION ====================
 
-        # D. LiDAR obstacle detection (existing)
-        Node(
-            package='obstacle_avoidance',
-            executable='obstacle_avoidance',
-            name='obstacle_avoidance_node',
-            output='screen',
-            parameters=[params_file]
-        ),
+        # D. LiDAR obstacle detection — DISABLED (fix-tunnel-section): stops car at tunnel walls
+        # Node(
+        #     package='obstacle_avoidance',
+        #     executable='obstacle_avoidance',
+        #     name='obstacle_avoidance_node',
+        #     output='screen',
+        #     parameters=[params_file]
+        # ),
 
         # E. Camera obstacle detection (existing)
         Node(
@@ -116,14 +116,14 @@ def generate_launch_description():
         ),
 
 
-        # H. Boom gate detector (NEW)
-        Node(
-            package='risabot_automode',
-            executable='boom_gate_detector',
-            name='boom_gate_detector',
-            output='screen',
-            parameters=[params_file]
-        ),
+        # H. Boom gate detector — DISABLED (fix-tunnel-section): LiDAR-triggered stop
+        # Node(
+        #     package='risabot_automode',
+        #     executable='boom_gate_detector',
+        #     name='boom_gate_detector',
+        #     output='screen',
+        #     parameters=[params_file]
+        # ),
 
         # I2. Signage detector (YOLOv5 BPU model)
         Node(
@@ -152,14 +152,14 @@ def generate_launch_description():
             parameters=[params_file]
         ),
 
-        # J. Obstruction avoidance (NEW)
-        Node(
-            package='risabot_automode',
-            executable='obstruction_avoidance',
-            name='obstruction_avoidance',
-            output='screen',
-            parameters=[params_file]
-        ),
+        # J. Obstruction avoidance — DISABLED (fix-tunnel-section): LiDAR-triggered stop/dodge
+        # Node(
+        #     package='risabot_automode',
+        #     executable='obstruction_avoidance',
+        #     name='obstruction_avoidance',
+        #     output='screen',
+        #     parameters=[params_file]
+        # ),
 
         # K. Parking controller (NEW)
         Node(

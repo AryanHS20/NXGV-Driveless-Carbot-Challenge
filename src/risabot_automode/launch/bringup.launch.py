@@ -79,16 +79,16 @@ def generate_launch_description():
         # ==================== PERCEPTION ====================
         # Delayed 3s to give astra_camera time to start publishing
 
-        # D. LiDAR obstacle detection
-        TimerAction(period=3.0, actions=[
-            Node(
-                package='obstacle_avoidance',
-                executable='obstacle_avoidance',
-                name='obstacle_avoidance_node',
-                output='screen',
-                parameters=[params_file]
-            ),
-        ]),
+        # D. LiDAR obstacle detection — DISABLED (fix-tunnel-section): stops car at tunnel walls
+        # TimerAction(period=3.0, actions=[
+        #     Node(
+        #         package='obstacle_avoidance',
+        #         executable='obstacle_avoidance',
+        #         name='obstacle_avoidance_node',
+        #         output='screen',
+        #         parameters=[params_file]
+        #     ),
+        # ]),
 
         # E. Camera obstacle detection
         TimerAction(period=3.0, actions=[
@@ -146,16 +146,16 @@ def generate_launch_description():
             ),
         ]),
 
-        # G5. Dynamic VFH+ & Bezier Obstruction Avoidance
-        TimerAction(period=3.0, actions=[
-            Node(
-                package='risabot_automode',
-                executable='obstruction_avoidance',
-                name='obstruction_avoidance',
-                output='screen',
-                parameters=[params_file]
-            ),
-        ]),
+        # G5. Obstruction Avoidance — DISABLED (fix-tunnel-section): LiDAR-triggered stop/dodge
+        # TimerAction(period=3.0, actions=[
+        #     Node(
+        #         package='risabot_automode',
+        #         executable='obstruction_avoidance',
+        #         name='obstruction_avoidance',
+        #         output='screen',
+        #         parameters=[params_file]
+        #     ),
+        # ]),
 
         # G6. Closed-Loop Parking Controller
         TimerAction(period=3.0, actions=[
