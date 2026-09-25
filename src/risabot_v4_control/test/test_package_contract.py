@@ -56,7 +56,7 @@ class PackageContractTests(unittest.TestCase):
         launch = (Path(__file__).parents[1] / 'launch' / 'track_test.launch.py').read_text()
         self.assertIn("vehicle == 'risabot1' and flag('start_signage')", launch)
         self.assertIn("executable='signage_detector'", launch)
-        self.assertIn("'publish_boom_state': False", launch)
+        self.assertIn("'publish_boom_state': True", launch)
 
 
 if __name__ == '__main__':

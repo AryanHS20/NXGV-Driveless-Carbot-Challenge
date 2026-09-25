@@ -97,7 +97,7 @@ def _setup(context):
         actions.append(Node(
             package='risabot_automode', executable='signage_detector',
             name='signage_detector', output='screen',
-            parameters=[auto_params, {'publish_boom_state': False}],
+            parameters=[auto_params, {'publish_boom_state': True}],
         ))
     for name, executable in (
         ('v4_bev_shadow', 'bev_shadow'), ('v4_road_mask_shadow', 'road_mask_shadow'),

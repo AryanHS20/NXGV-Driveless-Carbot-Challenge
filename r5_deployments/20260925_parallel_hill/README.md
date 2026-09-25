@@ -35,3 +35,11 @@ systemctl is-active risabot5-track-stack.service
 
 The service owns the hardware connection. Do not run a second direct ROS launch
 alongside it. The operator selects AUTO on the car.
+
+After the first restart, the R5 launch setting of `publish_boom_state: False`
+left the gate state stale and held AUTO at zero. The deployed launch file in
+this snapshot now sets it to `True` (SHA-256
+`f3dbd593b75e6c8848bac8d76838a7e2c257d9b9dcf510ab995deede658cdb89`).
+After a verification restart, the service was active and the dashboard showed
+fresh OPEN gate readings over more than three road frames in MANUAL with zero
+motor command. Physical AUTO motion was not tested by this change.

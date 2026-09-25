@@ -88,7 +88,7 @@ def _setup(context):
             parameters=[auto_params, {
                 'traffic_confirm_frames': 3,
                 'publish_advisories': True,
-                'publish_boom_state': False,
+                'publish_boom_state': True,
                 'tunnel_publish_enabled': False,
             }],
         ))
