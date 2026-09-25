@@ -46,6 +46,8 @@ def _setup(context):
     # Tunnel fix: LiDAR points must not reject lane trajectories (the tunnel entrance
     # is visible in the scan long before both walls are, and would hold the car).
     overrides['v4_trajectory_shadow']['use_lidar_obstacles'] = flag('lidar_obstacle_stop')
+    if arg('parallel_recording'):
+        overrides['servo_controller']['parallel_recording'] = arg('parallel_recording')
     auto_params = os.path.join(auto, 'config', 'params.yaml')
     v4_params = os.path.join(v4, 'config', 'v4_experimental.yaml')
     control_params = os.path.join(control, 'config', 'v4_control.yaml')
@@ -112,6 +114,13 @@ def _setup(context):
                             parameters=[auto_params, overrides.get(name, {})]))
     actions.append(Node(package='joy', executable='joy_node', name='joy_node',
                         parameters=[{'deadzone': 0.12, 'autorepeat_rate': 20.0, 'coalesce_interval_ms': 1}]))
+    if flag('parallel_park'):
+        # Parallel-parking sign held 2 s -> servo_controller 'playback:parallel'.
+        # Playback overrides the lane command inside cmd_safety_controller.
+        actions.append(Node(package='risabot_automode', executable='signage_detector',
+                            name='signage_detector', output='screen', parameters=[auto_params]))
+        actions.append(Node(package='risabot_automode', executable='parallel_park_trigger',
+                            name='parallel_park_trigger', output='screen', parameters=[auto_params]))
     if flag('dashboard'):
         actions.append(Node(package='risabot_automode', executable='dashboard', name='dashboard',
                             output='screen', parameters=[auto_params]))
@@ -131,6 +140,10 @@ def generate_launch_description():
         DeclareLaunchArgument('start_lidar', default_value='true'),
         DeclareLaunchArgument('lidar_obstacle_stop', default_value='false',
                               description='true = LiDAR points reject lane trajectories (old behavior).'),
+        DeclareLaunchArgument('parallel_park', default_value='true',
+                              description='Run signage detector + parallel park trigger.'),
+        DeclareLaunchArgument('parallel_recording', default_value='parallel_park',
+                              description='Saved recording (~/risabot_recordings/<name>.json) played on the sign.'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('lidar_port', default_value='/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0'),
         OpaqueFunction(function=_setup),

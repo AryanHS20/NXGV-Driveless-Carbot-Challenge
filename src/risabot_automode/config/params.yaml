@@ -391,6 +391,16 @@ servo_controller:
 #     tunnel state transitions, which come only from tunnel_wall_follower)
 #   iou_threshold : NMS overlap threshold (0.45 is standard YOLOv5 default)
 #   min_parking_sign_width : pixel width gate — ignore tiny parking detections
+# --- Parallel Park Trigger ---
+# /parking_sign_kind == 'parallel' held hold_sec -> servo_controller 'playback:parallel'
+parallel_park_trigger:
+  ros__parameters:
+    enabled: true
+    hold_sec: 2.0
+    stale_sec: 1.5
+    rearm_clear_sec: 3.0
+    cooldown_sec: 30.0
+
 signage_detector:
   ros__parameters:
     model_path: "/home/sunrise/unified14_yolo11n_640x640_nv12.bin"
