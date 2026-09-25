@@ -1,5 +1,7 @@
 # R5 board snapshot: parallel sign and hill pulse (25 September 2026)
 
+**Historical snapshot:** The active R5 board was restored to the [post-`/scan`-veto baseline](../20260925_best_working_post_scan/README.md) at P204. This parking-trigger snapshot remains for history and is not the current board code.
+
 These files are byte-for-byte copies of the R5 source verified after the
 automatic parallel-sign fix. The main `src/` checkout also contains R1 work;
 these files are kept separately so a Git checkout does not overwrite either
