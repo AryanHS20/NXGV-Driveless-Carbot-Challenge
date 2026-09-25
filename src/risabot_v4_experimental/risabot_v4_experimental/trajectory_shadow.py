@@ -41,6 +41,9 @@ class TrajectoryShadow(Node):
         self.declare_parameter('track_test_mode', False)
         self.declare_parameter('enforce_road_support_in_track_test', False)
         self.declare_parameter('require_lidar', True)
+        # False: LiDAR points never reject candidate trajectories (tunnel walls / far
+        # scenery must not stop the lane follower). tunnel_wall_follower handles walls.
+        self.declare_parameter('use_lidar_obstacles', True)
         self.declare_parameter('profile_path', '')
         self.declare_parameter('road_status_topic', '/v4_experimental/road/status')
         self.declare_parameter('road_mask_topic', '/v4_experimental/road/primary/fused')
@@ -98,6 +101,7 @@ class TrajectoryShadow(Node):
             self.get_parameter('enforce_road_support_in_track_test').value
         )
         self._require_lidar = bool(self.get_parameter('require_lidar').value)
+        self._use_lidar_obstacles = bool(self.get_parameter('use_lidar_obstacles').value)
         self._geometry_validated = bool(
             self.get_parameter('vehicle_geometry_validated').value
         )
@@ -245,7 +249,7 @@ class TrajectoryShadow(Node):
         }
         protected = {
             'enabled', 'track_test_mode', 'enforce_road_support_in_track_test',
-            'require_lidar', 'profile_path', 'vehicle_geometry_validated',
+            'require_lidar', 'use_lidar_obstacles', 'profile_path', 'vehicle_geometry_validated',
             'minimum_turn_radius_validated', 'lidar_extrinsics_validated',
             'vehicle_length_m', 'vehicle_width_m', 'wheelbase_m',
             'rear_overhang_m', 'minimum_turn_radius_m',
@@ -512,7 +516,7 @@ class TrajectoryShadow(Node):
                 self._profiles['primary'],
                 self._geometry,
                 self._config,
-                self._scan_points if scan_fresh else (),
+                self._scan_points if (scan_fresh and self._use_lidar_obstacles) else (),
                 near_field,
                 enforce_road_support=(
                     not self._track_test_mode

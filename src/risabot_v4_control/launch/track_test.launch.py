@@ -43,6 +43,9 @@ def _setup(context):
         raise RuntimeError('A primary camera profile is required')
     for name in ('v4_bev_shadow', 'v4_road_mask_shadow', 'v4_trajectory_shadow'):
         overrides[name]['profile_path'] = profile_path
+    # Tunnel fix: LiDAR points must not reject lane trajectories (the tunnel entrance
+    # is visible in the scan long before both walls are, and would hold the car).
+    overrides['v4_trajectory_shadow']['use_lidar_obstacles'] = flag('lidar_obstacle_stop')
     auto_params = os.path.join(auto, 'config', 'params.yaml')
     v4_params = os.path.join(v4, 'config', 'v4_experimental.yaml')
     control_params = os.path.join(control, 'config', 'v4_control.yaml')
@@ -126,6 +129,8 @@ def generate_launch_description():
         DeclareLaunchArgument('profile_path', default_value='', description='Camera YAML for this chassis.'),
         DeclareLaunchArgument('start_camera', default_value='true'),
         DeclareLaunchArgument('start_lidar', default_value='true'),
+        DeclareLaunchArgument('lidar_obstacle_stop', default_value='false',
+                              description='true = LiDAR points reject lane trajectories (old behavior).'),
         DeclareLaunchArgument('dashboard', default_value='true'),
         DeclareLaunchArgument('lidar_port', default_value='/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0'),
         OpaqueFunction(function=_setup),
