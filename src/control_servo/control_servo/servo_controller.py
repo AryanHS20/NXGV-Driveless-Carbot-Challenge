@@ -114,9 +114,6 @@ class LoopMonitor:
         self.reset()
         return data
 
-from .encoder_segments import SegmentPlayer, build_segments, describe
-
-
 class ServoControllerV9(Node):
     """Interface between joystick, auto driver, and Rosmaster motor board."""
 
@@ -133,11 +130,6 @@ class ServoControllerV9(Node):
         self.declare_parameter('joy_timeout', 0.8)
         self.declare_parameter('auto_cmd_timeout', 0.4)
         self.declare_parameter('parallel_recording', '')
-        # Encoder-distance playback: drive each recorded move until the wheel encoder
-        # has counted the recorded ticks (0 duty = use the recorded duty).
-        self.declare_parameter('encoder_playback', True)
-        self.declare_parameter('encoder_playback_duty', 0)
-        self.declare_parameter('encoder_lead_ticks', 0.0)
         self.declare_parameter('perpendicular_recording', '')
         self.declare_parameter('motor_duty_per_mps', 255.0)
         self.declare_parameter('auto_motor_duty_limit', 100.0)
@@ -305,8 +297,6 @@ class ServoControllerV9(Node):
         self.rp_state = 'IDLE'       # 'IDLE', 'RECORDING', 'PLAYBACK'
         self.record_buffer = []       # list of {motor_pwm, servo_angle}
         self.record_last_sample_time = 0.0
-        self.enc_ticks_total = 0.0     # cumulative signed drive-wheel ticks (uncalibrated)
-        self.enc_player = None         # SegmentPlayer while encoder playback runs
         self.playback_index = 0
         self.playback_timer = None    # one-shot timer handle
 
@@ -873,8 +863,7 @@ class ServoControllerV9(Node):
         if self.rp_state == 'RECORDING':
             self.record_buffer.append({
                 'motor_pwm': self.target_motor_val,
-                'servo_angle': self.target_servo_val,
-                'enc_ticks': round(self.enc_ticks_total, 1),
+                'servo_angle': self.target_servo_val
             })
 
         now = time.monotonic()
@@ -979,7 +968,6 @@ class ServoControllerV9(Node):
             if bool(self._param_cache['odom_reverse_polarity']):
                 avg_ticks = -avg_ticks
 
-            self.enc_ticks_total += avg_ticks
             # Convert to distance
             if self.ticks_per_meter <= 0:
                 return
@@ -1395,13 +1383,6 @@ class ServoControllerV9(Node):
         """Exit RECORDING state: keep buffer, return to IDLE."""
         self.rp_state = 'IDLE'
         self.get_logger().info(f'⏹ RECORDING stopped ({len(self.record_buffer)} samples)')
-        try:
-            segs = build_segments(self.record_buffer)
-            self.get_logger().info(f'Encoder segments recorded: {len(segs)}')
-            for line in describe(segs, self.servo_center, self.ticks_per_meter):
-                self.get_logger().info('  ' + line)
-        except Exception as exc:
-            self.get_logger().warn(f'Could not summarise encoder segments: {exc}')
         self._publish_rp_state()
 
     def _start_playback(self) -> None:
@@ -1417,22 +1398,6 @@ class ServoControllerV9(Node):
             return
         self.playback_result = 'running'
         self.playback_index = 0
-        self.enc_player = None
-        if (bool(self.get_parameter('encoder_playback').value)
-                and all('enc_ticks' in smp for smp in self.record_buffer)):
-            segs = build_segments(self.record_buffer)
-            if segs:
-                self.enc_player = SegmentPlayer(
-                    segs, self.servo_center,
-                    duty_override=int(self.get_parameter('encoder_playback_duty').value),
-                    lead_ticks=float(self.get_parameter('encoder_lead_ticks').value))
-                self.get_logger().info(f'Encoder playback: {len(segs)} segments')
-                for line in describe(segs, self.servo_center, self.ticks_per_meter):
-                    self.get_logger().info('  ' + line)
-            else:
-                self.get_logger().warn('No encoder segments in recording; using timed playback')
-        else:
-            self.get_logger().warn('Recording has no encoder data; using timed playback')
         self.get_logger().info(f'▶ PLAYBACK started "{self.current_recording_name}" ({len(self.record_buffer)} samples)')
         self._publish_rp_state()
         # Start the periodic playback timer at 20Hz (0.05 seconds)
@@ -1453,29 +1418,6 @@ class ServoControllerV9(Node):
             # Reached end of recording
             self.get_logger().info('🏁 PLAYBACK complete — stopping robot')
             self._stop_playback('complete')
-            return
-
-        if self.enc_player is not None:
-            out = self.enc_player.step(time.monotonic(), self.enc_ticks_total)
-            for line in self.enc_player.log:
-                self.get_logger().info(line)
-            self.enc_player.log.clear()
-            if out.abort:
-                self.get_logger().error(f'Encoder playback aborted: {out.abort}')
-                self._abort_motion(out.abort)
-                return
-            if out.done:
-                self.get_logger().info('PLAYBACK complete (encoder distances reached)')
-                self._stop_playback('complete')
-                return
-            cmd = Twist()
-            cmd.linear.x = max(-100, min(100, out.motor_pwm)) / float(self.get_parameter('motor_duty_per_mps').value)
-            offset = out.servo_angle - self.servo_center
-            scale = (self.servo_range_right * float(self._param_cache['auto_right_steer_boost'])
-                     if offset >= 0 else self.servo_range_left)
-            cmd.angular.z = max(-1., min(1., offset / max(1., scale)))
-            self.playback_cmd_pub.publish(cmd)
-            self._publish_rp_state()   # cmd_safety_controller needs a fresh state heartbeat
             return
 
         sample = self.record_buffer[self.playback_index]
@@ -1502,7 +1444,6 @@ class ServoControllerV9(Node):
             self.playback_timer.cancel()
             self.destroy_timer(self.playback_timer)
             self.playback_timer = None
-        self.enc_player = None
         self.rp_state = 'IDLE'
         self.playback_result = result
         self.stop_robot()
