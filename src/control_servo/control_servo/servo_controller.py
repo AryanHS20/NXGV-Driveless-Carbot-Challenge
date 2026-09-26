@@ -1318,7 +1318,19 @@ class ServoControllerV9(Node):
         cmd = msg.data.strip()
         cmd_lower = cmd.lower()
 
-        if cmd_lower == 'record':
+        if cmd_lower in ('manual', 'record_manual'):
+            # Console-friendly: force MANUAL (joystick drives) before recording.
+            if self.rp_state != 'IDLE':
+                self._abort_motion('manual_requested')
+            self.stop_robot()
+            if not self.manual_mode:
+                self.manual_mode = True
+                self.auto_mode_pub.publish(Bool(data=False))
+                self.get_logger().info('Mode: MANUAL (console request)')
+            if cmd_lower == 'record_manual':
+                self._start_recording()
+            self._update_dash()
+        elif cmd_lower == 'record':
             if self.rp_state == 'IDLE':
                 self._start_recording()
         elif cmd_lower == 'stop':

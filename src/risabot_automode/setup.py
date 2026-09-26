@@ -44,6 +44,7 @@ setup(
             'traffic_light_detector = risabot_automode.traffic_light_detector:main',
             'boom_gate_detector = risabot_automode.boom_gate_detector:main',
             'parking_controller = risabot_automode.parking_controller:main',
+            'parallel_park_trigger = risabot_automode.parallel_park_trigger:main',
             'tunnel_wall_follower = risabot_automode.tunnel_wall_follower:main',
             'obstruction_avoidance = risabot_automode.obstruction_avoidance:main',
             'dashboard = risabot_automode.dashboard:main',
