@@ -1,0 +1,10 @@
+--- a/setup.py
++++ b/setup.py
+@@ -51,6 +51,7 @@
+             'cmd_safety_controller = risabot_automode.cmd_safety_controller:main',
+             'bag_regression_validator = risabot_automode.bag_regression_validator:main',
+             'signage_detector = risabot_automode.signage_detector:main',
++            'track_seg = risabot_automode.track_seg_node:main',
+             'heading_fusion = risabot_automode.heading_fusion:main',
+             'map_recorder = risabot_automode.map_recorder:main',
+             'mipi_relay = risabot_automode.mipi_relay:main',

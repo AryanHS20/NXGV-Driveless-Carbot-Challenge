@@ -1,0 +1,36 @@
+--- a/track_test.launch.py
++++ b/track_test.launch.py
+@@ -92,6 +92,23 @@
+                 'tunnel_publish_enabled': False,
+             }],
+         ))
++    road_source = arg('road_source')
++    if road_source not in ('classical', 'seg'):
++        raise ValueError("road_source must be 'classical' or 'seg'")
++    if road_source == 'seg':
++        overrides['v4_road_mask_shadow']['mask_source'] = 'seg'
++        actions.append(Node(
++            package='risabot_automode', executable='track_seg',
++            name='track_seg', output='screen',
++            parameters=[{
++                'model_path': arg('seg_model_path'),
++                'profile_path': profile_path,
++                'max_fps': float(arg('seg_max_fps')),
++            }],
++        ))
++        actions.append(LogInfo(msg='ROAD SOURCE: seg (BPU track_seg; classical fallback if it goes silent).'))
++    else:
++        actions.append(LogInfo(msg='ROAD SOURCE: classical (HSV threshold).'))
+     for name, executable in (
+         ('v4_bev_shadow', 'bev_shadow'), ('v4_road_mask_shadow', 'road_mask_shadow'),
+         ('v4_pose_shadow', 'pose_shadow'), ('v4_trajectory_shadow', 'trajectory_shadow'),
+@@ -127,6 +144,9 @@
+         DeclareLaunchArgument('steering_slowdown_gain', default_value='0.85'),
+         DeclareLaunchArgument('enable_reverse_recovery', default_value='false'),
+         DeclareLaunchArgument('profile_path', default_value='', description='Camera YAML for this chassis.'),
++        DeclareLaunchArgument('road_source', default_value='classical', description="'classical' (HSV, original) or 'seg' (BPU track_seg). Revert = classical."),
++        DeclareLaunchArgument('seg_model_path', default_value='/home/sunrise/track_seg_512x288_nv12.bin'),
++        DeclareLaunchArgument('seg_max_fps', default_value='0', description='Seg rate cap; 0 = every camera frame.'),
+         DeclareLaunchArgument('start_camera', default_value='true'),
+         DeclareLaunchArgument('start_lidar', default_value='true'),
+         DeclareLaunchArgument('dashboard', default_value='true'),

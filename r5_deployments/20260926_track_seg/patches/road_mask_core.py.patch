@@ -1,0 +1,32 @@
+--- a/road_mask_core.py
++++ b/road_mask_core.py
+@@ -119,6 +119,15 @@
+     return candidate
+ 
+ 
++def seg_candidate_from_mask(seg_bev: np.ndarray, coverage: np.ndarray) -> np.ndarray:
++    """Use a BEV-space segmentation mask as the candidate, limited to observed pixels."""
++    if seg_bev is None or seg_bev.ndim != 2:
++        raise RoadMaskError('segmentation candidate must be a single-channel BEV mask')
++    if coverage is None or coverage.shape != seg_bev.shape:
++        raise RoadMaskError('segmentation candidate shape must match the coverage mask')
++    return (((seg_bev > 127) & (coverage > 0)).astype(np.uint8)) * 255
++
++
+ def seed_connected_component(
+     candidate: np.ndarray,
+     seed_xy: Tuple[float, float],
+@@ -279,8 +288,12 @@
+     row_step_px: int = 8,
+     prior_mask: Optional[np.ndarray] = None,
+     prior_center_x: Optional[float] = None,
++    candidate_override: Optional[np.ndarray] = None,
+ ) -> Dict[str, object]:
+-    candidate = segment_dark_road(bev_bgr, coverage, config)
++    if candidate_override is None:
++        candidate = segment_dark_road(bev_bgr, coverage, config)
++    else:
++        candidate = seg_candidate_from_mask(candidate_override, coverage)
+     connected = seed_connected_component(
+         candidate,
+         seed_xy,

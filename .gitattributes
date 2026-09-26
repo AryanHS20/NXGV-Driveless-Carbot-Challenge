@@ -1,2 +1,5 @@
 # Generated offline simulator bundle contains upstream shader source whitespace.
 Carbot_Simulator/app.bundle.js -whitespace
+
+# R5 board overlay: shipped to Linux, must stay LF (scripts and patches break on CRLF).
+r5_deployments/20260926_track_seg/** text eol=lf

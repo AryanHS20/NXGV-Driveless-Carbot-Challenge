@@ -1,0 +1,154 @@
+--- a/road_mask_shadow.py
++++ b/road_mask_shadow.py
+@@ -75,8 +75,29 @@
+         self.declare_parameter('memory_planning_distance_m', 0.50)
+         self.declare_parameter('memory_reset_jump_m', 0.50)
+         self.declare_parameter('memory_reset_yaw_rad', 1.0)
++        # 'classical' = HSV dark-road threshold (default, original behaviour).
++        # 'seg' = BEV-space mask from the BPU track_seg node (primary camera only).
++        self.declare_parameter('mask_source', 'classical')
++        self.declare_parameter('seg_candidate_topic', '/v4_experimental/road/primary/seg_candidate')
++        self.declare_parameter('seg_timeout_sec', 0.5)
++        self.declare_parameter('seg_sync_tolerance_sec', 0.005)
++        self.declare_parameter('seg_fallback_to_classical', True)
+ 
+         self._enabled = bool(self.get_parameter('enabled').value)
++        source = str(self.get_parameter('mask_source').value)
++        if source not in ('classical', 'seg'):
++            self.get_logger().error(f"mask_source '{source}' invalid; using classical")
++            source = 'classical'
++        self._seg_mode = source == 'seg'
++        self._seg_timeout = float(self.get_parameter('seg_timeout_sec').value)
++        self._seg_tolerance = float(self.get_parameter('seg_sync_tolerance_sec').value)
++        self._seg_fallback = bool(self.get_parameter('seg_fallback_to_classical').value)
++        self._seg_mask: Optional[np.ndarray] = None
++        self._seg_stamp: Optional[float] = None
++        self._seg_mono = 0.0
++        self._seg_wait: Optional[Tuple[Image, np.ndarray]] = None
++        self._seg_counts = {'used': 0, 'fallback': 0, 'dropped': 0}
++        self._last_source = {}
+         self._active_names = (
+             ('primary', 'secondary')
+             if bool(self.get_parameter('process_secondary').value)
+@@ -189,6 +210,13 @@
+                 lambda msg, camera=name: self._image_callback(camera, msg),
+                 qos_profile_sensor_data,
+             )
++        if self._seg_mode:
++            self.create_subscription(
++                Image,
++                str(self.get_parameter('seg_candidate_topic').value),
++                self._seg_callback,
++                qos_profile_sensor_data,
++            )
+         self.create_subscription(
+             Odometry,
+             str(self.get_parameter('odom_topic').value),
+@@ -217,6 +245,8 @@
+             'primary_coverage_topic', 'secondary_bev_topic',
+             'secondary_coverage_topic', 'sync_tolerance_sec', 'odom_topic',
+             'odom_timeout_sec', 'use_road_memory', 'memory_cell_size_m', 'memory_retention_sec',
++            'mask_source', 'seg_candidate_topic', 'seg_timeout_sec',
++            'seg_sync_tolerance_sec', 'seg_fallback_to_classical',
+         }
+         proposed = {
+             'value_min': self._config.value_min,
+@@ -335,7 +365,7 @@
+             image_stamp, coverage_stamp, self._sync_tolerance
+         ):
+             self._pending_images[name] = None
+-            self._process_image(name, pending, coverage)
++            self._dispatch(name, pending, coverage)
+ 
+     def _seed(self, name: str) -> Tuple[float, float]:
+         profile = self._profiles[name]
+@@ -366,13 +396,62 @@
+             self._last_error[name] = 'waiting for matching coverage mask'
+             return
+         self._pending_images[name] = None
+-        self._process_image(name, msg, coverage)
++        self._dispatch(name, msg, coverage)
++
++    def _seg_fresh(self) -> bool:
++        return (
++            self._seg_mask is not None
++            and time.monotonic() - self._seg_mono <= self._seg_timeout
++        )
++
++    def _dispatch(self, name: str, msg: Image, coverage: np.ndarray) -> None:
++        """Route a timestamp-matched BEV frame to the classical or seg path."""
++        if not (self._seg_mode and name == 'primary'):
++            self._process_image(name, msg, coverage)
++            return
++        if self._seg_wait is not None:
++            # The previous frame never got a seg mask (seg node rate-limited).
++            self._seg_wait = None
++            self._seg_counts['dropped'] += 1
++        if not self._seg_fresh():
++            if self._seg_fallback:
++                self._seg_counts['fallback'] += 1
++                self._process_image(name, msg, coverage)
++            else:
++                self._last_error[name] = 'seg mask stale and fallback disabled'
++            return
++        if (
++            self._seg_stamp is not None
++            and abs(_stamp_seconds(msg) - self._seg_stamp) <= self._seg_tolerance
++        ):
++            self._seg_counts['used'] += 1
++            self._process_image(name, msg, coverage, self._seg_mask)
++        else:
++            self._seg_wait = (msg, coverage)
++
++    def _seg_callback(self, msg: Image) -> None:
++        if not self._enabled:
++            return
++        try:
++            mask = self._bridge.imgmsg_to_cv2(msg, desired_encoding='mono8').copy()
++        except CvBridgeError as exc:
++            self._last_error['primary'] = str(exc)
++            return
++        self._seg_mask = mask
++        self._seg_stamp = _stamp_seconds(msg)
++        self._seg_mono = time.monotonic()
++        wait = self._seg_wait
++        if wait is not None and abs(_stamp_seconds(wait[0]) - self._seg_stamp) <= self._seg_tolerance:
++            self._seg_wait = None
++            self._seg_counts['used'] += 1
++            self._process_image('primary', wait[0], wait[1], mask)
+ 
+     def _process_image(
+         self,
+         name: str,
+         msg: Image,
+         coverage: np.ndarray,
++        seg_bev: Optional[np.ndarray] = None,
+     ) -> None:
+         """Process one timestamp-matched BEV image and coverage mask."""
+         profile = self._profiles[name]
+@@ -416,6 +495,7 @@
+                 row_step_px=self._row_step,
+                 prior_mask=prior_mask,
+                 prior_center_x=prior_center_x,
++                candidate_override=seg_bev,
+             )
+         except (CalibrationError, RoadMaskError, CvBridgeError, ValueError) as exc:
+             self._last_error[name] = str(exc)
+@@ -512,6 +592,7 @@
+         else:
+             self._last_corridor[name] = []
+         self._frames[name] += 1
++        self._last_source[name] = 'classical' if seg_bev is None else 'seg'
+         self._last_frame_mono[name] = time.monotonic()
+         self._last_image_stamp[name] = image_stamp
+         self._last_error[name] = ''
+@@ -547,6 +628,9 @@
+             'memory_resets': self._memory_resets,
+             'memory': self._memory.stats(),
+             'corridor': self._last_corridor,
++            'mask_source': 'seg' if self._seg_mode else 'classical',
++            'last_frame_source': self._last_source,
++            'seg': dict(self._seg_counts, fresh=self._seg_fresh()),
+         }
+         msg = String()
+         msg.data = json.dumps(payload, separators=(',', ':'), sort_keys=True)
