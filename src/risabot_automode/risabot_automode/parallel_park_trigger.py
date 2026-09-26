@@ -2,9 +2,10 @@
 """
 Parallel Park Trigger Node
 =============================================================================
-Watches the signage classifier's /parking_sign_kind. When it reports 'parallel'
-continuously for `hold_sec` (default 2.0 s) it sends `playback:parallel` to
-servo_controller, which replays the recording named by its `parallel_recording`
+Watches the signage classifier's /parking_sign_kind. When it reports 'parallel' or
+'perpendicular' continuously for `hold_sec` (default 2.0 s) it sends
+`playback:parallel` / `playback:perpendicular` to servo_controller, which replays
+the recording named by its `parallel_recording` / `perpendicular_recording`
 parameter (motor + servo). The playback is routed through cmd_safety_controller,
 which ignores the lane/auto command while playback is active, so it overrides all
 automode functions. `stop` on /record_playback_cmd aborts it.
@@ -13,6 +14,7 @@ Re-arming: after firing, the trigger stays latched until the sign has been
 absent for `rearm_clear_sec` AND `cooldown_sec` has elapsed. Re-run by hand any
 time the servo is idle:
   ros2 topic pub --once /record_playback_cmd std_msgs/msg/String "{data: 'playback:parallel'}"
+  ros2 topic pub --once /record_playback_cmd std_msgs/msg/String "{data: 'playback:perpendicular'}"
 
 Subscribes: /parking_sign_kind (String: 'parallel' | 'perpendicular' | '')
 Publishes:  /record_playback_cmd (String)
@@ -53,13 +55,14 @@ class ParallelParkTrigger(Node):
 
         self.last_kind = ''
         self.last_kind_stamp = 0.0
-        self.seen_since = None        # monotonic time the current 'parallel' streak began
+        self.seen_since = None        # monotonic time the current sign streak began
+        self.seen_kind = ''           # 'parallel' | 'perpendicular' for that streak
         self.clear_since = time.monotonic()
         self.latched = False          # True after firing until re-armed
         self.last_fire = -1e9
 
         self.create_timer(1.0 / float(self._param_cache['check_hz']), self._tick)
-        self.get_logger().info('Parallel Park Trigger ready (waiting for parallel sign)')
+        self.get_logger().info('Parallel Park Trigger ready (waiting for parallel / perpendicular sign)')
 
     def _update_param_cache(self) -> None:
         self._param_cache = {
@@ -83,12 +86,13 @@ class ParallelParkTrigger(Node):
 
     def _tick(self) -> None:
         now = time.monotonic()
-        seen = (self.last_kind == 'parallel'
-                and now - self.last_kind_stamp <= float(self._param_cache['stale_sec']))
+        kind = self.last_kind if self.last_kind in ('parallel', 'perpendicular') else ''
+        seen = bool(kind) and now - self.last_kind_stamp <= float(self._param_cache['stale_sec'])
 
         if seen:
-            if self.seen_since is None:
-                self.seen_since = now
+            if self.seen_since is None or kind != self.seen_kind:
+                self.seen_since = now      # new sign (or sign changed): restart the hold
+                self.seen_kind = kind
         else:
             if self.seen_since is not None:
                 self.clear_since = now
@@ -107,8 +111,8 @@ class ParallelParkTrigger(Node):
         if seen and self.seen_since is not None:
             held = now - self.seen_since
             if held >= float(self._param_cache['hold_sec']):
-                self.get_logger().info(f'Parallel sign held {held:.1f}s -> playback:parallel')
-                self.cmd_pub.publish(String(data='playback:parallel'))
+                self.get_logger().info(f'{self.seen_kind} sign held {held:.1f}s -> playback:{self.seen_kind}')
+                self.cmd_pub.publish(String(data=f'playback:{self.seen_kind}'))
                 self.latched = True
                 self.last_fire = now
 

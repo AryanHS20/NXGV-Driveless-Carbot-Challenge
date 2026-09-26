@@ -48,6 +48,8 @@ def _setup(context):
     overrides['v4_trajectory_shadow']['use_lidar_obstacles'] = flag('lidar_obstacle_stop')
     if arg('parallel_recording'):
         overrides['servo_controller']['parallel_recording'] = arg('parallel_recording')
+    if arg('perpendicular_recording'):
+        overrides['servo_controller']['perpendicular_recording'] = arg('perpendicular_recording')
     auto_params = os.path.join(auto, 'config', 'params.yaml')
     v4_params = os.path.join(v4, 'config', 'v4_experimental.yaml')
     control_params = os.path.join(control, 'config', 'v4_control.yaml')
@@ -115,7 +117,7 @@ def _setup(context):
     actions.append(Node(package='joy', executable='joy_node', name='joy_node',
                         parameters=[{'deadzone': 0.12, 'autorepeat_rate': 20.0, 'coalesce_interval_ms': 1}]))
     if flag('parallel_park'):
-        # Parallel-parking sign held 2 s -> servo_controller 'playback:parallel'.
+        # Parallel / perpendicular sign held 2 s -> servo_controller 'playback:<kind>'.
         # Playback overrides the lane command inside cmd_safety_controller.
         if vehicle != 'risabot5':  # risabot5 already launches signage_detector above
             actions.append(Node(package='risabot_automode', executable='signage_detector',
@@ -143,6 +145,8 @@ def generate_launch_description():
                               description='true = LiDAR points reject lane trajectories (old behavior).'),
         DeclareLaunchArgument('parallel_park', default_value='true',
                               description='Run signage detector + parallel park trigger.'),
+        DeclareLaunchArgument('perpendicular_recording', default_value='perpendicular_park',
+                              description='Saved recording (~/risabot_recordings/<name>.json) played on the perpendicular sign.'),
         DeclareLaunchArgument('parallel_recording', default_value='parallel_park',
                               description='Saved recording (~/risabot_recordings/<name>.json) played on the sign.'),
         DeclareLaunchArgument('dashboard', default_value='true'),
